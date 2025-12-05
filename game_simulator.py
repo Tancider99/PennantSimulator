@@ -80,37 +80,43 @@ class BattedBallCalculator:
         Returns:
             BattedBall: 打球データ
         """
-        # 打者能力値の取得
-        contact = getattr(batter_stats, 'contact', 50)
-        power = getattr(batter_stats, 'power', 50)
+        # 打者能力値の取得（内部値1-20を100スケールに変換）
+        raw_contact = getattr(batter_stats, 'contact', 50)
+        raw_power = getattr(batter_stats, 'power', 50)
+        contact = batter_stats.to_100_scale(raw_contact) if hasattr(batter_stats, 'to_100_scale') else raw_contact * 5
+        power = batter_stats.to_100_scale(raw_power) if hasattr(batter_stats, 'to_100_scale') else raw_power * 5
         
-        # 投手能力値の取得
-        p_speed = getattr(pitcher_stats, 'speed', 50)
-        p_control = getattr(pitcher_stats, 'control', 50)
-        p_breaking = getattr(pitcher_stats, 'breaking', 50)
+        # 投手能力値の取得（内部値1-20を100スケールに変換）
+        raw_p_speed = getattr(pitcher_stats, 'speed', 50)
+        raw_p_control = getattr(pitcher_stats, 'control', 50)
+        raw_p_breaking = getattr(pitcher_stats, 'breaking', 50)
+        p_speed = pitcher_stats.to_100_scale(raw_p_speed) if hasattr(pitcher_stats, 'to_100_scale') else raw_p_speed * 5
+        p_control = pitcher_stats.to_100_scale(raw_p_control) if hasattr(pitcher_stats, 'to_100_scale') else raw_p_control * 5
+        p_breaking = pitcher_stats.to_100_scale(raw_p_breaking) if hasattr(pitcher_stats, 'to_100_scale') else raw_p_breaking * 5
         
         # ===== 打球速度の計算 (km/h) =====
-        # NPB平均: 約140km/h、強打で170km/h以上
-        # パワーと投球速度が影響
-        base_velocity = 100  # 基本打球速度
-        power_bonus = (power - 50) * 1.0  # パワー50が基準
-        pitch_velocity_factor = p_speed * 0.3  # 投球速度の反発
+        # NPB平均: 約130km/h、強打で165km/h以上
+        # パワーと投球速度が影響（投手の球が速いほど反発で速くなる）
+        base_velocity = 95  # 基本打球速度
+        power_bonus = (power - 40) * 0.8  # パワー40が基準（下げた）
+        pitch_velocity_factor = p_speed * 0.2  # 投球速度の反発（弱める）
         
         # ランダム要素（芯に当たるか）
-        sweet_spot = random.gauss(0, 15)  # 標準偏差15km/h
+        sweet_spot = random.gauss(0, 18)  # 標準偏差18km/h
         
         exit_velocity = base_velocity + power_bonus + pitch_velocity_factor + sweet_spot
-        exit_velocity = max(70, min(180, exit_velocity))  # 70-180 km/h
+        exit_velocity = max(70, min(175, exit_velocity))  # 70-175 km/h
         
         # ===== 打球角度の計算 (度) =====
         # NPB平均: 約10-15度、フライ: 25-35度、ゴロ: -10~0度
         # ミートが高いほど角度のコントロールが良い
         
         # 基本角度（パワーヒッターは高め狙い）
-        target_angle = 10 + (power - contact) * 0.15
+        target_angle = 10 + (power - contact) * 0.12
         
-        # ブレ（ミートが低いとブレる）
-        angle_deviation = random.gauss(0, 20 - contact * 0.15)
+        # ブレ（ミートが低いとブレる、投手の能力も影響）
+        control_effect = (100 - contact) * 0.15 + p_breaking * 0.05
+        angle_deviation = random.gauss(0, 15 + control_effect)
         
         launch_angle = target_angle + angle_deviation
         launch_angle = max(-20, min(60, launch_angle))  # -20~60度
@@ -241,25 +247,37 @@ class BattedBallCalculator:
         Returns:
             (結果タイプ, 打球データまたはNone, 説明)
         """
-        contact = getattr(batter_stats, 'contact', 50)
-        eye = getattr(batter_stats, 'eye', 50)
-        p_speed = getattr(pitcher_stats, 'speed', 50)
-        p_control = getattr(pitcher_stats, 'control', 50)
-        p_breaking = getattr(pitcher_stats, 'breaking', 50)
+        # 打者能力値の取得（内部値1-20を100スケールに変換）
+        raw_contact = getattr(batter_stats, 'contact', 50)
+        raw_eye = getattr(batter_stats, 'eye', 50)
+        contact = batter_stats.to_100_scale(raw_contact) if hasattr(batter_stats, 'to_100_scale') else raw_contact * 5
+        eye = batter_stats.to_100_scale(raw_eye) if hasattr(batter_stats, 'to_100_scale') else raw_eye * 5
+        
+        # 投手能力値の取得（内部値1-20を100スケールに変換）
+        raw_p_speed = getattr(pitcher_stats, 'speed', 50)
+        raw_p_control = getattr(pitcher_stats, 'control', 50)
+        raw_p_breaking = getattr(pitcher_stats, 'breaking', 50)
+        p_speed = pitcher_stats.to_100_scale(raw_p_speed) if hasattr(pitcher_stats, 'to_100_scale') else raw_p_speed * 5
+        p_control = pitcher_stats.to_100_scale(raw_p_control) if hasattr(pitcher_stats, 'to_100_scale') else raw_p_control * 5
+        p_breaking = pitcher_stats.to_100_scale(raw_p_breaking) if hasattr(pitcher_stats, 'to_100_scale') else raw_p_breaking * 5
         
         # ===== まずスイングするかどうか =====
-        # ストライクゾーン判定
-        is_strike = random.random() < (0.5 + p_control * 0.005)
+        # ストライクゾーン判定（投手の制球力が高いほどストライク率上昇）
+        strike_rate = 0.45 + p_control * 0.003
+        is_strike = random.random() < strike_rate
         
         if is_strike:
             # ストライク
-            # スイング判定
-            swing_chance = 0.7 + (contact - 50) * 0.003
+            # スイング判定（ミートが高いほど適切にスイング）
+            swing_chance = 0.65 + (contact - 40) * 0.004
             will_swing = random.random() < swing_chance
             
             if will_swing:
-                # コンタクト判定
-                contact_chance = 0.65 + (contact - 50) * 0.004 - (p_speed + p_breaking - 100) * 0.002
+                # コンタクト判定（投手能力が打者能力を抑える）
+                pitcher_effectiveness = (p_speed + p_breaking) / 2
+                contact_chance = 0.55 + (contact - 40) * 0.005 - (pitcher_effectiveness - 40) * 0.003
+                contact_chance = max(0.25, min(0.85, contact_chance))
+                
                 if random.random() < contact_chance:
                     # 打球発生
                     ball = BattedBallCalculator.calculate_batted_ball(batter_stats, pitcher_stats)
@@ -273,17 +291,19 @@ class BattedBallCalculator:
                 return "called_strike", None, "見逃しストライク"
         else:
             # ボール
-            # 振るかどうか（選球眼）
-            chase_chance = 0.35 - eye * 0.003
+            # 振るかどうか（選球眼が高いほどボール球を見逃す）
+            chase_chance = 0.40 - eye * 0.004
+            chase_chance = max(0.08, min(0.45, chase_chance))
+            
             if random.random() < chase_chance:
                 # ボール球をスイング
-                contact_chance = 0.3 + (contact - 50) * 0.003
+                contact_chance = 0.25 + (contact - 40) * 0.003
                 if random.random() < contact_chance:
                     # ファウルか弱い打球
-                    if random.random() < 0.6:
+                    if random.random() < 0.65:
                         return "foul", None, "ファウル"
                     ball = BattedBallCalculator.calculate_batted_ball(batter_stats, pitcher_stats)
-                    ball.exit_velocity *= 0.8  # ボール球なので弱い打球
+                    ball.exit_velocity *= 0.75  # ボール球なので弱い打球
                     result, desc = BattedBallCalculator.judge_result(ball)
                     return result, ball, desc
                 else:
@@ -381,7 +401,17 @@ class TacticManager:
     @staticmethod
     def should_change_pitcher(pitcher: Player, game_state: GameState, team: Team, 
                               pitcher_stats: Dict = None) -> Tuple[bool, str]:
-        """継投すべきか判断"""
+        """継投すべきか判断（パワプロ風スタミナ制）
+        
+        スタミナに基づいて投球数上限が決まる:
+        - スタミナS(90+): 130球前後
+        - スタミナA(80-89): 120球前後
+        - スタミナB(70-79): 110球前後
+        - スタミナC(60-69): 100球前後
+        - スタミナD(50-59): 90球前後
+        - スタミナE(40-49): 80球前後
+        - スタミナF以下: 70球前後
+        """
         if pitcher_stats is None:
             pitcher_stats = {}
         
@@ -391,31 +421,75 @@ class TacticManager:
         runs_allowed = pitcher_stats.get('runs', 0)
         innings_pitched = pitcher_stats.get('innings', 0)
         
-        # 先発の場合: 100球以上、または7回以降で疲労
-        from models import PitchType
-        if pitcher.pitch_type == PitchType.STARTER:
-            if pitch_count >= 100:
-                return True, "球数制限"
-            if innings_pitched >= 7 and pitch_count >= 80:
-                return True, "継投"
-            if runs_allowed >= 5:
-                return True, "KO"
-            if innings_pitched >= 5 and hits_allowed >= 8:
-                return True, "被安打多"
+        # 投手のスタミナ値を取得（1-99スケール）
+        stamina = getattr(pitcher.stats, 'stamina', 50)
         
-        # 中継ぎ: 2イニング以上または被打多
+        # スタミナに基づく投球数上限を計算
+        # 基準: スタミナ50で100球、スタミナ10ごとに±10球
+        base_pitch_limit = 100
+        stamina_bonus = (stamina - 50) * 0.6  # スタミナ50基準で±30球範囲
+        pitch_limit = int(base_pitch_limit + stamina_bonus)
+        pitch_limit = max(60, min(140, pitch_limit))  # 60-140球の範囲
+        
+        # 投手タイプによる調整
+        from models import PitchType
+        
+        if pitcher.pitch_type == PitchType.STARTER:
+            # 先発投手
+            # スタミナ切れ判定（投球数が上限に達したら交代）
+            if pitch_count >= pitch_limit:
+                return True, f"球数制限({pitch_count}球)"
+            
+            # 上限の80%で疲労が見え始める
+            fatigue_threshold = pitch_limit * 0.8
+            if pitch_count >= fatigue_threshold:
+                # 疲労状態での被打・失点が多い場合は交代
+                if runs_allowed >= 3 and innings_pitched >= 5:
+                    return True, "疲労+失点"
+                if hits_allowed >= 10:
+                    return True, "被安打多"
+            
+            # KO（大量失点）
+            if runs_allowed >= 5 and innings_pitched < 5:
+                return True, "KO"
+            
+            # 完投ペースかチェック（スタミナ高い投手のみ）
+            if stamina >= 70 and pitch_count < pitch_limit * 0.7 and runs_allowed <= 2:
+                # 完投の可能性があるので続投
+                if innings_pitched >= 7:
+                    pass  # 続投
+        
+        # 中継ぎ: スタミナに応じて1-2イニング
         elif pitcher.pitch_type == PitchType.RELIEVER:
+            reliever_limit = 30 + (stamina - 50) * 0.3  # 中継ぎは30球基準
+            reliever_limit = max(20, min(50, reliever_limit))
+            
+            if pitch_count >= reliever_limit:
+                return True, "中継ぎ交代"
             if innings_pitched >= 2:
                 return True, "中継ぎ交代"
             if hits_allowed >= 3 and innings_pitched < 2:
                 return True, "炎上"
         
-        # 抑え: 1イニング限定
+        # 抑え: 1イニング限定（スタミナ高い場合は2イニングも可）
         elif pitcher.pitch_type == PitchType.CLOSER:
-            if innings_pitched >= 1:
+            closer_limit = 25 + (stamina - 50) * 0.2
+            closer_limit = max(20, min(40, closer_limit))
+            
+            if innings_pitched >= 1 and pitch_count >= closer_limit:
+                return True, "抑え完了"
+            if innings_pitched >= 2:
                 return True, "抑え完了"
         
         return False, ""
+    
+    @staticmethod
+    def get_pitch_limit_by_stamina(stamina: int) -> int:
+        """スタミナ値から投球数上限を計算"""
+        base_pitch_limit = 100
+        stamina_bonus = (stamina - 50) * 0.6
+        pitch_limit = int(base_pitch_limit + stamina_bonus)
+        return max(60, min(140, pitch_limit))
     
     @staticmethod
     def should_pinch_hit(batter: Player, game_state: GameState, team: Team) -> Tuple[bool, Optional[Player]]:
@@ -605,7 +679,9 @@ class GameSimulator:
         return "intentional_walk", [True, False, False]  # 走者状況は呼び出し側で処理
     
     def check_pitching_change(self, is_home_pitching: bool) -> bool:
-        """継投チェックと実行"""
+        """継投チェックと実行（AI支援）"""
+        from ai_system import ai_manager
+        
         if is_home_pitching:
             pitcher_idx = self.current_home_pitcher_idx
             team = self.home_team
@@ -619,6 +695,34 @@ class GameSimulator:
             return False
         
         pitcher = team.players[pitcher_idx]
+        
+        # AI継投判断
+        score_diff = self.home_score - self.away_score if is_home_pitching else self.away_score - self.home_score
+        game_state_dict = {
+            'inning': self.inning,
+            'score_diff': score_diff,
+            'pitch_count': stats.get('pitch_count', 0),
+            'hits_allowed': stats.get('hits', 0),
+            'is_defending': True
+        }
+        
+        suggestion = ai_manager.suggest_pitching_change(team, pitcher_idx, stats.get('pitch_count', 0), game_state_dict)
+        
+        if suggestion:
+            new_idx, reason = suggestion
+            if new_idx >= 0 and new_idx < len(team.players):
+                new_pitcher = team.players[new_idx]
+                if is_home_pitching:
+                    self.current_home_pitcher_idx = new_idx
+                    self.home_pitcher_stats = {'pitch_count': 0, 'hits': 0, 'walks': 0, 'runs': 0, 'innings': 0}
+                else:
+                    self.current_away_pitcher_idx = new_idx
+                    self.away_pitcher_stats = {'pitch_count': 0, 'hits': 0, 'walks': 0, 'runs': 0, 'innings': 0}
+                
+                self.log.append(f"  継投: {pitcher.name} -> {new_pitcher.name} ({reason})")
+                return True
+        
+        # 従来ロジックでもチェック
         game_state = GameState(
             inning=self.inning,
             home_score=self.home_score,
@@ -725,20 +829,30 @@ class GameSimulator:
         """打席をシミュレート（打球物理計算版）
         
         打球速度、角度、方向を計算し、各打球の結果を判定
+        投手と野手の能力値に基づいて試合結果を計算
         """
         b_stats = batter.stats
         p_stats = pitcher.stats
         
-        # 打者の能力値
-        contact = getattr(b_stats, 'contact', 50)
-        power = getattr(b_stats, 'power', 50)
-        speed = getattr(b_stats, 'speed', 50)
-        eye = getattr(b_stats, 'eye', 50)
+        # 打者の能力値（内部値1-20を100スケールに変換）
+        raw_contact = getattr(b_stats, 'contact', 50)
+        raw_power = getattr(b_stats, 'power', 50)
+        raw_speed = getattr(b_stats, 'run', 50)  # 走力
+        raw_eye = getattr(b_stats, 'eye', raw_contact)  # eyeがない場合はcontactで代用
         
-        # 投手の能力値
-        p_speed = getattr(p_stats, 'speed', 50)
-        p_control = getattr(p_stats, 'control', 50)
-        p_breaking = getattr(p_stats, 'breaking', 50)
+        contact = b_stats.to_100_scale(raw_contact) if hasattr(b_stats, 'to_100_scale') else raw_contact * 5
+        power = b_stats.to_100_scale(raw_power) if hasattr(b_stats, 'to_100_scale') else raw_power * 5
+        speed = b_stats.to_100_scale(raw_speed) if hasattr(b_stats, 'to_100_scale') else raw_speed * 5
+        eye = b_stats.to_100_scale(raw_eye) if hasattr(b_stats, 'to_100_scale') else raw_eye * 5
+        
+        # 投手の能力値（内部値1-20を100スケールに変換）
+        raw_p_speed = getattr(p_stats, 'speed', 50)
+        raw_p_control = getattr(p_stats, 'control', 50)
+        raw_p_breaking = getattr(p_stats, 'breaking', 50)
+        
+        p_speed = p_stats.to_100_scale(raw_p_speed) if hasattr(p_stats, 'to_100_scale') else raw_p_speed * 5
+        p_control = p_stats.to_100_scale(raw_p_control) if hasattr(p_stats, 'to_100_scale') else raw_p_control * 5
+        p_breaking = p_stats.to_100_scale(raw_p_breaking) if hasattr(p_stats, 'to_100_scale') else raw_p_breaking * 5
         
         # ===== 打席のシミュレーション（球数カウント）=====
         balls = 0
@@ -817,8 +931,9 @@ class GameSimulator:
                 return "out", 0
             elif result == "groundout":
                 batter.record.at_bats += 1
-                # 内野安打の可能性（足の速い選手）
-                infield_hit_chance = 0.05 + (speed - 50) * 0.002
+                # 内野安打の可能性（足の速い選手 - 100スケールの能力値を使用）
+                infield_hit_chance = 0.03 + (speed - 40) * 0.003
+                infield_hit_chance = max(0.01, min(0.20, infield_hit_chance))
                 if random.random() < infield_hit_chance:
                     batter.record.hits += 1
                     pitcher.record.hits_allowed += 1
@@ -850,11 +965,26 @@ class GameSimulator:
         if len(batting_team.current_lineup) == 0:
             return 0, batter_idx
         
-        pitcher_idx = pitching_team.starting_pitcher_idx
+        # 現在の投手を取得（継投対応）
+        is_home_pitching = (pitching_team == self.home_team)
+        if is_home_pitching:
+            pitcher_idx = self.current_home_pitcher_idx if self.current_home_pitcher_idx >= 0 else pitching_team.starting_pitcher_idx
+        else:
+            pitcher_idx = self.current_away_pitcher_idx if self.current_away_pitcher_idx >= 0 else pitching_team.starting_pitcher_idx
+        
         if pitcher_idx == -1 or pitcher_idx >= len(pitching_team.players):
             return 0, batter_idx
         
         pitcher = pitching_team.players[pitcher_idx]
+        
+        # 投手成績を初期化
+        self._init_pitcher_stats(pitching_team, pitcher_idx)
+        
+        # 投手のスタミナ情報を取得
+        if is_home_pitching:
+            pitcher_stats = self.home_pitcher_stats
+        else:
+            pitcher_stats = self.away_pitcher_stats
         
         while outs < 3:
             lineup_idx = batter_idx % len(batting_team.current_lineup)
@@ -865,39 +995,75 @@ class GameSimulator:
                 continue
             
             batter = batting_team.players[player_idx]
+            
+            # 打者成績を初期化
+            self._init_batter_stats(batting_team, player_idx)
+            
+            # 継投チェック（打席前）
+            if self.check_pitching_change(is_home_pitching):
+                # 投手が交代した場合、新投手を取得
+                if is_home_pitching:
+                    pitcher_idx = self.current_home_pitcher_idx
+                    pitcher_stats = self.home_pitcher_stats
+                else:
+                    pitcher_idx = self.current_away_pitcher_idx
+                    pitcher_stats = self.away_pitcher_stats
+                pitcher = pitching_team.players[pitcher_idx]
+                self._init_pitcher_stats(pitching_team, pitcher_idx)
+            
             result, direct_runs = self.simulate_at_bat(batter, pitcher)
             
+            # 球数カウント（打席ごとに平均4球として計算）
+            pitch_in_ab = random.randint(3, 7)
+            pitcher_stats['pitch_count'] = pitcher_stats.get('pitch_count', 0) + pitch_in_ab
+            
+            # 成績記録
+            rbi = 0
+            
             if result == "home_run":
-                runs += direct_runs + sum(1 for r in runners if r)
+                rbi = direct_runs + sum(1 for r in runners if r)
+                runs += rbi
                 batter.record.rbis += sum(1 for r in runners if r)  # 追加RBI
                 runners = [False, False, False]
                 self.log.append(f"  {batter.name} ホームラン！")
+                self._record_at_bat(batting_team, player_idx, "homerun", rbi)
+                self._record_pitcher_result(pitching_team, pitcher_idx, "homerun")
+                pitcher_stats['hits'] = pitcher_stats.get('hits', 0) + 1
+                pitcher_stats['runs'] = pitcher_stats.get('runs', 0) + rbi
             elif result == "triple":
-                rbis = sum(1 for r in runners if r)
-                runs += rbis
-                batter.record.rbis += rbis
+                rbi = sum(1 for r in runners if r)
+                runs += rbi
+                batter.record.rbis += rbi
                 runners = [False, False, True]
                 self.log.append(f"  {batter.name} 三塁打")
+                self._record_at_bat(batting_team, player_idx, "triple", rbi)
+                self._record_pitcher_result(pitching_team, pitcher_idx, "triple")
+                pitcher_stats['hits'] = pitcher_stats.get('hits', 0) + 1
+                pitcher_stats['runs'] = pitcher_stats.get('runs', 0) + rbi
             elif result == "double":
-                rbis = 0
+                rbi = 0
                 if runners[2]: 
                     runs += 1
-                    rbis += 1
+                    rbi += 1
                 if runners[1]: 
                     runs += 1
-                    rbis += 1
-                batter.record.rbis += rbis
+                    rbi += 1
+                batter.record.rbis += rbi
                 runners = [False, True, runners[0]]
                 self.log.append(f"  {batter.name} 二塁打")
+                self._record_at_bat(batting_team, player_idx, "double", rbi)
+                self._record_pitcher_result(pitching_team, pitcher_idx, "double")
+                pitcher_stats['hits'] = pitcher_stats.get('hits', 0) + 1
+                pitcher_stats['runs'] = pitcher_stats.get('runs', 0) + rbi
             elif result == "single":
-                rbis = 0
+                rbi = 0
                 if runners[2]: 
                     runs += 1
-                    rbis += 1
+                    rbi += 1
                 if runners[1]:
                     if random.random() < 0.5:  # 2塁走者が生還する確率
                         runs += 1
-                        rbis += 1
+                        rbi += 1
                         runners[2] = runners[0]
                     else:
                         runners[2] = True
@@ -905,21 +1071,31 @@ class GameSimulator:
                     runners[2] = runners[0]
                 runners[0] = True
                 runners[1] = False
-                batter.record.rbis += rbis
+                batter.record.rbis += rbi
                 self.log.append(f"  {batter.name} ヒット")
+                self._record_at_bat(batting_team, player_idx, "single", rbi)
+                self._record_pitcher_result(pitching_team, pitcher_idx, "single")
+                pitcher_stats['hits'] = pitcher_stats.get('hits', 0) + 1
+                pitcher_stats['runs'] = pitcher_stats.get('runs', 0) + rbi
             elif result == "walk":
-                rbis = 0
+                rbi = 0
                 if runners[0] and runners[1] and runners[2]: 
                     runs += 1
-                    rbis += 1
+                    rbi += 1
                 if runners[0] and runners[1]: runners[2] = True
                 if runners[0]: runners[1] = True
                 runners[0] = True
-                batter.record.rbis += rbis
+                batter.record.rbis += rbi
                 self.log.append(f"  {batter.name} 四球")
+                self._record_at_bat(batting_team, player_idx, "walk", rbi)
+                self._record_pitcher_result(pitching_team, pitcher_idx, "walk")
+                pitcher_stats['walks'] = pitcher_stats.get('walks', 0) + 1
+                pitcher_stats['runs'] = pitcher_stats.get('runs', 0) + rbi
             elif result == "strikeout":
                 outs += 1
                 self.log.append(f"  {batter.name} 三振 ({outs}アウト)")
+                self._record_at_bat(batting_team, player_idx, "strikeout", 0)
+                self._record_pitcher_result(pitching_team, pitcher_idx, "strikeout")
             else:
                 outs += 1
                 # 犠牲フライ判定
@@ -928,10 +1104,22 @@ class GameSimulator:
                     batter.record.rbis += 1
                     runners[2] = False
                     self.log.append(f"  {batter.name} 犠牲フライ、得点 ({outs}アウト)")
+                    self._record_at_bat(batting_team, player_idx, "out", 1)
+                    pitcher_stats['runs'] = pitcher_stats.get('runs', 0) + 1
                 else:
                     self.log.append(f"  {batter.name} アウト ({outs}アウト)")
+                    self._record_at_bat(batting_team, player_idx, "out", 0)
+                self._record_pitcher_result(pitching_team, pitcher_idx, "out")
             
             batter_idx += 1
+        
+        # イニング終了時の投手成績更新
+        pitcher_stats['innings'] = pitcher_stats.get('innings', 0) + 1
+        
+        # 投手の投球回を更新
+        pitcher_key = (pitching_team.name, pitcher_idx)
+        if pitcher_key in self.pitching_results:
+            self.pitching_results[pitcher_key]['ip'] += 1.0
         
         pitcher.record.innings_pitched += 1
         pitcher.record.earned_runs += runs

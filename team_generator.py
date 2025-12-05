@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 チーム生成ユーティリティ
+固定選手データがある場合は読み込み、なければ新規生成
 """
-from models import Team, Position, PitchType, PlayerStatus, League
+from models import Team, Position, PitchType, PlayerStatus, League, TeamLevel
 from player_generator import create_random_player
 import random
 
@@ -11,6 +12,8 @@ def create_team(team_name: str, league: League) -> Team:
     """チームを生成（支配下70人＋育成30人）"""
     team = Team(name=team_name, league=league)
     number = 1
+    player_count = 0  # 支配下選手のカウント
+    first_team_limit = 31  # 一軍上限
     
     # ==============================
     # 支配下選手 (70人)
@@ -20,18 +23,25 @@ def create_team(team_name: str, league: League) -> Team:
         p = create_random_player(Position.PITCHER, PitchType.STARTER, PlayerStatus.ACTIVE, number)
         p.is_developmental = False
         _add_sub_positions_pitcher(p)
+        # 一軍/二軍の振り分け
+        p.team_level = TeamLevel.FIRST if player_count < first_team_limit else TeamLevel.SECOND
+        player_count += 1
         team.players.append(p)
         number += 1
     for _ in range(14):
         p = create_random_player(Position.PITCHER, PitchType.RELIEVER, PlayerStatus.ACTIVE, number)
         p.is_developmental = False
         _add_sub_positions_pitcher(p)
+        p.team_level = TeamLevel.FIRST if player_count < first_team_limit else TeamLevel.SECOND
+        player_count += 1
         team.players.append(p)
         number += 1
     for _ in range(6):
         p = create_random_player(Position.PITCHER, PitchType.CLOSER, PlayerStatus.ACTIVE, number)
         p.is_developmental = False
         _add_sub_positions_pitcher(p)
+        p.team_level = TeamLevel.FIRST if player_count < first_team_limit else TeamLevel.SECOND
+        player_count += 1
         team.players.append(p)
         number += 1
     
@@ -40,36 +50,48 @@ def create_team(team_name: str, league: League) -> Team:
         p = create_random_player(Position.CATCHER, status=PlayerStatus.ACTIVE, number=number)
         p.is_developmental = False
         _add_sub_positions_catcher(p)
+        p.team_level = TeamLevel.FIRST if player_count < first_team_limit else TeamLevel.SECOND
+        player_count += 1
         team.players.append(p)
         number += 1
     for _ in range(5):
         p = create_random_player(Position.FIRST, status=PlayerStatus.ACTIVE, number=number)
         p.is_developmental = False
         _add_sub_positions_infielder(p, Position.FIRST)
+        p.team_level = TeamLevel.FIRST if player_count < first_team_limit else TeamLevel.SECOND
+        player_count += 1
         team.players.append(p)
         number += 1
     for _ in range(6):
         p = create_random_player(Position.SECOND, status=PlayerStatus.ACTIVE, number=number)
         p.is_developmental = False
         _add_sub_positions_infielder(p, Position.SECOND)
+        p.team_level = TeamLevel.FIRST if player_count < first_team_limit else TeamLevel.SECOND
+        player_count += 1
         team.players.append(p)
         number += 1
     for _ in range(5):
         p = create_random_player(Position.THIRD, status=PlayerStatus.ACTIVE, number=number)
         p.is_developmental = False
         _add_sub_positions_infielder(p, Position.THIRD)
+        p.team_level = TeamLevel.FIRST if player_count < first_team_limit else TeamLevel.SECOND
+        player_count += 1
         team.players.append(p)
         number += 1
     for _ in range(6):
         p = create_random_player(Position.SHORTSTOP, status=PlayerStatus.ACTIVE, number=number)
         p.is_developmental = False
         _add_sub_positions_infielder(p, Position.SHORTSTOP)
+        p.team_level = TeamLevel.FIRST if player_count < first_team_limit else TeamLevel.SECOND
+        player_count += 1
         team.players.append(p)
         number += 1
     for _ in range(16):
         p = create_random_player(Position.OUTFIELD, status=PlayerStatus.ACTIVE, number=number)
         p.is_developmental = False
         _add_sub_positions_outfielder(p)
+        p.team_level = TeamLevel.FIRST if player_count < first_team_limit else TeamLevel.SECOND
+        player_count += 1
         team.players.append(p)
         number += 1
     
@@ -87,6 +109,7 @@ def create_team(team_name: str, league: League) -> Team:
             dev_number
         )
         p.is_developmental = True
+        p.team_level = TeamLevel.THIRD  # 育成選手は三軍
         _add_sub_positions_pitcher(p)
         # 育成選手は能力を少し下げる
         _adjust_developmental_stats(p)
@@ -100,6 +123,7 @@ def create_team(team_name: str, league: League) -> Team:
         pos = random.choice(positions)
         p = create_random_player(pos, status=PlayerStatus.FARM, number=dev_number)
         p.is_developmental = True
+        p.team_level = TeamLevel.THIRD  # 育成選手は三軍
         if pos == Position.CATCHER:
             _add_sub_positions_catcher(p)
         elif pos == Position.OUTFIELD:
@@ -164,7 +188,7 @@ def _add_sub_positions_outfielder(player):
 
 
 def _adjust_developmental_stats(player):
-    """育成選手の能力調整（やや低め）"""
+    """育成選手の能力調整（やや低め）- 1-99スケール対応"""
     stats = player.stats
     factor = random.uniform(0.7, 0.9)
     stats.contact = max(1, int(stats.contact * factor))
@@ -176,3 +200,84 @@ def _adjust_developmental_stats(player):
     stats.control = max(1, int(stats.control * factor))
     stats.stamina = max(1, int(stats.stamina * factor))
     stats.breaking = max(1, int(stats.breaking * factor))
+
+
+def load_or_create_teams(central_team_names: list, pacific_team_names: list) -> tuple:
+    """固定選手データを読み込み、なければ新規生成して保存（球団別ファイル）
+    
+    Args:
+        central_team_names: セ・リーグのチーム名リスト
+        pacific_team_names: パ・リーグのチーム名リスト
+    
+    Returns:
+        tuple: (central_teams, pacific_teams)
+    """
+    from player_data_manager import player_data_manager
+    
+    all_team_names = central_team_names + pacific_team_names
+    
+    # 全球団のデータがあれば読み込み
+    if player_data_manager.has_all_team_data(all_team_names):
+        central_teams = []
+        pacific_teams = []
+        
+        for team_name in central_team_names:
+            team = player_data_manager.load_team(team_name)
+            if team:
+                central_teams.append(team)
+        
+        for team_name in pacific_team_names:
+            team = player_data_manager.load_team(team_name)
+            if team:
+                pacific_teams.append(team)
+        
+        # 全チームが正しく読み込めたか確認
+        if len(central_teams) == len(central_team_names) and len(pacific_teams) == len(pacific_team_names):
+            print("固定選手データを使用します（球団別ファイル）")
+            return central_teams, pacific_teams
+    
+    # 新規生成
+    print("新規選手データを生成します")
+    central_teams = []
+    pacific_teams = []
+    
+    for team_name in central_team_names:
+        team = create_team(team_name, League.CENTRAL)
+        central_teams.append(team)
+        player_data_manager.save_team(team)  # 個別保存
+    
+    for team_name in pacific_team_names:
+        team = create_team(team_name, League.PACIFIC)
+        pacific_teams.append(team)
+        player_data_manager.save_team(team)  # 個別保存
+    
+    return central_teams, pacific_teams
+
+
+def regenerate_and_save_teams(central_team_names: list, pacific_team_names: list) -> tuple:
+    """選手データを新規生成して保存（既存データを上書き・球団別ファイル）
+    
+    Args:
+        central_team_names: セ・リーグのチーム名リスト
+        pacific_team_names: パ・リーグのチーム名リスト
+    
+    Returns:
+        tuple: (central_teams, pacific_teams)
+    """
+    from player_data_manager import player_data_manager
+    
+    print("選手データを再生成します")
+    central_teams = []
+    pacific_teams = []
+    
+    for team_name in central_team_names:
+        team = create_team(team_name, League.CENTRAL)
+        central_teams.append(team)
+        player_data_manager.save_team(team)  # 個別保存
+    
+    for team_name in pacific_team_names:
+        team = create_team(team_name, League.PACIFIC)
+        pacific_teams.append(team)
+        player_data_manager.save_team(team)  # 個別保存
+    
+    return central_teams, pacific_teams

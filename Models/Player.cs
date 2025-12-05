@@ -17,6 +17,16 @@ namespace PennantSimulator.Models
         Unknown
     }
 
+    /// <summary>
+    /// 投手の役割適性
+    /// </summary>
+    public enum PitcherRole
+    {
+        Starter,    // 先発
+        Middle,     // 中継ぎ
+        Closer      // 抑え
+    }
+
     public class Player
     {
         public string Name { get; set; }
@@ -32,6 +42,24 @@ namespace PennantSimulator.Models
         public int Control { get; set; }    // コントロール
         public int Breaking { get; set; }   // 変化球
 
+        // 投手適性 (0-100): 各役割への適性度
+        public int StarterAptitude { get; set; } = 50;  // 先発適性
+        public int MiddleAptitude { get; set; } = 50;   // 中継ぎ適性
+        public int CloserAptitude { get; set; } = 50;   // 抑え適性
+        
+        // 投手の推奨役割（最も適性が高い役割）
+        public PitcherRole PreferredPitcherRole
+        {
+            get
+            {
+                if (StarterAptitude >= MiddleAptitude && StarterAptitude >= CloserAptitude)
+                    return PitcherRole.Starter;
+                if (CloserAptitude >= MiddleAptitude)
+                    return PitcherRole.Closer;
+                return PitcherRole.Middle;
+            }
+        }
+
         // New RPG-like attributes
         public Position PreferredPosition { get; set; } = Position.Unknown;
         public int Age { get; set; } = 20;
@@ -44,7 +72,8 @@ namespace PennantSimulator.Models
         // Injury flag
         public bool IsInjured { get; set; } = false;
 
-        public Player(string name, int contact, int power, int speed, int arm, int defense, int stamina = 50, int control = 50, int breaking = 50)
+        public Player(string name, int contact, int power, int speed, int arm, int defense, int stamina = 50, int control = 50, int breaking = 50,
+            int starterAptitude = 50, int middleAptitude = 50, int closerAptitude = 50)
         {
             Name = name;
             Contact = contact;
@@ -55,6 +84,9 @@ namespace PennantSimulator.Models
             Stamina = stamina;
             Control = control;
             Breaking = breaking;
+            StarterAptitude = starterAptitude;
+            MiddleAptitude = middleAptitude;
+            CloserAptitude = closerAptitude;
             Stats = new PlayerStats();
             CurrentStamina = stamina;
         }

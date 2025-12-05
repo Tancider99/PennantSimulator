@@ -1072,8 +1072,8 @@ class PennantManager:
     
     def _apply_stat_growth(self, player: Player, stat: str, value: int):
         """能力値を成長させる"""
-        current = getattr(player.stats, stat, 10)
-        new_value = min(20, current + value)
+        current = getattr(player.stats, stat, 50)
+        new_value = min(99, current + value)
         setattr(player.stats, stat, new_value)
     
     def _try_acquire_skill(self, player: Player, is_pitcher: bool) -> Optional[str]:

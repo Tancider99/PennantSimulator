@@ -19,39 +19,45 @@ from constants import (
 # カラーパレット（プロフェッショナル）
 # ============================================================
 class Colors:
-    """統一されたカラーパレット"""
-    # 背景
-    BG_DARK = (12, 14, 18)
-    BG_CARD = (22, 26, 32)
-    BG_CARD_HOVER = (32, 38, 48)
-    BG_HOVER = (32, 38, 48)  # BG_CARD_HOVERのエイリアス
-    BG_INPUT = (18, 22, 28)
+    """統一されたカラーパレット（プロフェッショナル・シャープ）"""
+    # 背景（より深いダーク）
+    BG_DARK = (12, 14, 18)        # よりダークに
+    BG_CARD = (22, 26, 32)        # カード背景
+    BG_CARD_HOVER = (32, 38, 48)  # ホバー時
+    BG_HOVER = (32, 38, 48)       # エイリアス
+    BG_INPUT = (18, 21, 27)       # 入力フィールド
+    BG_DARKER = (8, 10, 13)       # 最も暗い背景
     
-    # アクセント
-    PRIMARY = (59, 130, 246)      # ブルー
-    PRIMARY_HOVER = (96, 165, 250)
-    PRIMARY_DARK = (37, 99, 235)
+    # アクセント（シャープで落ち着いた色調）
+    PRIMARY = (60, 100, 150)       # 深いブルー
+    PRIMARY_HOVER = (75, 115, 165)
+    PRIMARY_DARK = (45, 80, 120)
+    PRIMARY_LIGHT = (80, 130, 180)
     
-    SECONDARY = (168, 85, 247)    # パープル
-    SUCCESS = (34, 197, 94)       # グリーン
-    SUCCESS_HOVER = (74, 222, 128)
-    WARNING = (251, 191, 36)      # イエロー
-    DANGER = (239, 68, 68)        # レッド
-    DANGER_HOVER = (248, 113, 113)
-    INFO = (56, 189, 248)         # シアン/スカイブルー
+    SECONDARY = (90, 75, 130)      # 深いパープル
+    SUCCESS = (50, 130, 80)        # 深いグリーン
+    SUCCESS_HOVER = (65, 145, 95)
+    WARNING = (170, 140, 50)       # 深いイエロー
+    DANGER = (150, 70, 70)         # 深いレッド
+    DANGER_HOVER = (165, 85, 85)
+    INFO = (60, 120, 150)          # 深いシアン
     
-    # テキスト
-    TEXT_PRIMARY = (248, 250, 252)
-    TEXT_SECONDARY = (148, 163, 184)
-    TEXT_MUTED = (100, 116, 139)
+    # テキスト（コントラスト強化）
+    TEXT_PRIMARY = (235, 240, 245)
+    TEXT_SECONDARY = (130, 140, 155)
+    TEXT_MUTED = (85, 95, 110)
+    TEXT_ACCENT = (100, 160, 220)  # アクセントテキスト
     
-    # ボーダー
-    BORDER = (51, 65, 85)
-    BORDER_LIGHT = (71, 85, 105)
+    # ボーダー（シャープなエッジ）
+    BORDER = (45, 52, 65)
+    BORDER_LIGHT = (60, 70, 85)
+    BORDER_FOCUS = (70, 110, 160)  # フォーカス時
     
-    # 特別色
-    GOLD = (251, 191, 36)
-    GOLD_LIGHT = (253, 224, 71)
+    # 特別色（控えめだが印象的）
+    GOLD = (200, 170, 60)
+    GOLD_LIGHT = (220, 195, 90)
+    SILVER = (160, 170, 185)
+    BRONZE = (180, 130, 70)
 
 
 # ============================================================
@@ -144,19 +150,43 @@ def ease_out_cubic(t: float) -> float:
     return 1 - pow(1 - t, 3)
 
 
-def draw_rounded_rect(surface, rect, color, radius=8, border=0, border_color=None):
-    """角丸四角形を描画"""
+def draw_rounded_rect(surface, rect, color, radius=2, border=0, border_color=None):
+    """角丸四角形を描画（シャープなデザイン）"""
     pygame.draw.rect(surface, color, rect, border_radius=radius)
     if border > 0 and border_color:
         pygame.draw.rect(surface, border_color, rect, border, border_radius=radius)
 
 
-def draw_shadow(surface, rect, offset=4, blur=8, alpha=40):
-    """シャドウを描画"""
+def draw_shadow(surface, rect, offset=3, blur=6, alpha=50):
+    """シャドウを描画（シャープなエッジ）"""
     shadow_surf = pygame.Surface((rect.width + blur*2, rect.height + blur*2), pygame.SRCALPHA)
     shadow_rect = pygame.Rect(blur, blur, rect.width, rect.height)
-    pygame.draw.rect(shadow_surf, (0, 0, 0, alpha), shadow_rect, border_radius=12)
+    pygame.draw.rect(shadow_surf, (0, 0, 0, alpha), shadow_rect, border_radius=2)
     surface.blit(shadow_surf, (rect.x - blur + offset, rect.y - blur + offset))
+
+
+def draw_selection_effect(surface, rect, color=None, intensity=1.0):
+    """選手選択時のエフェクトを描画（シャープなグロー）"""
+    if color is None:
+        color = Colors.PRIMARY
+    
+    # グロー効果（複数レイヤー - よりシャープに）
+    glow_layers = [
+        (6, 0.12 * intensity),
+        (4, 0.20 * intensity),
+        (2, 0.30 * intensity),
+    ]
+    
+    for offset, alpha_mult in glow_layers:
+        glow_rect = rect.inflate(offset * 2, offset * 2)
+        glow_surf = pygame.Surface((glow_rect.width, glow_rect.height), pygame.SRCALPHA)
+        glow_color = (*color[:3], int(70 * alpha_mult))
+        pygame.draw.rect(glow_surf, glow_color, (0, 0, glow_rect.width, glow_rect.height), border_radius=2)
+        surface.blit(glow_surf, glow_rect.topleft)
+    
+    # 枠線（シャープ）
+    border_color = (*color[:3], int(220 * intensity))
+    pygame.draw.rect(surface, border_color, rect, 2, border_radius=1)
 
 
 # ============================================================
@@ -187,13 +217,13 @@ class Button:
         self._set_style_colors()
     
     def _set_style_colors(self):
-        """スタイルに応じた色を設定"""
+        """スタイルに応じた色を設定（落ち着いた色調）"""
         styles = {
             "primary": (Colors.PRIMARY, Colors.PRIMARY_HOVER, Colors.PRIMARY_DARK),
-            "secondary": (Colors.SECONDARY, (188, 115, 255), (138, 65, 217)),
-            "success": (Colors.SUCCESS, Colors.SUCCESS_HOVER, (22, 163, 74)),
-            "danger": (Colors.DANGER, Colors.DANGER_HOVER, (220, 38, 38)),
-            "warning": (Colors.WARNING, Colors.GOLD_LIGHT, (234, 179, 8)),
+            "secondary": (Colors.SECONDARY, (115, 100, 155), (85, 70, 125)),
+            "success": (Colors.SUCCESS, Colors.SUCCESS_HOVER, (50, 120, 75)),
+            "danger": (Colors.DANGER, Colors.DANGER_HOVER, (140, 65, 65)),
+            "warning": (Colors.WARNING, (195, 165, 75), (160, 130, 50)),
             "ghost": (Colors.BG_CARD, Colors.BG_CARD_HOVER, Colors.BORDER),
             "outline": ((0, 0, 0, 0), Colors.BG_CARD_HOVER, Colors.BORDER),
         }
@@ -235,18 +265,18 @@ class Button:
             int(self.rect.height * (scale - 1))
         )
         
-        # シャドウ（ホバー時）
+        # シャドウ（ホバー時 - よりシャープ）
         if self.hover_progress > 0.1 and self.enabled:
-            shadow_alpha = int(30 * self.hover_progress)
-            draw_shadow(surface, scaled_rect, 3, 6, shadow_alpha)
+            shadow_alpha = int(40 * self.hover_progress)
+            draw_shadow(surface, scaled_rect, 2, 4, shadow_alpha)
         
-        # 背景
-        draw_rounded_rect(surface, scaled_rect, bg_color, 10)
+        # 背景（シャープなエッジ）
+        draw_rounded_rect(surface, scaled_rect, bg_color, 3)
         
         # アウトラインスタイルの場合はボーダーを追加
         if self.style == "outline":
             border_color = lerp_color(Colors.BORDER, Colors.PRIMARY, self.hover_progress)
-            draw_rounded_rect(surface, scaled_rect, bg_color, 10, 2, border_color)
+            draw_rounded_rect(surface, scaled_rect, bg_color, 3, 2, border_color)
         
         # テキスト
         text_surf = self.font.render(self.text, True, text_color)
@@ -308,18 +338,18 @@ class Card:
         shadow_alpha = 20 + int(15 * self.hover_progress)
         draw_shadow(surface, draw_rect, 4, 8, shadow_alpha)
         
-        # 背景
+        # 背景（シャープな角）
         bg_color = lerp_color(Colors.BG_CARD, Colors.BG_CARD_HOVER, self.hover_progress)
-        draw_rounded_rect(surface, draw_rect, bg_color, 12)
+        draw_rounded_rect(surface, draw_rect, bg_color, 3)
         
-        # ボーダー
+        # ボーダー（シャープ）
         border_color = lerp_color(Colors.BORDER, Colors.PRIMARY, self.hover_progress * 0.5)
-        draw_rounded_rect(surface, draw_rect, bg_color, 12, 1, border_color)
+        draw_rounded_rect(surface, draw_rect, bg_color, 3, 1, border_color)
         
         # タイトル
         if self.title:
-            title_surf = fonts.h3.render(self.title, True, Colors.TEXT_PRIMARY)
-            surface.blit(title_surf, (draw_rect.x + 20, draw_rect.y + 15))
+            title_surf = fonts.body.render(self.title, True, Colors.TEXT_PRIMARY)
+            surface.blit(title_surf, (draw_rect.x + 15, draw_rect.y + 12))
         
         return draw_rect
     
@@ -355,14 +385,14 @@ class ProgressBar:
     def draw(self, surface: pygame.Surface, show_text: bool = True):
         self.update()
         
-        # 背景
-        draw_rounded_rect(surface, self.rect, Colors.BG_INPUT, self.rect.height // 2)
+        # 背景（シャープ）
+        draw_rounded_rect(surface, self.rect, Colors.BG_INPUT, 2)
         
         # プログレス
         if self.display_value > 0:
             fill_width = int(self.rect.width * self.display_value)
             fill_rect = pygame.Rect(self.rect.x, self.rect.y, fill_width, self.rect.height)
-            draw_rounded_rect(surface, fill_rect, self.color, self.rect.height // 2)
+            draw_rounded_rect(surface, fill_rect, self.color, 2)
         
         # テキスト
         if show_text and self.rect.height >= 20:
@@ -387,15 +417,15 @@ class InputField:
         self.is_hovered = False
     
     def draw(self, surface: pygame.Surface):
-        # 背景
+        # 背景（シャープ）
         bg_color = Colors.BG_INPUT if not self.is_focused else Colors.BG_CARD_HOVER
-        draw_rounded_rect(surface, self.rect, bg_color, 8)
+        draw_rounded_rect(surface, self.rect, bg_color, 2)
         
-        # ボーダー
+        # ボーダー（シャープ）
         border_color = Colors.PRIMARY if self.is_focused else (
             Colors.BORDER_LIGHT if self.is_hovered else Colors.BORDER
         )
-        draw_rounded_rect(surface, self.rect, bg_color, 8, 2, border_color)
+        draw_rounded_rect(surface, self.rect, bg_color, 2, 2, border_color)
         
         # テキスト
         display_text = self.value if self.value else self.placeholder
@@ -434,14 +464,13 @@ class Table:
         self.scroll_offset = 0
     
     def draw(self, surface: pygame.Surface):
-        # カード背景
-        draw_rounded_rect(surface, self.rect, Colors.BG_CARD, 12)
-        draw_rounded_rect(surface, self.rect, Colors.BG_CARD, 12, 1, Colors.BORDER)
+        # カード背景（シャープ）
+        draw_rounded_rect(surface, self.rect, Colors.BG_CARD, 3)
+        draw_rounded_rect(surface, self.rect, Colors.BG_CARD, 3, 1, Colors.BORDER)
         
-        # ヘッダー
+        # ヘッダー（シャープ）
         header_rect = pygame.Rect(self.rect.x, self.rect.y, self.rect.width, self.header_height)
-        draw_rounded_rect(surface, header_rect, Colors.BG_INPUT, 
-                         border_top_left_radius=12, border_top_right_radius=12)
+        pygame.draw.rect(surface, Colors.BG_INPUT, header_rect)
         
         x = self.rect.x + 15
         for col_name, col_width in self.columns:
@@ -468,11 +497,11 @@ class Table:
             
             row_rect = pygame.Rect(self.rect.x + 2, y, self.rect.width - 4, self.row_height)
             
-            # 選択・ホバー背景
+            # 選択・ホバー背景（シャープ）
             if i == self.selected_index:
-                pygame.draw.rect(surface, (*Colors.PRIMARY[:3], 40), row_rect, border_radius=6)
+                pygame.draw.rect(surface, (*Colors.PRIMARY[:3], 40), row_rect, border_radius=2)
             elif i == self.hover_index:
-                pygame.draw.rect(surface, Colors.BG_CARD_HOVER, row_rect, border_radius=6)
+                pygame.draw.rect(surface, Colors.BG_CARD_HOVER, row_rect, border_radius=2)
             
             # データ
             x = self.rect.x + 15
@@ -568,13 +597,12 @@ class Toast:
         x = (surface.get_width() - width) // 2
         y = 20 + y_offset - slide
         
-        # 背景
+        # 背景（シャープ）
         toast_surf = pygame.Surface((width, height), pygame.SRCALPHA)
-        pygame.draw.rect(toast_surf, (*Colors.BG_CARD[:3], alpha), (0, 0, width, height), border_radius=8)
+        pygame.draw.rect(toast_surf, (*Colors.BG_CARD[:3], alpha), (0, 0, width, height), border_radius=3)
         
-        # 左側のアクセント
-        pygame.draw.rect(toast_surf, (*self.color[:3], alpha), (0, 0, 4, height),
-                        border_top_left_radius=8, border_bottom_left_radius=8)
+        # 左側のアクセント（シャープ）
+        pygame.draw.rect(toast_surf, (*self.color[:3], alpha), (0, 0, 4, height))
         
         # テキスト
         text_surf.set_alpha(alpha)
@@ -586,13 +614,17 @@ class Toast:
 class ToastManager:
     """トースト管理"""
     _toasts: List[Toast] = []
+    _enabled: bool = False  # トースト通知を無効化
     
     @classmethod
     def show(cls, message: str, toast_type: str = "info", duration: float = 3.0):
-        cls._toasts.append(Toast(message, toast_type, duration))
+        if cls._enabled:
+            cls._toasts.append(Toast(message, toast_type, duration))
     
     @classmethod
     def update_and_draw(cls, surface: pygame.Surface):
+        if not cls._enabled:
+            return
         cls._toasts = [t for t in cls._toasts if t.update()]
         for i, toast in enumerate(cls._toasts):
             toast.draw(surface, i * 55)
@@ -668,25 +700,42 @@ class RadarChart:
 # 背景描画
 # ============================================================
 def draw_background(surface: pygame.Surface, pattern: str = "gradient", team_color: tuple = None):
-    """背景を描画（スタイリッシュなグラデーション）"""
+    """背景を描画（プロフェッショナルなダークグラデーション）"""
     width = surface.get_width()
     height = surface.get_height()
     
     if pattern == "gradient":
-        # 滑らかなダークグラデーション
+        # 深いダークグラデーション（上から下へ）
         for y in range(height):
             ratio = y / height
-            r = int(12 + 14 * ratio)
-            g = int(14 + 16 * ratio)
-            b = int(20 + 18 * ratio)
+            # 微妙なグラデーション（より暗く）
+            r = int(8 + 10 * ratio)
+            g = int(10 + 12 * ratio)
+            b = int(14 + 14 * ratio)
             pygame.draw.line(surface, (r, g, b), (0, y), (width, y))
         
-        # 右側に微妙な装飾ライン（チームカラーがある場合）
+        # 角のビネット効果（没入感向上）
+        vignette = pygame.Surface((width, height), pygame.SRCALPHA)
+        for corner in [(0, 0), (width, 0), (0, height), (width, height)]:
+            for radius in range(200, 0, -10):
+                alpha = int(15 * (1 - radius / 200))
+                pygame.draw.circle(vignette, (0, 0, 0, alpha), corner, radius)
+        surface.blit(vignette, (0, 0))
+        
+        # チームカラーのサブトルなアクセント（右下角）
         if team_color:
-            for i in range(2):
-                start_x = width - 250 + i * 80
-                line_color = (team_color[0] // 6, team_color[1] // 6, team_color[2] // 6)
-                pygame.draw.line(surface, line_color, (start_x, 0), (start_x - 150, height), 1)
+            accent_surf = pygame.Surface((width, height), pygame.SRCALPHA)
+            # 対角線のグラデーション光
+            for i in range(80):
+                alpha = int(12 * (1 - i / 80))
+                start_x = width - 300 + i * 3
+                accent_color = (*team_color[:3], alpha)
+                pygame.draw.line(accent_surf, accent_color, 
+                               (start_x, height), (start_x + 200, 0), 1)
+            surface.blit(accent_surf, (0, 0))
+            
+    elif pattern == "solid":
+        surface.fill(Colors.BG_DARK)
     else:
         surface.fill(Colors.BG_DARK)
 
@@ -727,11 +776,153 @@ def draw_header(surface: pygame.Surface, title: str, subtitle: str = None,
     return header_height
 
 
+# ============================================================
+# 画面遷移エフェクト
+# ============================================================
+class ScreenTransition:
+    """画面遷移エフェクト（没入感向上）"""
+    
+    def __init__(self, duration: float = 0.25):
+        self.duration = duration
+        self.start_time = 0
+        self.is_active = False
+        self.fade_in = True  # True=フェードイン, False=フェードアウト
+    
+    def start(self, fade_in: bool = True):
+        """トランジション開始"""
+        self.start_time = time.time()
+        self.is_active = True
+        self.fade_in = fade_in
+    
+    def update(self) -> bool:
+        """更新。完了時にTrueを返す"""
+        if not self.is_active:
+            return True
+        
+        elapsed = time.time() - self.start_time
+        if elapsed >= self.duration:
+            self.is_active = False
+            return True
+        return False
+    
+    def draw(self, surface: pygame.Surface):
+        """オーバーレイを描画"""
+        if not self.is_active:
+            return
+        
+        elapsed = time.time() - self.start_time
+        progress = min(1.0, elapsed / self.duration)
+        
+        # イージング適用
+        eased = ease_out_cubic(progress)
+        
+        if self.fade_in:
+            alpha = int(255 * (1 - eased))
+        else:
+            alpha = int(255 * eased)
+        
+        overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+        overlay.fill((12, 14, 18, alpha))
+        surface.blit(overlay, (0, 0))
+
+
+# ============================================================
+# パルス効果（選択項目のハイライト）
+# ============================================================
+class PulseEffect:
+    """パルス効果（重要な項目のハイライト用）"""
+    
+    def __init__(self, rect: pygame.Rect, color: tuple = None, frequency: float = 2.0):
+        self.rect = rect
+        self.color = color or Colors.PRIMARY
+        self.frequency = frequency
+        self.start_time = time.time()
+    
+    def draw(self, surface: pygame.Surface):
+        elapsed = time.time() - self.start_time
+        pulse = (math.sin(elapsed * self.frequency * math.pi * 2) + 1) / 2
+        
+        # パルス強度（0.3～0.7）
+        intensity = 0.3 + 0.4 * pulse
+        
+        # グロー描画
+        glow_rect = self.rect.inflate(6, 6)
+        glow_surf = pygame.Surface((glow_rect.width, glow_rect.height), pygame.SRCALPHA)
+        glow_color = (*self.color[:3], int(80 * intensity))
+        pygame.draw.rect(glow_surf, glow_color, (0, 0, glow_rect.width, glow_rect.height), border_radius=2)
+        surface.blit(glow_surf, glow_rect.topleft)
+        
+        # 枠線
+        border_alpha = int(180 + 75 * pulse)
+        pygame.draw.rect(surface, (*self.color[:3], border_alpha), self.rect, 2, border_radius=1)
+
+
+# ============================================================
+# スコアボード表示（試合結果の没入感）
+# ============================================================
+def draw_scoreboard(surface: pygame.Surface, x: int, y: int, width: int,
+                    home_name: str, away_name: str,
+                    home_score: int, away_score: int,
+                    inning: int = 0, is_top: bool = True,
+                    home_color: tuple = None, away_color: tuple = None):
+    """スコアボード描画（野球中継風）"""
+    height = 100
+    board_rect = pygame.Rect(x, y, width, height)
+    
+    # 背景（ダークでシャープ）
+    pygame.draw.rect(surface, (15, 17, 22), board_rect, border_radius=2)
+    pygame.draw.rect(surface, Colors.BORDER, board_rect, 1, border_radius=2)
+    
+    # チーム行
+    row_height = 40
+    half_width = width // 2
+    
+    for i, (name, score, team_color, is_batting) in enumerate([
+        (away_name, away_score, away_color, is_top and inning > 0),
+        (home_name, home_score, home_color, not is_top and inning > 0)
+    ]):
+        row_y = y + 10 + i * row_height
+        
+        # チームカラーアクセント
+        if team_color:
+            accent_rect = pygame.Rect(x + 2, row_y, 4, row_height - 5)
+            pygame.draw.rect(surface, team_color, accent_rect)
+        
+        # 攻撃中インジケーター
+        if is_batting:
+            indicator_rect = pygame.Rect(x + 10, row_y + row_height // 2 - 4, 8, 8)
+            pygame.draw.polygon(surface, Colors.GOLD, [
+                (indicator_rect.x, indicator_rect.centery),
+                (indicator_rect.right, indicator_rect.y),
+                (indicator_rect.right, indicator_rect.bottom)
+            ])
+        
+        # チーム名
+        name_surf = fonts.h3.render(name[:10], True, Colors.TEXT_PRIMARY)
+        surface.blit(name_surf, (x + 25, row_y + 5))
+        
+        # スコア
+        score_surf = fonts.h2.render(str(score), True, Colors.TEXT_PRIMARY)
+        score_rect = score_surf.get_rect(right=x + width - 15, centery=row_y + row_height // 2)
+        surface.blit(score_surf, score_rect)
+    
+    # イニング表示
+    if inning > 0:
+        inning_str = f"{'▲' if is_top else '▼'}{inning}"
+        inning_surf = fonts.body.render(inning_str, True, Colors.GOLD)
+        inning_rect = inning_surf.get_rect(center=(x + width // 2, y + height - 15))
+        surface.blit(inning_surf, inning_rect)
+    
+    return height
+
+
 # グローバルエクスポート
 __all__ = [
     'Colors', 'fonts', 'FontManager',
     'Button', 'Card', 'ProgressBar', 'InputField', 'Table',
     'Toast', 'ToastManager', 'RadarChart',
+    'ScreenTransition', 'PulseEffect',
     'draw_background', 'draw_header', 'draw_rounded_rect', 'draw_shadow',
+    'draw_scoreboard', 'draw_selection_effect',
     'lerp_color', 'ease_out_cubic'
 ]

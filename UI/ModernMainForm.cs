@@ -24,6 +24,7 @@ namespace PennantSimulator.UI
         private ListBox _gameLog;
         private Label _scoreLabel;
         private System.Windows.Forms.Timer _uiUpdateTimer;
+        private Team? _selectedTeam;  // 現在選択中のチーム
 
         private int _gamesPerTeam;
 
@@ -61,7 +62,7 @@ namespace PennantSimulator.UI
             {
                 var rect = ((Panel)s).ClientRectangle;
                 using (var brush = new System.Drawing.Drawing2D.LinearGradientBrush(
-                    rect, Color.FromArgb(30, 30, 35), Color.FromArgb(20, 20, 25), 
+                    rect, Color.FromArgb(25, 25, 30), Color.FromArgb(18, 18, 22), 
                     System.Drawing.Drawing2D.LinearGradientMode.Vertical))
                 {
                     e.Graphics.FillRectangle(brush, rect);
@@ -70,24 +71,25 @@ namespace PennantSimulator.UI
             Controls.Add(_navPanel);
 
             // Header with icon
-            var headerPanel = new Panel { Dock = DockStyle.Top, Height = 60 };
+            var headerPanel = new Panel { Dock = DockStyle.Top, Height = 60, BackColor = Color.Transparent };
             _headerTitle = new Label { 
                 Text = "⚾ Pennant Manager", 
                 Font = new Font("Segoe UI", 18, FontStyle.Bold), 
-                ForeColor = Color.White, 
+                ForeColor = Theme.Text, 
                 Dock = DockStyle.Fill,
-                TextAlign = ContentAlignment.MiddleLeft
+                TextAlign = ContentAlignment.MiddleLeft,
+                BackColor = Color.Transparent
             };
             headerPanel.Controls.Add(_headerTitle);
             _navPanel.Controls.Add(headerPanel);
 
             // Modern search box
-            var searchPanel = new Panel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(0, 10, 0, 10) };
+            var searchPanel = new Panel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(0, 10, 0, 10), BackColor = Color.Transparent };
             _searchBox = new TextBox { 
                 PlaceholderText = "🔍 Search teams...", 
                 Dock = DockStyle.Fill, 
-                BackColor = Color.FromArgb(40, 40, 45),
-                ForeColor = Color.White,
+                BackColor = Theme.Background,
+                ForeColor = Theme.Text,
                 BorderStyle = BorderStyle.None,
                 Font = new Font("Segoe UI", 11)
             };
@@ -108,7 +110,7 @@ namespace PennantSimulator.UI
             // Modern action buttons
             var actions = new FlowLayoutPanel { 
                 Dock = DockStyle.Bottom, 
-                Height = 200, 
+                Height = 250, 
                 FlowDirection = FlowDirection.TopDown, 
                 Padding = new Padding(0, 10, 0, 10),
                 BackColor = Color.Transparent
@@ -116,6 +118,9 @@ namespace PennantSimulator.UI
 
             var btnNew = CreateActionButton("🎮 New Game", Theme.Primary);
             btnNew.Click += (s, e) => OpeningNewGame();
+
+            var btnOrder = CreateActionButton("📋 オーダー設定", Color.FromArgb(0, 150, 136));
+            btnOrder.Click += (s, e) => OpenOrderDialog();
 
             var btnTrade = CreateActionButton("💼 Trade", Color.FromArgb(255, 193, 7));
             btnTrade.Click += (s, e) => OpenTradeDialog();
@@ -137,7 +142,7 @@ namespace PennantSimulator.UI
             var btnStats = CreateActionButton("📊 Statistics", Color.FromArgb(103, 58, 183));
             btnStats.Click += (s, e) => ShowStatisticsDialog();
 
-            actions.Controls.AddRange(new Control[] { btnNew, btnTrade, btnDraft, btnTraining, btnSave, btnStats });
+            actions.Controls.AddRange(new Control[] { btnNew, btnOrder, btnTrade, btnDraft, btnTraining, btnSave, btnStats });
             _navPanel.Controls.Add(actions);
 
             // Main content area
@@ -161,7 +166,7 @@ namespace PennantSimulator.UI
                 Width = 300,
                 Height = 48,
                 BackColor = color,
-                ForeColor = Color.White,
+                ForeColor = Color.White, // High-contrast for colored buttons
                 Font = new Font("Segoe UI", 11, FontStyle.Bold),
                 Margin = new Padding(0, 5, 0, 5),
                 CornerRadius = 10
@@ -176,7 +181,7 @@ namespace PennantSimulator.UI
             var titleLabel = new Label { 
                 Text = "🏆 Pennant Simulator - Professional Edition", 
                 Font = new Font("Segoe UI", 24, FontStyle.Bold), 
-                ForeColor = Theme.Dark, 
+                ForeColor = Theme.Text, 
                 Dock = DockStyle.Top, 
                 Height = 50 
             };
@@ -199,7 +204,7 @@ namespace PennantSimulator.UI
 
         private ModernCard CreateStatCard(string label, string value, Color color)
         {
-            var card = new ModernCard { Width = 160, Height = 70, Margin = new Padding(5), Elevation = 2 };
+            var card = new ModernCard { Width = 160, Height = 70, Margin = new Padding(5), Elevation = 2, BackColor = Theme.Panel };
             
             var valueLabel = new Label { 
                 Text = value, 
@@ -207,16 +212,18 @@ namespace PennantSimulator.UI
                 ForeColor = color,
                 Dock = DockStyle.Top, 
                 Height = 40,
-                TextAlign = ContentAlignment.MiddleCenter
+                TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = Color.Transparent
             };
             
             var labelText = new Label { 
                 Text = label, 
                 Font = Theme.UiFont, 
-                ForeColor = Color.Gray,
+                ForeColor = Theme.Text,
                 Dock = DockStyle.Top, 
                 Height = 20,
-                TextAlign = ContentAlignment.MiddleCenter
+                TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = Color.Transparent
             };
 
             card.Controls.Add(labelText);
@@ -232,10 +239,10 @@ namespace PennantSimulator.UI
                 Padding = new Point(20, 5)
             };
 
-            var tabDashboard = new TabPage("📊 Dashboard");
-            var tabStandings = new TabPage("🏅 Standings");
-            var tabRoster = new TabPage("👥 Roster");
-            var tabManager = new TabPage("⚡ Manager");
+            var tabDashboard = new TabPage("📊 Dashboard") { BackColor = Theme.Background };
+            var tabStandings = new TabPage("🏅 Standings") { BackColor = Theme.Background };
+            var tabRoster = new TabPage("👥 Roster") { BackColor = Theme.Background };
+            var tabManager = new TabPage("⚡ Manager") { BackColor = Theme.Background };
 
             tabs.TabPages.AddRange(new[] { tabDashboard, tabStandings, tabRoster, tabManager });
 
@@ -249,13 +256,15 @@ namespace PennantSimulator.UI
 
         private void InitializeDashboardTab(TabPage tab)
         {
-            var welcomeCard = new ModernCard { Dock = DockStyle.Fill, Padding = new Padding(30) };
+            var welcomeCard = new ModernCard { Dock = DockStyle.Fill, Padding = new Padding(30), BackColor = Theme.Panel };
             
             var title = new Label { 
                 Text = "Welcome to Your Season", 
                 Font = new Font("Segoe UI", 20, FontStyle.Bold), 
                 Dock = DockStyle.Top, 
-                Height = 50 
+                Height = 50,
+                ForeColor = Theme.Text,
+                BackColor = Color.Transparent
             };
             
             var desc = new Label { 
@@ -267,7 +276,8 @@ namespace PennantSimulator.UI
                        "💾 Save your progress", 
                 Dock = DockStyle.Fill,
                 Font = new Font("Segoe UI", 12),
-                ForeColor = Color.Gray
+                ForeColor = Theme.Text,
+                BackColor = Color.Transparent
             };
 
             welcomeCard.Controls.Add(desc);
@@ -281,16 +291,22 @@ namespace PennantSimulator.UI
                 Dock = DockStyle.Fill, 
                 ReadOnly = true, 
                 BorderStyle = BorderStyle.None, 
-                BackgroundColor = Color.White,
+                BackgroundColor = Theme.Panel,
+                GridColor = Theme.Background,
                 AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
                 RowHeadersVisible = false,
                 AllowUserToAddRows = false,
-                SelectionMode = DataGridViewSelectionMode.FullRowSelect
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                EnableHeadersVisualStyles = false
             };
             
+            _standingsGrid.DefaultCellStyle.BackColor = Theme.Panel;
+            _standingsGrid.DefaultCellStyle.ForeColor = Theme.Text;
             _standingsGrid.DefaultCellStyle.SelectionBackColor = Theme.Primary;
             _standingsGrid.DefaultCellStyle.SelectionForeColor = Color.White;
             _standingsGrid.DefaultCellStyle.Font = new Font("Segoe UI", 10);
+            _standingsGrid.ColumnHeadersDefaultCellStyle.BackColor = Theme.Background;
+            _standingsGrid.ColumnHeadersDefaultCellStyle.ForeColor = Theme.Text;
             _standingsGrid.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 11, FontStyle.Bold);
             _standingsGrid.ColumnHeadersHeight = 40;
             _standingsGrid.RowTemplate.Height = 35;
@@ -314,13 +330,14 @@ namespace PennantSimulator.UI
 
         private void InitializeManagerTab(TabPage tab)
         {
-            var managerCard = new ModernCard { Dock = DockStyle.Fill, Padding = new Padding(20) };
+            var managerCard = new ModernCard { Dock = DockStyle.Fill, Padding = new Padding(20), BackColor = Theme.Panel };
 
             var btnPanel = new FlowLayoutPanel { 
                 Dock = DockStyle.Top, 
                 Height = 70, 
                 FlowDirection = FlowDirection.LeftToRight, 
-                Padding = new Padding(5) 
+                Padding = new Padding(5),
+                BackColor = Color.Transparent
             };
 
             var btnPlayMatch = new ModernButton { Text = "▶️ Play Full Match", Width = 180, Height = 50 };
@@ -338,18 +355,20 @@ namespace PennantSimulator.UI
             _gameLog = new ListBox { 
                 Dock = DockStyle.Fill, 
                 Font = new Font("Consolas", 11),
-                BackColor = Color.White,
+                BackColor = Theme.Panel,
+                ForeColor = Theme.Text,
                 BorderStyle = BorderStyle.None
             };
             splitContainer.Panel1.Controls.Add(_gameLog);
 
-            var scorePanel = new ModernCard { Dock = DockStyle.Fill, Padding = new Padding(20) };
+            var scorePanel = new ModernCard { Dock = DockStyle.Fill, Padding = new Padding(20), BackColor = Theme.Panel };
             _scoreLabel = new Label { 
                 Text = "Score: 0 - 0", 
                 Font = new Font("Segoe UI", 28, FontStyle.Bold), 
                 ForeColor = Theme.Primary,
                 Dock = DockStyle.Fill,
-                TextAlign = ContentAlignment.MiddleCenter
+                TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = Color.Transparent
             };
             scorePanel.Controls.Add(_scoreLabel);
             splitContainer.Panel2.Controls.Add(scorePanel);
@@ -382,26 +401,28 @@ namespace PennantSimulator.UI
                 Width = 300, 
                 Height = 110, 
                 Margin = new Padding(5),
-                BackColor = Color.White
+                BackColor = Theme.Panel
             };
 
             var nameLabel = new Label { 
                 Text = $"⚾ {t.Name}", 
                 Font = new Font("Segoe UI", 13, FontStyle.Bold), 
-                ForeColor = Theme.Dark,
+                ForeColor = Theme.Text,
                 Dock = DockStyle.Top, 
                 Height = 35,
-                Padding = new Padding(5)
+                Padding = new Padding(5),
+                BackColor = Color.Transparent
             };
             card.Controls.Add(nameLabel);
 
             var statsLabel = new Label { 
                 Text = $"Record: {t.Wins}W-{t.Losses}L-{t.Ties}T", 
                 Font = Theme.UiFont, 
-                ForeColor = Color.Gray,
+                ForeColor = Theme.Text,
                 Dock = DockStyle.Top, 
                 Height = 25,
-                Padding = new Padding(5)
+                Padding = new Padding(5),
+                BackColor = Color.Transparent
             };
             card.Controls.Add(statsLabel);
 
@@ -432,19 +453,37 @@ namespace PennantSimulator.UI
 
         private Color GetRatingColor(double rating)
         {
-            if (rating >= 75) return Color.FromArgb(76, 175, 80);
-            if (rating >= 60) return Color.FromArgb(255, 193, 7);
-            return Color.FromArgb(244, 67, 54);
+            if (rating >= 75) return Color.FromArgb(76, 175, 80); // Green
+            if (rating >= 60) return Color.FromArgb(255, 193, 7); // Amber
+            return Color.FromArgb(244, 67, 54); // Red
         }
 
         private void SelectTeam(int index)
         {
             if (index < 0 || index >= _league.Teams.Count) return;
             var team = _league.Teams[index];
+            _selectedTeam = team;
             
             RenderRosterForTeam(team);
             RenderStandings();
             NotificationToast.Show($"Selected: {team.Name}");
+        }
+
+        private void OpenOrderDialog()
+        {
+            if (_selectedTeam == null)
+            {
+                NotificationToast.Show("チームを選択してください");
+                return;
+            }
+            
+            using var dlg = new OrderDialog(_selectedTeam);
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+            {
+                RenderRosterForTeam(_selectedTeam);
+                PopulateTeams(_searchBox.Text);
+                NotificationToast.Show("オーダーを保存しました");
+            }
         }
 
         private void RenderRosterForTeam(Team team)
@@ -459,27 +498,30 @@ namespace PennantSimulator.UI
 
         private ModernCard CreateEnhancedPlayerCard(Player p)
         {
-            var card = new ModernCard { Width = 300, Height = 200, Margin = new Padding(10), BackColor = Color.White };
+            var card = new ModernCard { Width = 300, Height = 200, Margin = new Padding(10), BackColor = Theme.Panel };
 
             var nameLabel = new Label { 
                 Text = $"👤 {p.Name}", 
                 Font = new Font("Segoe UI", 12, FontStyle.Bold), 
                 Dock = DockStyle.Top, 
-                Height = 35 
+                Height = 35,
+                ForeColor = Theme.Text,
+                BackColor = Color.Transparent
             };
             card.Controls.Add(nameLabel);
 
             var posLabel = new Label { 
                 Text = $"Position: {p.PreferredPosition}  Age: {p.Age}", 
                 Font = Theme.UiFont, 
-                ForeColor = Color.Gray,
+                ForeColor = Theme.Text,
                 Dock = DockStyle.Top, 
-                Height = 25 
+                Height = 25,
+                BackColor = Color.Transparent
             };
             card.Controls.Add(posLabel);
 
             // Stat bars
-            var statsPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(5) };
+            var statsPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(5), BackColor = Color.Transparent };
             
             var bars = new[]
             {
@@ -496,7 +538,9 @@ namespace PennantSimulator.UI
                     Value = stat.Value, 
                     BarColor = stat.Color,
                     Width = 280,
-                    Location = new Point(5, y)
+                    Location = new Point(5, y),
+                    ForeColor = Theme.Text,
+                    BackColor = Color.Transparent
                 };
                 statsPanel.Controls.Add(bar);
                 y += 35;
@@ -523,20 +567,23 @@ namespace PennantSimulator.UI
                 Height = 600, 
                 StartPosition = FormStartPosition.CenterParent, 
                 Text = $"Player Details - {p.Name}",
-                BackColor = Theme.Background
+                BackColor = Theme.Background,
+                ForeColor = Theme.Text
             };
 
-            var mainCard = new ModernCard { Dock = DockStyle.Fill, Padding = new Padding(20) };
+            var mainCard = new ModernCard { Dock = DockStyle.Fill, Padding = new Padding(20), BackColor = Theme.Panel };
 
             var title = new Label { 
                 Text = $"👤 {p.Name}", 
                 Font = new Font("Segoe UI", 20, FontStyle.Bold),
                 Dock = DockStyle.Top, 
-                Height = 50 
+                Height = 50,
+                ForeColor = Theme.Text,
+                BackColor = Color.Transparent
             };
             mainCard.Controls.Add(title);
 
-            var statsPanel = new Panel { Dock = DockStyle.Fill };
+            var statsPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
             var statsToShow = new[]
             {
                 ("Contact", p.Contact), ("Power", p.Power), ("Speed", p.Speed),
@@ -552,7 +599,9 @@ namespace PennantSimulator.UI
                     Value = value, 
                     BarColor = Theme.Primary,
                     Width = 440,
-                    Location = new Point(10, yPos)
+                    Location = new Point(10, yPos),
+                    ForeColor = Theme.Text,
+                    BackColor = Color.Transparent
                 };
                 statsPanel.Controls.Add(bar);
                 yPos += 40;
@@ -572,6 +621,8 @@ namespace PennantSimulator.UI
             dlg.ShowDialog(this);
         }
 
+
+
         private void RenderStandings()
         {
             var list = _league.GetStandings().Select((t, i) => new { 
@@ -584,6 +635,7 @@ namespace PennantSimulator.UI
                 Rating = $"{t.Rating:F1}"
             }).ToList();
             _standingsGrid.DataSource = list;
+            _standingsGrid.ClearSelection();
         }
 
         private void PlayNextMatchForSelectedTeam()
@@ -714,7 +766,7 @@ namespace PennantSimulator.UI
             var tabs = new TabControl { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 11) };
 
             // Batting Leaders
-            var battingTab = new TabPage("🏏 Batting Leaders");
+            var battingTab = new TabPage("🏏 Batting Leaders") { BackColor = Theme.Background };
             var battingGrid = CreateLeaderboardGrid();
             var batters = _league.Teams.SelectMany(t => t.Roster)
                 .Where(p => p.Stats.AtBats >= 50)
@@ -735,7 +787,7 @@ namespace PennantSimulator.UI
             battingTab.Controls.Add(battingGrid);
 
             // Home Run Leaders
-            var hrTab = new TabPage("💪 Home Runs");
+            var hrTab = new TabPage("💪 Home Runs") { BackColor = Theme.Background };
             var hrGrid = CreateLeaderboardGrid();
             var sluggers = _league.Teams.SelectMany(t => t.Roster)
                 .Where(p => p.Stats.HomeRuns > 0)
@@ -754,7 +806,7 @@ namespace PennantSimulator.UI
             hrTab.Controls.Add(hrGrid);
 
             // RBI Leaders
-            var rbiTab = new TabPage("🎯 RBIs");
+            var rbiTab = new TabPage("🎯 RBIs") { BackColor = Theme.Background };
             var rbiGrid = CreateLeaderboardGrid();
             var rbiLeaders = _league.Teams.SelectMany(t => t.Roster)
                 .Where(p => p.Stats.RBIs > 0)
@@ -772,7 +824,7 @@ namespace PennantSimulator.UI
             rbiTab.Controls.Add(rbiGrid);
 
             // Pitching ERA Leaders
-            var eraTab = new TabPage("🎯 ERA");
+            var eraTab = new TabPage("🎯 ERA") { BackColor = Theme.Background };
             var eraGrid = CreateLeaderboardGrid();
             var pitchers = _league.Teams.SelectMany(t => t.Roster)
                 .Where(p => p.Stats.InningsPitched >= 30)
@@ -792,7 +844,7 @@ namespace PennantSimulator.UI
             eraTab.Controls.Add(eraGrid);
 
             // Wins Leaders
-            var winsTab = new TabPage("🏆 Wins");
+            var winsTab = new TabPage("🏆 Wins") { BackColor = Theme.Background };
             var winsGrid = CreateLeaderboardGrid();
             var winLeaders = _league.Teams.SelectMany(t => t.Roster)
                 .Where(p => p.Stats.Wins > 0)
@@ -811,7 +863,7 @@ namespace PennantSimulator.UI
             winsTab.Controls.Add(winsGrid);
 
             // Strikeout Leaders
-            var soTab = new TabPage("⚡ Strikeouts");
+            var soTab = new TabPage("⚡ Strikeouts") { BackColor = Theme.Background };
             var soGrid = CreateLeaderboardGrid();
             var soLeaders = _league.Teams.SelectMany(t => t.Roster)
                 .Where(p => p.Stats.PitcherStrikeOuts > 0)
@@ -845,16 +897,584 @@ namespace PennantSimulator.UI
                 Dock = DockStyle.Fill,
                 ReadOnly = true,
                 BorderStyle = BorderStyle.None,
-                BackgroundColor = Color.White,
+                BackgroundColor = Theme.Panel,
+                GridColor = Theme.Background,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                RowHeadersVisible = false,
+                AllowUserToAddRows =.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+s, e) => dlg.Close();
+            dlg.Controls.Add(closeBtn);
+
+            dlg.ShowDialog(this);
+        }
+
+        private DataGridView CreateLeaderboardGrid()
+        {
+            var grid = new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                ReadOnly = true,
+                BorderStyle = BorderStyle.None,
+                BackgroundColor = Theme.Panel,
+                GridColor = Theme.Background,
                 AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
                 RowHeadersVisible = false,
                 AllowUserToAddRows = false,
-                SelectionMode = DataGridViewSelectionMode.FullRowSelect
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                EnableHeadersVisualStyles = false
             };
+
+            grid.DefaultCellStyle.BackColor = Theme.Panel;
+            grid.DefaultCellStyle.ForeColor = Theme.Text;
 
             grid.DefaultCellStyle.SelectionBackColor = Theme.Primary;
             grid.DefaultCellStyle.SelectionForeColor = Color.White;
             grid.DefaultCellStyle.Font = new Font("Segoe UI", 10);
+
+            grid.ColumnHeadersDefaultCellStyle.BackColor = Theme.Background;
+            grid.ColumnHeadersDefaultCellStyle.ForeColor = Theme.Text;
             grid.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 11, FontStyle.Bold);
             grid.ColumnHeadersHeight = 40;
             grid.RowTemplate.Height = 35;

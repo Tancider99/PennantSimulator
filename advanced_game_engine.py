@@ -1,12 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-超強化版試合エンジン - パワプロ風の詳細な試合シミュレーション
+超強化版試合エンジン - 物理演算ベースの超現実的な試合シミュレーション
 """
 import random
+import math
 from enum import Enum
 from typing import Tuple, List, Optional, Dict
 from dataclasses import dataclass
 from models import Team, Player, Position, PitchType
+from physics_engine import (
+    PhysicsEngine, AtBatSimulator, BattedBallData, HitResult,
+    OutfieldCatchResult, get_physics_engine, get_at_bat_simulator,
+    OUTFIELD_FENCE_CENTER, FENCE_HEIGHT,
+    GROUNDBALL_MAX_ANGLE, LINEDRIVE_MAX_ANGLE, FLYBALL_MIN_ANGLE,
+    MAX_EXIT_VELOCITY, AVG_EXIT_VELOCITY, MIN_EXIT_VELOCITY, OPTIMAL_HR_ANGLE
+)
 
 
 class Weather(Enum):
@@ -185,12 +193,16 @@ class CommentaryGenerator:
 
 
 class AdvancedGameEngine:
-    """超強化版試合エンジン"""
+    """超強化版試合エンジン - 物理演算ベース"""
     
     def __init__(self, home_team: Team, away_team: Team, 
                  stadium: Stadium = None, weather: Weather = None):
         self.home_team = home_team
         self.away_team = away_team
+        
+        # 物理エンジン初期化
+        self.physics_engine = get_physics_engine()
+        self.at_bat_simulator = get_at_bat_simulator()
         
         # 球場設定（ホームチーム基準）
         self.stadium = stadium or self._get_team_stadium(home_team.name)
@@ -203,6 +215,9 @@ class AdvancedGameEngine:
                 Weather.SUNNY, Weather.CLOUDY, Weather.SUNNY, 
                 Weather.WINDY, Weather.SUNNY
             ])
+        
+        # 物理エンジンに天候を設定
+        self._setup_physics_weather()
         
         # スコア
         self.home_score = 0
@@ -232,6 +247,30 @@ class AdvancedGameEngine:
         
         # 統計
         self.total_hits = {"home": 0, "away": 0}
+        self.total_errors = {"home": 0, "away": 0}
+    
+    def _setup_physics_weather(self):
+        """物理エンジンに天候条件を設定"""
+        if self.weather == Weather.DOME:
+            self.physics_engine.set_weather(wind_x=0, wind_y=0, temp=25, humidity=50, altitude=0)
+        elif self.weather == Weather.WINDY:
+            # 風向きをランダムに設定 (センター方向への追い風 or 向かい風)
+            wind_strength = random.uniform(3, 8)  # m/s
+            wind_direction = random.choice([-1, 1])  # 追い風か向かい風
+            self.physics_engine.set_weather(
+                wind_x=random.uniform(-2, 2),
+                wind_y=wind_direction * wind_strength,
+                temp=22, humidity=55, altitude=0
+            )
+        elif self.weather == Weather.HOT:
+            self.physics_engine.set_weather(wind_x=0.5, wind_y=0.5, temp=35, humidity=70, altitude=0)
+        elif self.weather == Weather.COLD:
+            self.physics_engine.set_weather(wind_x=1, wind_y=0, temp=8, humidity=40, altitude=0)
+        elif self.weather == Weather.RAIN:
+            self.physics_engine.set_weather(wind_x=0, wind_y=0, temp=18, humidity=95, altitude=0)
+        else:
+            # SUNNY, CLOUDY
+            self.physics_engine.set_weather(wind_x=0.3, wind_y=0.3, temp=25, humidity=55, altitude=0)
         self.total_errors = {"home": 0, "away": 0}
         
     def _get_team_stadium(self, team_name: str) -> Stadium:
@@ -383,119 +422,202 @@ class AdvancedGameEngine:
         base_error += self.weather.error_modifier
         return base_error
     
-    def simulate_at_bat(self, batter: Player, pitcher: Player) -> AtBatDetail:
-        """詳細な打席シミュレーション"""
-        pitch_count = random.randint(1, 8)
+    def _setup_outfield_defense(self, fielding_team: Team):
+        """外野守備の設定"""
+        # 外野手を探す
+        lf_stats = cf_stats = rf_stats = None
         
-        # 確率計算
-        hit_prob = self._calculate_hit_probability(batter, pitcher)
-        hr_prob = self._calculate_hr_probability(batter, pitcher)
-        k_prob = self._calculate_strikeout_probability(batter, pitcher)
+        for i, player in enumerate(fielding_team.players):
+            if player.position == Position.OUTFIELD:
+                # 簡易的に3人の外野手を設定
+                stats_dict = {
+                    'run': player.stats.run,
+                    'fielding': player.stats.fielding,
+                    'arm': player.stats.arm
+                }
+                if lf_stats is None:
+                    lf_stats = stats_dict
+                elif cf_stats is None:
+                    cf_stats = stats_dict
+                elif rf_stats is None:
+                    rf_stats = stats_dict
+        
+        self.physics_engine.set_outfielders(lf_stats, cf_stats, rf_stats)
+    
+    def _generate_batted_ball(self, batter: Player, pitcher: Player) -> BattedBallData:
+        """物理演算ベースで打球を生成"""
+        # 打者の能力値
+        contact = batter.stats.contact
+        power = batter.stats.power
+        trajectory = getattr(batter.stats, 'trajectory', 2)  # 弾道 (1-4)
+        
+        # 投手の能力値
+        p_speed = pitcher.stats.speed
+        p_breaking = pitcher.stats.breaking
+        p_control = pitcher.stats.control
+        
+        # コンディション補正
+        batter_condition = self._get_condition_modifier(batter)
+        pitcher_condition = self._get_condition_modifier(pitcher)
+        
+        # チャンス補正
+        clutch_bonus = 0
+        if self._is_clutch_situation():
+            clutch_bonus = self._get_ability_modifier(batter, "clutch")
+        
+        # 芯を捉えた度合い (コンタクト能力と投手の球威/変化球に依存)
+        contact_difficulty = (p_speed - 10 + p_breaking - 10) / 20
+        base_quality = 0.4 + (contact - 10) * 0.025 - contact_difficulty * 0.1
+        base_quality = base_quality * batter_condition / pitcher_condition
+        base_quality += clutch_bonus * 0.1
+        
+        # ベータ分布でコンタクト品質を生成
+        alpha = max(1.5, 2.0 + (contact - 12) * 0.2)
+        beta = max(1.5, 3.5 - (contact - 12) * 0.1)
+        contact_quality = random.betavariate(alpha, beta) * min(1.2, max(0.8, base_quality / 0.5))
+        contact_quality = max(0.05, min(1.0, contact_quality))
+        
+        # 打球速度の計算 (パワーとコンタクト品質に依存)
+        if contact_quality > 0.75:
+            # 完璧なコンタクト - バレルゾーン
+            base_velo = AVG_EXIT_VELOCITY + (power - 10) * 2.5
+            exit_velocity = base_velo * (0.85 + contact_quality * 0.2)
+        elif contact_quality > 0.45:
+            # 良いコンタクト
+            base_velo = 115 + (power - 10) * 2.0
+            exit_velocity = base_velo * (0.75 + contact_quality * 0.3)
+        else:
+            # 芯を外した
+            base_velo = 80 + (power - 10) * 1.0
+            exit_velocity = base_velo * (0.6 + contact_quality * 0.5)
+        
+        # 球場補正 (ドームは打球が伸びやすい)
+        exit_velocity *= (0.98 + self.stadium.hr_factor * 0.02)
+        
+        # ランダム変動
+        exit_velocity += random.gauss(0, 4)
+        exit_velocity = max(MIN_EXIT_VELOCITY, min(MAX_EXIT_VELOCITY, exit_velocity))
+        
+        # 打球角度の計算 (弾道タイプとコンタクト位置に依存)
+        trajectory_base = {1: 0, 2: 8, 3: 14, 4: 20}.get(trajectory, 10)
+        
+        if contact_quality > 0.7:
+            # 芯を捉えると最適な角度になりやすい
+            target_angle = OPTIMAL_HR_ANGLE if power >= 15 else trajectory_base + 8
+            launch_angle = target_angle + random.gauss(0, 5)
+        elif contact_quality > 0.4:
+            launch_angle = trajectory_base + random.gauss(3, 9)
+        else:
+            # 芯を外すとゴロかポップアップ
+            if random.random() < 0.55:
+                launch_angle = random.gauss(-3, 7)  # ゴロ
+            else:
+                launch_angle = random.gauss(48, 10)  # ポップアップ
+        
+        launch_angle = max(-15, min(65, launch_angle))
+        
+        # 打球方向
+        pull_tendency = getattr(batter.stats, 'pull', 0)
+        spray_angle = random.gauss(pull_tendency * 1.2, 20)
+        spray_angle = max(-45, min(45, spray_angle))
+        
+        # 回転数
+        if launch_angle > 20:
+            spin_rate = 2200 + int(launch_angle * 22) + random.randint(-200, 200)
+        elif launch_angle > 5:
+            spin_rate = 1800 + int(launch_angle * 18) + random.randint(-200, 200)
+        else:
+            spin_rate = 900 + random.randint(-200, 200)
+        
+        # 打球タイプ判定
+        if launch_angle < GROUNDBALL_MAX_ANGLE:
+            hit_type = "ground"
+        elif launch_angle < LINEDRIVE_MAX_ANGLE:
+            hit_type = "line"
+        elif launch_angle < FLYBALL_MIN_ANGLE + 18:
+            hit_type = "fly"
+        else:
+            hit_type = "popup"
+        
+        return BattedBallData(
+            exit_velocity=exit_velocity,
+            launch_angle=launch_angle,
+            spray_angle=spray_angle,
+            spin_rate=spin_rate,
+            spin_axis=random.uniform(0, 360),
+            contact_quality=contact_quality,
+            hit_type=hit_type
+        )
+    
+    def _convert_physics_result_to_bat_result(self, hit_result: HitResult, 
+                                               defense_result: OutfieldCatchResult = None) -> Tuple[BatResult, str]:
+        """物理エンジンの結果をBatResultに変換"""
+        descriptions = {
+            HitResult.HOME_RUN: ("ホームラン！！", BatResult.HOME_RUN),
+            HitResult.TRIPLE: ("三塁打！", BatResult.TRIPLE),
+            HitResult.DOUBLE: ("二塁打！", BatResult.DOUBLE),
+            HitResult.SINGLE: ("ヒット！", BatResult.SINGLE),
+            HitResult.INFIELD_HIT: ("内野安打！", BatResult.INFIELD_SINGLE),
+            HitResult.FLYOUT: ("フライアウト", BatResult.FLYOUT),
+            HitResult.GROUNDOUT: ("ゴロアウト", BatResult.GROUNDOUT),
+            HitResult.LINEOUT: ("ライナーアウト", BatResult.LINEOUT),
+        }
+        
+        base_desc, bat_result = descriptions.get(hit_result, ("アウト", BatResult.GROUNDOUT))
+        
+        # 守備結果があればより詳細な説明を追加
+        if defense_result and defense_result.description:
+            if defense_result.is_diving_catch:
+                base_desc = f"ダイビングキャッチ！{defense_result.fielder_position}の好守！"
+            elif defense_result.is_wall_catch:
+                base_desc = f"フェンス際でスーパーキャッチ！"
+            elif not defense_result.is_caught and bat_result == BatResult.FLYOUT:
+                # 守備が追いつけなかった場合
+                base_desc = defense_result.description
+        
+        return bat_result, base_desc
+    
+    def simulate_at_bat_physics(self, batter: Player, pitcher: Player) -> AtBatDetail:
+        """物理演算ベースの詳細な打席シミュレーション"""
+        pitch_count = random.randint(2, 9)
+        
+        # 外野守備を設定
+        fielding_team = self.home_team if self.is_top else self.away_team
+        self._setup_outfield_defense(fielding_team)
+        
+        # まず四球/三振/死球の判定
         walk_prob = self._calculate_walk_probability(batter, pitcher)
-        error_prob = self._calculate_error_probability()
+        k_prob = self._calculate_strikeout_probability(batter, pitcher)
         
         roll = random.random()
-        cumulative = 0
-        
-        # ホームラン
-        cumulative += hr_prob
-        if roll < cumulative:
-            runs = 1 + sum(1 for r in self.runners if r)
-            batter.record.home_runs += 1
-            batter.record.hits += 1
-            batter.record.at_bats += 1
-            batter.record.rbis += runs
-            pitcher.record.hits_allowed += 1
-            
-            comment = CommentaryGenerator.generate_home_run_comment(
-                batter, batter.record.home_runs, sum(1 for r in self.runners if r)
-            )
-            
-            return AtBatDetail(
-                batter=batter, pitcher=pitcher, result=BatResult.HOME_RUN,
-                pitch_count=pitch_count, runs_scored=runs,
-                runners_advanced=[], description=comment, is_dramatic=True
-            )
-        
-        # 三塁打
-        cumulative += hit_prob * 0.03
-        if roll < cumulative:
-            runs = sum(1 for r in self.runners if r)
-            batter.record.triples += 1
-            batter.record.hits += 1
-            batter.record.at_bats += 1
-            batter.record.rbis += runs
-            pitcher.record.hits_allowed += 1
-            
-            return AtBatDetail(
-                batter=batter, pitcher=pitcher, result=BatResult.TRIPLE,
-                pitch_count=pitch_count, runs_scored=runs,
-                runners_advanced=[3], description=f"{batter.name}、三塁打！"
-            )
-        
-        # 二塁打
-        cumulative += hit_prob * 0.15
-        if roll < cumulative:
-            runs = 0
-            if self.runners[2]: runs += 1
-            if self.runners[1]: runs += 1
-            batter.record.doubles += 1
-            batter.record.hits += 1
-            batter.record.at_bats += 1
-            batter.record.rbis += runs
-            pitcher.record.hits_allowed += 1
-            
-            desc = f"{batter.name}、二塁打！"
-            if runs > 0:
-                desc = CommentaryGenerator.generate_clutch_comment(batter, runs)
-            
-            return AtBatDetail(
-                batter=batter, pitcher=pitcher, result=BatResult.DOUBLE,
-                pitch_count=pitch_count, runs_scored=runs,
-                runners_advanced=[2], description=desc
-            )
-        
-        # シングルヒット
-        cumulative += hit_prob * 0.82
-        if roll < cumulative:
-            runs = 0
-            if self.runners[2]: runs += 1
-            if self.runners[1] and random.random() < 0.6:
-                runs += 1
-            
-            batter.record.hits += 1
-            batter.record.at_bats += 1
-            batter.record.rbis += runs
-            pitcher.record.hits_allowed += 1
-            
-            is_infield = random.random() < 0.15 and batter.stats.run >= 12
-            result = BatResult.INFIELD_SINGLE if is_infield else BatResult.SINGLE
-            
-            desc = f"{batter.name}、ヒット！"
-            if runs > 0:
-                desc = CommentaryGenerator.generate_clutch_comment(batter, runs)
-            
-            return AtBatDetail(
-                batter=batter, pitcher=pitcher, result=result,
-                pitch_count=pitch_count, runs_scored=runs,
-                runners_advanced=[1], description=desc
-            )
         
         # 四球
-        cumulative += walk_prob
-        if roll < cumulative:
+        if roll < walk_prob:
             runs = 1 if all(self.runners) else 0
             batter.record.walks += 1
             pitcher.record.walks_allowed += 1
-            
             return AtBatDetail(
                 batter=batter, pitcher=pitcher, result=BatResult.WALK,
                 pitch_count=pitch_count, runs_scored=runs,
                 runners_advanced=[1], description=f"{batter.name}、四球を選ぶ"
             )
         
+        # 三振
+        if roll < walk_prob + k_prob:
+            batter.record.strikeouts += 1
+            batter.record.at_bats += 1
+            pitcher.record.strikeouts_pitched += 1
+            is_swinging = random.random() < 0.6
+            result = BatResult.STRIKEOUT_SWINGING if is_swinging else BatResult.STRIKEOUT_LOOKING
+            return AtBatDetail(
+                batter=batter, pitcher=pitcher, result=result,
+                pitch_count=pitch_count, runs_scored=0,
+                runners_advanced=[],
+                description=CommentaryGenerator.generate_strikeout_comment(batter, pitcher)
+            )
+        
         # 死球
-        if random.random() < 0.01:
+        if random.random() < 0.008:
             runs = 1 if all(self.runners) else 0
             return AtBatDetail(
                 batter=batter, pitcher=pitcher, result=BatResult.HIT_BY_PITCH,
@@ -503,79 +625,127 @@ class AdvancedGameEngine:
                 runners_advanced=[1], description=f"{batter.name}、死球！"
             )
         
-        # エラー
-        cumulative += error_prob
-        if roll < cumulative:
+        # 打球を生成
+        batted_ball = self._generate_batted_ball(batter, pitcher)
+        
+        # 物理エンジンで打球結果を計算
+        hit_result, distance, hang_time = self.physics_engine.calculate_batted_ball(batted_ball)
+        
+        # 外野フライの場合は守備シミュレーションを実行
+        defense_result = None
+        if batted_ball.hit_type in ["fly", "line"] and distance > 40:
+            defense_result = self.physics_engine.simulate_outfield_defense(batted_ball)
+            if defense_result.is_caught:
+                hit_result = HitResult.FLYOUT
+        
+        # 結果を変換
+        bat_result, base_desc = self._convert_physics_result_to_bat_result(hit_result, defense_result)
+        
+        # 併殺打チェック (ゴロアウトで1塁ランナーがいる場合)
+        if bat_result == BatResult.GROUNDOUT and self.runners[0] and self.outs < 2:
+            dp_chance = 0.12 + (batted_ball.exit_velocity - 100) * 0.001
+            if batted_ball.hit_type == "ground" and random.random() < dp_chance:
+                batter.record.at_bats += 1
+                return AtBatDetail(
+                    batter=batter, pitcher=pitcher, result=BatResult.DOUBLE_PLAY,
+                    pitch_count=pitch_count, runs_scored=0,
+                    runners_advanced=[],
+                    description=random.choice(CommentaryGenerator.DOUBLE_PLAY_COMMENTS).format(batter=batter.name)
+                )
+        
+        # エラー判定
+        error_prob = self._calculate_error_probability()
+        if bat_result in [BatResult.GROUNDOUT, BatResult.FLYOUT] and random.random() < error_prob:
             self.total_errors["away" if self.is_top else "home"] += 1
             return AtBatDetail(
                 batter=batter, pitcher=pitcher, result=BatResult.ERROR,
                 pitch_count=pitch_count, runs_scored=0,
-                runners_advanced=[1], 
-                description=random.choice(CommentaryGenerator.ERROR_COMMENTS).format(
-                    fielder="守備陣"
-                )
+                runners_advanced=[1],
+                description=random.choice(CommentaryGenerator.ERROR_COMMENTS).format(fielder="守備陣")
             )
         
-        # 三振
-        cumulative += k_prob
-        if roll < cumulative:
-            batter.record.strikeouts += 1
-            batter.record.at_bats += 1
-            pitcher.record.strikeouts_pitched += 1
-            
-            is_swinging = random.random() < 0.6
-            result = BatResult.STRIKEOUT_SWINGING if is_swinging else BatResult.STRIKEOUT_LOOKING
-            
-            return AtBatDetail(
-                batter=batter, pitcher=pitcher, result=result,
-                pitch_count=pitch_count, runs_scored=0,
-                runners_advanced=[], 
-                description=CommentaryGenerator.generate_strikeout_comment(batter, pitcher)
-            )
-        
-        # 併殺打チェック
-        if self.runners[0] and self.outs < 2 and random.random() < 0.15:
-            batter.record.at_bats += 1
-            return AtBatDetail(
-                batter=batter, pitcher=pitcher, result=BatResult.DOUBLE_PLAY,
-                pitch_count=pitch_count, runs_scored=0,
-                runners_advanced=[], 
-                description=random.choice(CommentaryGenerator.DOUBLE_PLAY_COMMENTS).format(
-                    batter=batter.name
-                )
-            )
-        
-        # 犠牲フライ
-        if self.runners[2] and self.outs < 2 and random.random() < 0.3:
-            batter.record.rbis += 1
-            return AtBatDetail(
-                batter=batter, pitcher=pitcher, result=BatResult.SACRIFICE_FLY,
-                pitch_count=pitch_count, runs_scored=1,
-                runners_advanced=[], 
-                description=f"{batter.name}、犠牲フライ！1点が入る！"
-            )
-        
-        # 通常アウト
-        batter.record.at_bats += 1
-        out_types = [
-            (BatResult.GROUNDOUT, f"{batter.name}、ゴロアウト"),
-            (BatResult.FLYOUT, f"{batter.name}、フライアウト"),
-            (BatResult.LINEOUT, f"{batter.name}、ライナーアウト"),
-        ]
-        result, desc = random.choice(out_types)
-        
-        # タッチアップでの得点
+        # 得点計算と記録
         runs = 0
-        if result == BatResult.FLYOUT and self.runners[2] and self.outs < 2:
-            if random.random() < 0.4:
-                runs = 1
-                desc += "、タッチアップで1点！"
+        description = f"{batter.name}、{base_desc}"
+        is_dramatic = False
+        
+        if bat_result == BatResult.HOME_RUN:
+            runs = 1 + sum(1 for r in self.runners if r)
+            batter.record.home_runs += 1
+            batter.record.hits += 1
+            batter.record.at_bats += 1
+            batter.record.rbis += runs
+            pitcher.record.hits_allowed += 1
+            description = CommentaryGenerator.generate_home_run_comment(batter, batter.record.home_runs, runs - 1)
+            is_dramatic = True
+            
+        elif bat_result == BatResult.TRIPLE:
+            runs = sum(1 for r in self.runners if r)
+            batter.record.triples += 1
+            batter.record.hits += 1
+            batter.record.at_bats += 1
+            batter.record.rbis += runs
+            pitcher.record.hits_allowed += 1
+            if runs > 0:
+                description = CommentaryGenerator.generate_clutch_comment(batter, runs)
+            
+        elif bat_result == BatResult.DOUBLE:
+            if self.runners[2]: runs += 1
+            if self.runners[1]: runs += 1
+            batter.record.doubles += 1
+            batter.record.hits += 1
+            batter.record.at_bats += 1
+            batter.record.rbis += runs
+            pitcher.record.hits_allowed += 1
+            if runs > 0:
+                description = CommentaryGenerator.generate_clutch_comment(batter, runs)
+            
+        elif bat_result in [BatResult.SINGLE, BatResult.INFIELD_SINGLE]:
+            if self.runners[2]: runs += 1
+            if self.runners[1] and random.random() < 0.55: runs += 1
+            batter.record.hits += 1
+            batter.record.at_bats += 1
+            batter.record.rbis += runs
+            pitcher.record.hits_allowed += 1
+            if runs > 0:
+                description = CommentaryGenerator.generate_clutch_comment(batter, runs)
+        
+        elif bat_result == BatResult.FLYOUT:
+            batter.record.at_bats += 1
+            # 犠牲フライ判定
+            if self.runners[2] and self.outs < 2 and hang_time > 3.5:
+                if random.random() < 0.65:
+                    runs = 1
+                    batter.record.rbis += 1
+                    bat_result = BatResult.SACRIFICE_FLY
+                    description = f"{batter.name}、犠牲フライ！1点が入る！"
+        
+        elif bat_result in [BatResult.GROUNDOUT, BatResult.LINEOUT]:
+            batter.record.at_bats += 1
         
         return AtBatDetail(
-            batter=batter, pitcher=pitcher, result=result,
+            batter=batter, pitcher=pitcher, result=bat_result,
             pitch_count=pitch_count, runs_scored=runs,
-            runners_advanced=[], description=desc
+            runners_advanced=self._get_runners_advanced(bat_result),
+            description=description, is_dramatic=is_dramatic
         )
+    
+    def _get_runners_advanced(self, result: BatResult) -> List[int]:
+        """結果に応じた進塁ベースを取得"""
+        if result == BatResult.HOME_RUN:
+            return []
+        elif result == BatResult.TRIPLE:
+            return [3]
+        elif result == BatResult.DOUBLE:
+            return [2]
+        elif result in [BatResult.SINGLE, BatResult.INFIELD_SINGLE, BatResult.WALK, 
+                        BatResult.HIT_BY_PITCH, BatResult.ERROR]:
+            return [1]
+        return []
+    
+    def simulate_at_bat(self, batter: Player, pitcher: Player) -> AtBatDetail:
+        """打席シミュレーション（物理演算版を使用）"""
+        return self.simulate_at_bat_physics(batter, pitcher)
     
     def process_at_bat_result(self, detail: AtBatDetail) -> int:
         """打席結果を処理してスコアを更新"""

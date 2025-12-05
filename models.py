@@ -24,6 +24,13 @@ class PitchType(Enum):
     CLOSER = "抑え"
 
 
+class TeamLevel(Enum):
+    """一軍/二軍/三軍"""
+    FIRST = "一軍"
+    SECOND = "二軍"
+    THIRD = "三軍"
+
+
 class PlayerStatus(Enum):
     ACTIVE = "支配下"
     FARM = "育成"
@@ -119,31 +126,32 @@ class ScheduledGame:
 class PlayerStats:
     """選手能力値（パワプロ風 S/A/B/C/D/E/F/G ランク対応）
     
-    基本能力値は1〜20の範囲
-    表示時はランクに変換（S=15+, A=13-14, B=11-12, C=9-10, D=7-8, E=5-6, F=3-4, G=1-2）
+    基本能力値は1〜99の範囲
+    表示時はランクに変換（S=90+, A=80-89, B=70-79, C=60-69, D=50-59, E=40-49, F=30-39, G=1-29）
+    50が平均的なプロ選手レベル
     """
     # ===== 野手基本能力 =====
-    contact: int = 10      # ミート（打率への影響）
-    power: int = 10        # パワー（長打力）
-    run: int = 10          # 走力（盗塁、走塁）
-    arm: int = 10          # 肩力（送球速度）
-    fielding: int = 10     # 守備力（捕球、反応）
-    catching: int = 10     # 捕球（エラー率）
+    contact: int = 50      # ミート（打率への影響）
+    power: int = 50        # パワー（長打力）
+    run: int = 50          # 走力（盗塁、走塁）
+    arm: int = 50          # 肩力（送球速度）
+    fielding: int = 50     # 守備力（捕球、反応）
+    catching: int = 50     # 捕球（エラー率）
     
     # ===== 投手基本能力 =====
-    speed: int = 10        # 球速
-    control: int = 10      # コントロール
-    stamina: int = 10      # スタミナ
-    breaking: int = 10     # 変化球キレ
+    speed: int = 50        # 球速
+    control: int = 50      # コントロール
+    stamina: int = 50      # スタミナ
+    breaking: int = 50     # 変化球キレ
     
     # ===== 特殊能力関連 =====
-    mental: int = 10       # メンタル強さ
-    clutch: int = 10       # チャンス（チャンス時の強さ）
-    consistency: int = 10  # 安定感
-    vs_left: int = 10      # 対左投手/打者
-    pinch_hit: int = 10    # 代打適性
-    stealing: int = 10     # 盗塁技術
-    baserunning: int = 10  # 走塁センス
+    mental: int = 50       # メンタル強さ
+    clutch: int = 50       # チャンス（チャンス時の強さ）
+    consistency: int = 50  # 安定感
+    vs_left: int = 50      # 対左投手/打者
+    pinch_hit: int = 50    # 代打適性
+    stealing: int = 50     # 盗塁技術
+    baserunning: int = 50  # 走塁センス
     
     # ===== 投手専用 =====
     breaking_balls: List[str] = field(default_factory=list)  # 持ち球リスト
@@ -154,34 +162,58 @@ class PlayerStats:
     trajectory: int = 2    # 1=グラウンダー, 2=ライナー, 3=普通, 4=フライ
     
     def overall_batting(self) -> float:
+        """野手の総合値を計算（1-99スケール）"""
+        # 能力値は既に1-99スケール
         return (self.contact * 2 + self.power * 1.5 + self.run + self.clutch * 0.5) / 5.0
     
     def overall_pitching(self) -> float:
+        """投手の総合値を計算（1-99スケール）"""
         return (self.speed * 1.5 + self.control * 2 + self.stamina + self.breaking * 1.5 + self.mental * 0.5) / 6.5
     
+    def speed_to_kmh(self) -> int:
+        """球速能力値(1-99)をkm/h表示に変換
+        
+        1 → 130km/h (最低)
+        50 → 145km/h (平均的プロ投手)
+        99 → 165km/h (最高)
+        
+        計算式: 130 + (speed - 1) * 35 / 98
+        """
+        return int(130 + (self.speed - 1) * 35 / 98)
+    
+    @staticmethod
+    def kmh_to_speed(kmh: int) -> int:
+        """km/h表示を球速能力値(1-99)に変換"""
+        return max(1, min(99, int((kmh - 130) * 98 / 35 + 1)))
+    
+    def to_100_scale(self, value: int) -> int:
+        """能力値を1-99スケールに正規化（互換性のため保持）"""
+        return max(1, min(99, value))
+    
     def get_rank(self, value: int) -> str:
-        """能力値をパワプロ風ランクに変換"""
-        if value >= 15: return "S"
-        elif value >= 13: return "A"
-        elif value >= 11: return "B"
-        elif value >= 9: return "C"
-        elif value >= 7: return "D"
-        elif value >= 5: return "E"
-        elif value >= 3: return "F"
+        """能力値をパワプロ風ランクに変換（1-100スケール対応）"""
+        # 100スケール用のランク分け
+        if value >= 90: return "S"
+        elif value >= 80: return "A"
+        elif value >= 70: return "B"
+        elif value >= 60: return "C"
+        elif value >= 50: return "D"
+        elif value >= 40: return "E"
+        elif value >= 30: return "F"
         else: return "G"
     
     def get_rank_color(self, value: int) -> tuple:
-        """ランクに応じた色を返す (R, G, B)"""
+        """ランクに応じた色を返す (R, G, B) - パワプロ風カラー"""
         rank = self.get_rank(value)
         colors = {
-            "S": (255, 215, 0),    # ゴールド
-            "A": (255, 100, 100),  # 赤
-            "B": (255, 165, 0),    # オレンジ
-            "C": (255, 255, 100),  # 黄色
-            "D": (100, 255, 100),  # 緑
-            "E": (100, 200, 255),  # 水色
-            "F": (180, 180, 180),  # グレー
-            "G": (120, 120, 120),  # 暗いグレー
+            "S": (255, 50, 50),    # 赤（パワプロS）
+            "A": (255, 140, 0),    # オレンジ（パワプロA）
+            "B": (255, 215, 0),    # 金色（パワプロB）
+            "C": (255, 255, 100),  # 黄色（パワプロC）
+            "D": (100, 255, 100),  # 緑（パワプロD）
+            "E": (100, 200, 255),  # 水色（パワプロE）
+            "F": (180, 180, 180),  # グレー（パワプロF）
+            "G": (120, 120, 120),  # 暗いグレー（パワプロG）
         }
         return colors.get(rank, (255, 255, 255))
     
@@ -210,6 +242,7 @@ class PlayerStats:
 @dataclass
 class PlayerRecord:
     """選手成績"""
+    # 打撃成績
     at_bats: int = 0
     hits: int = 0
     doubles: int = 0
@@ -220,15 +253,23 @@ class PlayerRecord:
     walks: int = 0
     strikeouts: int = 0
     stolen_bases: int = 0
+    caught_stealing: int = 0
+    sacrifice_hits: int = 0
+    sacrifice_flies: int = 0
+    grounded_into_dp: int = 0
+    
+    # 投球成績
     games_pitched: int = 0
     wins: int = 0
     losses: int = 0
     saves: int = 0
     innings_pitched: float = 0.0
     earned_runs: int = 0
+    runs_allowed: int = 0
     hits_allowed: int = 0
     walks_allowed: int = 0
     strikeouts_pitched: int = 0
+    home_runs_allowed: int = 0
     
     @property
     def batting_average(self) -> float:
@@ -257,10 +298,17 @@ class Player:
     
     # 育成選手フラグ（True=育成契約、False=支配下登録）
     is_developmental: bool = False
+    # 一軍/二軍/三軍
+    team_level: 'TeamLevel' = None  # Noneの場合は自動判定
     # サブポジション（適性がある守備位置リスト）
     sub_positions: List[Position] = field(default_factory=list)
     # サブポジション適性値（0.0〜1.0、1.0で本職と同等）
     sub_position_ratings: dict = field(default_factory=dict)
+    
+    # 投手適性値（0-100）：先発・中継ぎ・抑えの適性
+    starter_aptitude: int = 50    # 先発適性
+    middle_aptitude: int = 50     # 中継ぎ適性
+    closer_aptitude: int = 50     # 抑え適性
     
     # 追加: 育成システム用
     special_abilities: Optional['PlayerAbilities'] = None
@@ -301,6 +349,82 @@ class Player:
         if pos != self.position and pos not in self.sub_positions:
             self.sub_positions.append(pos)
             self.sub_position_ratings[pos.value] = min(1.0, max(0.3, rating))
+    
+    def get_preferred_pitcher_role(self) -> Optional[PitchType]:
+        """最も適性が高い投手役割を取得"""
+        if self.position != Position.PITCHER:
+            return None
+        
+        aptitudes = {
+            PitchType.STARTER: self.starter_aptitude,
+            PitchType.RELIEVER: self.middle_aptitude,
+            PitchType.CLOSER: self.closer_aptitude
+        }
+        return max(aptitudes, key=aptitudes.get)
+    
+    def get_aptitude_for_role(self, role: PitchType) -> int:
+        """指定された役割の適性値を取得"""
+        if role == PitchType.STARTER:
+            return self.starter_aptitude
+        elif role == PitchType.RELIEVER:
+            return self.middle_aptitude
+        elif role == PitchType.CLOSER:
+            return self.closer_aptitude
+        return 50
+
+    @property
+    def overall_rating(self) -> int:
+        """総合力を計算（1-999）
+        
+        野手：ミート、パワー、走力、守備、肩力、捕球を重み付け
+        投手：球速、制球、スタミナ、変化球、適性を重み付け
+        年齢補正：若い選手は将来性で加算、ベテランは経験値で加算
+        能力値は1-99スケール
+        """
+        if self.position == Position.PITCHER:
+            # 投手の総合力（能力値1-99スケール）
+            base = (
+                self.stats.speed * 1.0 +
+                self.stats.control * 1.0 +
+                self.stats.stamina * 0.6 +
+                self.stats.breaking * 0.8 +
+                self.stats.mental * 0.4
+            )  # max: 99*3.8 = 376.2
+            
+            # 適性ボーナス
+            max_apt = max(self.starter_aptitude, self.middle_aptitude, self.closer_aptitude)
+            apt_bonus = max_apt * 0.4  # max: 40
+            
+            total = base + apt_bonus  # max: ~416
+        else:
+            # 野手の総合力（能力値1-99スケール）
+            base = (
+                self.stats.contact * 1.0 +
+                self.stats.power * 1.0 +
+                self.stats.run * 0.6 +
+                self.stats.fielding * 0.6 +
+                self.stats.arm * 0.4 +
+                self.stats.catching * 0.4
+            )  # max: 99*4.0 = 396
+            
+            # メンタル・チャンスボーナス
+            mental_bonus = (self.stats.clutch + self.stats.mental) * 0.4  # max: 79.2
+            
+            total = base + mental_bonus  # max: ~475
+        
+        # 年齢補正：年齢が高いほどやや有利になる方向に調整（経験値を重視）
+        # 基本的に25歳を基準にし、年齢1につき約+2のボーナスを与える（例: 35歳で+20）。
+        # ただし極端な値はクリップして安定させる。
+        age_bonus = int((self.age - 25) * 2)
+        age_bonus = max(-30, min(60, age_bonus))
+        
+        # 育成選手は減算
+        dev_penalty = -50 if self.is_developmental else 0
+        
+        # 最終計算：内部合計をそのまま総合値として扱うことで、平均が扱いやすい領域に収まるようにする。
+        # （内部合計の典型値が約250になるように能力分布を設計しているため、ここでの値が平均250前後になります）
+        rating = int(total + age_bonus + dev_penalty)
+        return max(1, min(999, rating))
 
 
 @dataclass
@@ -338,14 +462,14 @@ class Team:
     # NPB式ベンチ入りメンバー管理（一軍登録）
     bench_batters: List[int] = field(default_factory=list)  # ベンチ野手（5人程度）
     bench_pitchers: List[int] = field(default_factory=list)  # ベンチ投手（中継ぎ・抑え）
-    active_roster: List[int] = field(default_factory=list)  # 一軍登録選手（最大29人）
+    active_roster: List[int] = field(default_factory=list)  # 一軍登録選手（最大31人）
     farm_roster: List[int] = field(default_factory=list)  # 二軍（ファーム）選手
     
     # NPBルール定数
-    MAX_ACTIVE_ROSTER: int = 29  # 一軍登録上限（2024年〜）
+    MAX_ACTIVE_ROSTER: int = 31  # 一軍登録上限
     MAX_BENCH_BATTERS: int = 5  # ベンチ野手上限
     MAX_BENCH_PITCHERS: int = 8  # ベンチ投手上限（中継ぎ＋抑え）
-    MAX_GAME_ENTRY: int = 25  # 試合出場登録上限（スタメン9人＋ベンチ16人）
+    MAX_GAME_ENTRY: int = 26  # 試合出場登録上限（スタメン9人＋ベンチ17人）
     
     # 支配下登録上限・育成上限
     MAX_ROSTER_SIZE: int = 70  # 支配下登録上限
@@ -449,13 +573,20 @@ class Team:
         active = set()
         # スタメン野手
         if self.current_lineup:
-            active.update(self.current_lineup)
+            active.update(idx for idx in self.current_lineup if idx is not None and idx >= 0)
         # ベンチ野手
-        active.update(self.bench_batters)
+        active.update(idx for idx in self.bench_batters if idx >= 0)
         # 先発ローテーション
-        active.update(self.rotation)
-        # ベンチ投手（中継ぎ・抑え）
-        active.update(self.bench_pitchers)
+        active.update(idx for idx in self.rotation if idx >= 0)
+        # 中継ぎ
+        setup = getattr(self, 'setup_pitchers', []) or []
+        active.update(idx for idx in setup if idx >= 0)
+        # 抑え
+        closer = getattr(self, 'closer', -1)
+        if closer >= 0:
+            active.add(closer)
+        # ベンチ投手（互換性のため）
+        active.update(idx for idx in self.bench_pitchers if idx >= 0)
         
         self.active_roster = list(active)[:self.MAX_ACTIVE_ROSTER]
     

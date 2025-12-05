@@ -1042,7 +1042,7 @@ rec or d_surf=fonts.h2.render(f"{player_team.w in s}-{player_team.losses}-{playe
 self.screen.blit(rec or d_surf,(30,rec or d_y))
 
 #勝率
-rate=player_team.w in _rate if player_team.games_played>0else0
+rate=player_team.win_rate if player_team.games_played>0 else 0
 rate_text=f"勝率.{in t(rate*1000): 03d}"
 rate_surf=fonts.body.render(rate_text,True,Col or s.TEXT_SECONDARY)
 self.screen.blit(rate_surf,(30,rec or d_y+40))
@@ -3797,7 +3797,7 @@ width=self.screen.get_width()
 height=self.screen.get_height()
 
 team_col or=self.get_team_col or(player_team.name) if player_team else Col or s.PRIMARY
-header_h=draw_header(self.screen,"💪育成","選手を鍛えて能力アップ！",team_col or)
+header_h=draw_header(self.screen,"育成","選手を鍛えて能力アップ！",team_col or)
 
 buttons={}
 

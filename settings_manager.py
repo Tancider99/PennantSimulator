@@ -11,10 +11,10 @@ from dataclasses import dataclass, field, asdict
 @dataclass
 class GameRuleSettings:
     """ゲームルール設定"""
-    # DH制
-    central_dh: bool = False  # セリーグDH制（デフォルトはなし）
-    pacific_dh: bool = True   # パリーグDH制（デフォルトはあり）
-    interleague_dh: bool = True  # 交流戦時のDH（ホーム球団ルール）
+    # DH制（常時オン）
+    central_dh: bool = True  # セリーグDH制（常時オン）
+    pacific_dh: bool = True   # パリーグDH制（常時オン）
+    interleague_dh: bool = True  # 交流戦時のDH（常時オン）
     
     # シーズン構成
     enable_interleague: bool = True  # 交流戦を行う
@@ -36,8 +36,13 @@ class GameRuleSettings:
     unlimited_foreign: bool = False  # 外国人枠無制限
     
     # 選手登録
-    roster_limit: int = 28  # 一軍登録人数上限
+    roster_limit: int = 31  # 一軍登録人数上限
     farm_roster_limit: int = 70  # 育成枠人数上限（0=無制限）
+    
+    # 軍制度
+    enable_third_team: bool = False  # 三軍制度を有効化
+    first_team_limit: int = 31  # 一軍登録人数上限
+    second_team_limit: int = 0  # 二軍登録人数上限（0=無制限）
     
     # キャンプ
     spring_camp_days: int = 28  # 春季キャンプ日数
@@ -65,6 +70,7 @@ class SettingsManager:
         self.music_volume = 0.7
         self.sfx_volume = 0.8
         self.auto_save = True
+        self.graphics_quality = "medium"  # "low", "medium", "high"
         
         # ゲームルール設定
         self.game_rules = GameRuleSettings()
@@ -84,6 +90,7 @@ class SettingsManager:
                     self.music_volume = data.get('music_volume', 0.7)
                     self.sfx_volume = data.get('sfx_volume', 0.8)
                     self.auto_save = data.get('auto_save', True)
+                    self.graphics_quality = data.get('graphics_quality', 'medium')
                     
                     # ゲームルール設定を読み込み
                     if 'game_rules' in data:
@@ -102,6 +109,7 @@ class SettingsManager:
                 'music_volume': self.music_volume,
                 'sfx_volume': self.sfx_volume,
                 'auto_save': self.auto_save,
+                'graphics_quality': self.graphics_quality,
                 'game_rules': self.game_rules.to_dict()
             }
             with open(self.settings_file, 'w', encoding='utf-8') as f:
