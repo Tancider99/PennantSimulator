@@ -5,11 +5,13 @@ namespace PennantSimulator.UI
 {
     internal static class Theme
     {
-        public static readonly Color Primary = Color.FromArgb(10, 132, 255);
-        public static readonly Color Accent = Color.FromArgb(255, 159, 10);
-        public static readonly Color Background = Color.FromArgb(250, 250, 252);
-        public static readonly Color Panel = Color.FromArgb(245, 247, 250);
-        public static readonly Color Dark = Color.FromArgb(30, 30, 30);
+        // OOTP-inspired Dark Theme
+        public static readonly Color Primary = Color.FromArgb(0, 122, 204);      // A strong blue for accents and primary actions
+        public static readonly Color Accent = Color.FromArgb(204, 140, 0);       // Muted gold/orange for highlights
+        public static readonly Color Background = Color.FromArgb(28, 28, 28);      // Very dark grey, for main window backgrounds
+        public static readonly Color Panel = Color.FromArgb(45, 45, 48);           // Lighter dark grey, for cards, panels, and controls
+        public static readonly Color Text = Color.FromArgb(241, 241, 241);           // Off-white for body text and labels
+
         public static readonly Font TitleFont = new Font("Segoe UI", 16, FontStyle.Bold);
         public static readonly Font UiFont = new Font("Segoe UI", 10);
 
@@ -17,8 +19,8 @@ namespace PennantSimulator.UI
         {
             b.FlatStyle = FlatStyle.Flat;
             b.FlatAppearance.BorderSize = 0;
-            b.BackColor = Primary;
-            b.ForeColor = Color.White;
+            b.BackColor = Panel; // Use Panel color for button background
+            b.ForeColor = Text;   // Use Text color for button foreground
             b.Font = UiFont;
         }
 
