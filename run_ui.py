@@ -104,21 +104,15 @@ class GameController(QMainWindow):
         """Configure the main window"""
         self.setWindowTitle("NPB PENNANT SIMULATOR 2.0")
         self.setMinimumSize(1280, 720)
-        self.resize(1600, 1000)
-
-        # Center on screen
-        from PySide6.QtWidgets import QApplication
-        screen = QApplication.primaryScreen()
-        if screen:
-            screen_geometry = screen.geometry()
-            x = (screen_geometry.width() - self.width()) // 2
-            y = (screen_geometry.height() - self.height()) // 2
-            self.move(x, y)
 
         # Set window style
         from UI.theme import get_theme
         theme = get_theme()
         self.setStyleSheet(f"background-color: {theme.bg_dark};")
+
+    def show(self):
+        """Show window in fullscreen by default"""
+        super().showFullScreen()
 
     def _setup_screens(self):
         """Set up all screens in a stacked widget"""

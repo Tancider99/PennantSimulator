@@ -59,7 +59,8 @@ class Card(QFrame):
             #Card {{
                 background-color: {self.theme.bg_card};
                 border: 1px solid {self.theme.border};
-                border-left: 4px solid {self.theme.border};
+                border-left: 3px solid {self.theme.border};
+                border-radius: 0px;
             }}
             #Card:hover {{
                 border-color: {self.theme.text_secondary};

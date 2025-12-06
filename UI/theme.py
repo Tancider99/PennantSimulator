@@ -89,10 +89,10 @@ class Theme:
     rating_f: str = "#bdbdbd"   # F Rank
     rating_g: str = "#757575"   # G Rank
 
-    # === Metrics ===
+    # === Metrics (Sharp corners for Starfield style) ===
     radius_small: int = 0
-    radius_medium: int = 2
-    radius_large: int = 4
+    radius_medium: int = 0
+    radius_large: int = 2
     
     shadow_color: str = "#000000"
     shadow_blur: int = 10
@@ -200,12 +200,12 @@ class ThemeManager:
             background-color: {t.primary};
         }}
         
-        /* Buttons */
+        /* Buttons - Sharp Industrial Style */
         QPushButton {{
             background-color: {t.bg_card};
             color: {t.text_primary};
             border: 1px solid {t.border};
-            border-radius: {t.radius_medium}px;
+            border-radius: 0px;
             padding: 8px 16px;
             font-size: 13px;
             font-weight: 600;

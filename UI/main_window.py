@@ -364,15 +364,40 @@ class MainWindow(QMainWindow):
 
     def _on_settings_changed(self, settings: dict):
         """Handle settings changes"""
-        # Apply window size if specified
-        if "window_size" in settings:
-            size = settings["window_size"]
-            if size in self.SIZE_PRESETS:
-                self._set_window_size(*self.SIZE_PRESETS[size])
+        # Apply fullscreen first
+        if settings.get("fullscreen", False):
+            if not self.isFullScreen():
+                self.showFullScreen()
+                self.fullscreen_action.setChecked(True)
+        else:
+            if self.isFullScreen():
+                self.showNormal()
+                self.fullscreen_action.setChecked(False)
+
+            # Apply window size if not fullscreen
+            if "window_size" in settings:
+                size_str = settings["window_size"]
+                # Parse size string like "1280 x 720 (HD)"
+                if " x " in size_str:
+                    parts = size_str.split(" x ")
+                    try:
+                        width = int(parts[0])
+                        height = int(parts[1].split()[0])
+                        self._set_window_size(width, height)
+                    except (ValueError, IndexError):
+                        pass
+
+            # Apply start maximized
+            if settings.get("start_maximized", False) and not self.isMaximized():
+                self.showMaximized()
 
         # Apply UI scale
         if "ui_scale" in settings:
             self._set_ui_scale(settings["ui_scale"])
+
+        # Save settings to QSettings
+        for key, value in settings.items():
+            self.settings.setValue(key, value)
 
     def set_game_state(self, game_state):
         """Set the current game state"""
