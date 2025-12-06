@@ -121,7 +121,13 @@ class SaveManager:
         try:
             with open(filepath, 'rb') as f:
                 data = pickle.load(f)
-            
+
+            # マイグレーション: 古いセーブ（能力値が1-20スケールのもの）を検出して1-99スケールへ変換
+            try:
+                self._migrate_stat_scales(data)
+            except Exception as me:
+                print(f"セーブマイグレーションでエラー: {me}")
+
             print(f"ロード完了: スロット{slot_num}")
             return data
         
@@ -153,6 +159,68 @@ class SaveManager:
                 return False
         
         return False
+
+    def _migrate_stat_scales(self, data: Any):
+        """Loaded pickle data may contain Player / PlayerStats objects saved with
+        older 1-20 scales. Detect PlayerStats objects and rescale integer stat
+        attributes from 1-20 -> 1-99 if necessary.
+        """
+        try:
+            from models import Player, PlayerStats
+        except Exception:
+            return
+
+        STAT_KEYS = [
+            'contact', 'power', 'run', 'arm', 'fielding', 'catching',
+            'speed', 'control', 'stamina', 'breaking', 'mental', 'clutch',
+            'consistency', 'vs_left', 'pinch_hit', 'stealing', 'baserunning'
+        ]
+
+        def scale_value(v: int) -> int:
+            if not isinstance(v, int):
+                return v
+            if v <= 0:
+                return v
+            # treat values <= 20 as old-scale and rescale to 1-99
+            if v <= 20:
+                return max(1, min(99, int(round(v * 99.0 / 20.0))))
+            return v
+
+        def visit(obj):
+            # If it's a PlayerStats instance, scale its stat attributes
+            if isinstance(obj, PlayerStats):
+                for k in STAT_KEYS:
+                    if hasattr(obj, k):
+                        try:
+                            cur = getattr(obj, k)
+                            newv = scale_value(cur)
+                            if newv != cur:
+                                setattr(obj, k, newv)
+                        except Exception:
+                            continue
+
+            # If it's a Player, visit its stats attribute
+            if isinstance(obj, Player):
+                if hasattr(obj, 'stats') and isinstance(obj.stats, PlayerStats):
+                    visit(obj.stats)
+
+            # If it's a dict or list, recurse
+            if isinstance(obj, dict):
+                # If dict looks like a serialized stats block, scale numeric stat entries
+                for key in list(obj.keys()):
+                    try:
+                        if key in STAT_KEYS and isinstance(obj[key], int):
+                            obj[key] = scale_value(obj[key])
+                        else:
+                            visit(obj[key])
+                    except Exception:
+                        # ignore errors and continue recursion
+                        continue
+            elif isinstance(obj, (list, tuple, set)):
+                for v in obj:
+                    visit(v)
+
+        visit(data)
     
     def export_to_json(self, slot_num: int, export_path: str) -> bool:
         """セーブデータをJSONとしてエクスポート（デバッグ用）"""
@@ -281,6 +349,7 @@ def _serialize_player(player) -> Dict[str, Any]:
         "years_pro": player.years_pro,
         "salary": player.salary,
         "is_developmental": player.is_developmental,
+        "team_level": getattr(player, 'team_level', None).value if getattr(player, 'team_level', None) else None,
         "stats": _serialize_stats(player.stats),
         "record": _serialize_record(player.record),
     }
@@ -525,6 +594,17 @@ def _deserialize_player(data: Dict[str, Any]):
         salary=data.get("salary", 1000),
         is_developmental=data.get("is_developmental", False),
     )
+    
+    # team_level を復元
+    team_level_str = data.get("team_level")
+    if team_level_str:
+        from models import TeamLevel
+        team_level_map = {
+            "一軍": TeamLevel.FIRST,
+            "二軍": TeamLevel.SECOND,
+            "三軍": TeamLevel.THIRD,
+        }
+        player.team_level = team_level_map.get(team_level_str, None)
     
     # 成長データ
     growth_data = data.get("growth")

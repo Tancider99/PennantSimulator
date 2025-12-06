@@ -13,6 +13,7 @@ class GameState(Enum):
     SETTINGS = "設定"
     NEW_GAME_SETUP = "新規ゲーム設定"  # ゲーム開始時の詳細設定画面
     TEAM_SELECT = "チーム選択"
+    TEAM_CREATE = "チーム作成"  # 新規チーム作成画面
     DIFFICULTY_SELECT = "難易度選択"
     MENU = "メニュー"
     SCHEDULE_VIEW = "日程表"
@@ -20,6 +21,9 @@ class GameState(Enum):
     PITCHER_ORDER = "投手オーダー"  # 投手起用設定画面
     BENCH_SETTING = "ベンチ設定"  # ベンチ入りメンバー設定
     GAME = "試合"
+    GAME_WATCH = "試合観戦"  # 一球速報風の試合観戦モード
+    GAME_MANAGE = "采配モード"  # 采配モード：自分のチームを操作
+    GAME_CHOICE = "試合方法選択"  # 観戦か結果スキップか選択
     RESULT = "試合結果"
     STANDINGS = "順位表"
     PLAYER_STATS = "選手成績"
@@ -43,6 +47,7 @@ class GameState(Enum):
     PENNANT_FA = "ペナントFA"
     PENNANT_TRADE = "ペナントトレード"
     PENNANT_CAMP = "春季キャンプ"
+    PENNANT_FALL_CAMP = "秋季キャンプ"  # 秋季キャンプ（総合力が低い選手のみ参加）
     PENNANT_CS = "クライマックスシリーズ"
     PENNANT_JS = "日本シリーズ"
     # 経営システム
@@ -66,35 +71,40 @@ class DifficultyLevel(Enum):
 
 class GameStateManager:
     """ゲーム状態を管理するクラス"""
-    
+
     def __init__(self):
         self.current_state = GameState.TITLE
         self.previous_state = None
         self.difficulty = DifficultyLevel.NORMAL
-        
+
         # ゲーム進行データ
         self.player_team: Optional[Team] = None
         self.central_teams: List[Team] = []
         self.pacific_teams: List[Team] = []
         self.all_teams: List[Team] = []
-        
+
         self.current_year = 2024
         self.current_game_number = 0
         self.current_opponent: Optional[Team] = None
-        
+
         # ドラフト・FA関連
         self.draft_prospects: List[DraftProspect] = []
         self.foreign_free_agents: List[Player] = []
         self.selected_draft_pick: Optional[int] = None
-        
+
         # UI関連
         self.scroll_offset = 0
         self.result_scroll = 0
-        
+
         # プレーオフ進行状況
         self.playoff_stage = None  # None, "CLIMAX_FIRST", "CLIMAX_FINAL", "JAPAN_SERIES"
         self.playoff_teams = []
-    
+
+    @property
+    def teams(self) -> List[Team]:
+        """Alias for all_teams for compatibility"""
+        return self.all_teams
+
     def change_state(self, new_state: GameState):
         """状態を変更"""
         self.previous_state = self.current_state

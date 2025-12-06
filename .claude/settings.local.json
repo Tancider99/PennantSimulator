@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python run_ui.py:*)",
+      "Bash(dir:*)",
+      "Bash(find:*)",
+      "Bash(timeout 15 python:*)",
+      "Bash(python:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

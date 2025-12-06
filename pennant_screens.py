@@ -112,11 +112,13 @@ class PennantScreens:
             action_buttons = [
                 ("camp_training", "キャンプ開始", "primary"),
                 ("camp_practice", "練習試合", "ghost"),
+                ("lineup", "オーダー設定", "warning"),
                 ("camp_skip", "キャンプ終了", "success"),
             ]
         elif phase in [PennantPhase.REGULAR_SEASON, PennantPhase.INTERLEAGUE]:
             action_buttons = [
                 ("play_game", "試合を行う", "success"),
+                ("lineup", "オーダー設定", "warning"),
                 ("sim_week", "1週間シム", "ghost"),
                 ("sim_month", "1ヶ月シム", "ghost"),
                 ("roster", "ロースター", "ghost"),
@@ -125,21 +127,25 @@ class PennantScreens:
             action_buttons = [
                 ("draft_start", "ドラフト会議", "primary"),
                 ("scout_report", "スカウト情報", "ghost"),
+                ("lineup", "オーダー設定", "warning"),
             ]
         elif phase == PennantPhase.FA_PERIOD:
             action_buttons = [
                 ("fa_list", "FA選手一覧", "primary"),
                 ("free_agents", "自由契約・解雇", "ghost"),
+                ("lineup", "オーダー設定", "warning"),
             ]
         elif phase == PennantPhase.OFF_SEASON:
             action_buttons = [
                 ("trade", "トレード", "primary"),
                 ("foreign", "外国人補強", "ghost"),
                 ("release", "戦力外通告", "danger"),
+                ("lineup", "オーダー設定", "warning"),
             ]
         else:
             action_buttons = [
                 ("next_phase", "次のフェーズへ", "primary"),
+                ("lineup", "オーダー設定", "warning"),
             ]
         
         for i, (name, text, style) in enumerate(action_buttons):

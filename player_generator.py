@@ -44,35 +44,65 @@ def create_random_player(position: Position,
     
     stats = PlayerStats()
     
-    # ステータスによって能力値の範囲を調整
+    # ステータスによって能力値の範囲を調整（1-99スケール）
+    # プロ選手の平均はDランク（50前後）、一流はB-Aランク（70-80）、トップはSランク（90+）
     if status == PlayerStatus.ACTIVE:
         if is_foreign:
-            min_stat, max_stat = 10, 16  # 外国人選手は強め
+            # 外国人選手は一定以上の能力が期待される（平均C-Bランク）
+            min_stat, max_stat = 55, 85
         else:
-            min_stat, max_stat = 7, 15
+            # 一般的な支配下選手：平均Dランク（40-65が多い、稀に70+）
+            min_stat, max_stat = 40, 75
     else:
-        min_stat, max_stat = 5, 12
+        # 育成選手：伸びしろあるが現時点では平均E-Dランク
+        min_stat, max_stat = 30, 55
     
     if position == Position.PITCHER:
+        # 投手の投球能力
         stats.speed = random.randint(min_stat, max_stat)
         stats.control = random.randint(min_stat, max_stat)
         stats.stamina = random.randint(min_stat, max_stat)
         stats.breaking = random.randint(min_stat, max_stat)
-        stats.mental = random.randint(min_stat, max_stat)
+        stats.mental = random.randint(max(1, min_stat - 5), max_stat - 5)
         
-        # 変化球を追加（投手のみ）
+        # 投手の打撃能力は低い（G-Fランク：10-35程度）
+        stats.contact = random.randint(10, 30)
+        stats.power = random.randint(5, 25)
+        stats.run = random.randint(20, 45)  # 走力は多少あり
+        stats.arm = random.randint(10, 30)  # 野手としての肩は低い
+        stats.fielding = random.randint(25, 50)  # 投手守備は一応
+        stats.catching = random.randint(10, 25)
+        stats.trajectory = random.randint(1, 2)  # グラウンダー〜ライナー
+        
+        # 変化球を追加（投手のみ）- 能力値を1-99スケールで判定
         stats.breaking_balls = generate_breaking_balls(pitch_type, stats.breaking)
         if stats.breaking_balls:
             stats.best_pitch = random.choice(stats.breaking_balls)
     else:
+        # 野手の打撃能力
         stats.contact = random.randint(min_stat, max_stat)
-        stats.power = random.randint(min_stat-1, max_stat)
-        stats.run = random.randint(min_stat-1, max_stat)
-        stats.arm = random.randint(min_stat-2, max_stat-1)
-        stats.fielding = random.randint(min_stat-1, max_stat-1)
-        stats.mental = random.randint(min_stat-1, max_stat)
-        stats.clutch = random.randint(min_stat-2, max_stat)
-        stats.consistency = random.randint(min_stat-1, max_stat)
+        stats.power = random.randint(max(1, min_stat - 5), max_stat)
+        stats.run = random.randint(max(1, min_stat - 5), max_stat)
+        stats.arm = random.randint(max(1, min_stat - 10), max_stat - 5)
+        stats.fielding = random.randint(max(1, min_stat - 5), max_stat - 5)
+        stats.catching = random.randint(max(1, min_stat - 5), max_stat - 5)
+        stats.mental = random.randint(max(1, min_stat - 10), max_stat - 5)
+        stats.clutch = random.randint(max(1, min_stat - 10), max_stat - 5)
+        stats.consistency = random.randint(max(1, min_stat - 10), max_stat - 5)
+        
+        # 野手の投球能力は不要（設定しない - デフォルト値のまま）
+        stats.speed = 1  # 球速は野手には不要
+        stats.control = 1
+        stats.stamina = 1
+        stats.breaking = 1
+        
+        # 弾道（1-4、パワーに応じて）
+        if stats.power >= 70:
+            stats.trajectory = random.randint(3, 4)
+        elif stats.power >= 50:
+            stats.trajectory = random.randint(2, 3)
+        else:
+            stats.trajectory = random.randint(1, 2)
     
     # 年俸計算（能力値ベース）
     if position == Position.PITCHER:
@@ -83,6 +113,30 @@ def create_random_player(position: Position,
     base_salary = 10000000  # 1000万円
     salary = int(base_salary * (1 + overall / 10) * (1 + age / 100))
     
+    # 投手適性値の設定（投手のみ）
+    starter_apt = 50
+    middle_apt = 50
+    closer_apt = 50
+    
+    if position == Position.PITCHER:
+        if pitch_type == PitchType.STARTER:
+            starter_apt = random.randint(70, 100)
+            middle_apt = random.randint(30, 60)
+            closer_apt = random.randint(20, 50)
+        elif pitch_type == PitchType.RELIEVER:
+            starter_apt = random.randint(20, 50)
+            middle_apt = random.randint(70, 100)
+            closer_apt = random.randint(40, 70)
+        elif pitch_type == PitchType.CLOSER:
+            starter_apt = random.randint(10, 40)
+            middle_apt = random.randint(50, 80)
+            closer_apt = random.randint(80, 100)
+        else:
+            # pitch_typeが未設定の場合はランダム
+            starter_apt = random.randint(30, 80)
+            middle_apt = random.randint(30, 80)
+            closer_apt = random.randint(30, 80)
+    
     player = Player(
         name=name, 
         position=position, 
@@ -92,7 +146,10 @@ def create_random_player(position: Position,
         status=status, 
         uniform_number=number,
         is_foreign=is_foreign,
-        salary=salary
+        salary=salary,
+        starter_aptitude=starter_apt,
+        middle_aptitude=middle_apt,
+        closer_aptitude=closer_apt
     )
     
     # 特殊能力をランダム付与
@@ -111,76 +168,76 @@ BREAKING_BALL_TYPES = {
 
 
 def generate_breaking_balls(pitch_type: Optional[PitchType], breaking_stat: int) -> List[str]:
-    """変化球をランダム生成"""
+    """変化球をランダム生成（能力値は1-99スケール）"""
     balls = []
     
     # 基本変化球（1-2種類）
     num_standard = random.randint(1, 2)
     balls.extend(random.sample(BREAKING_BALL_TYPES["standard"], min(num_standard, len(BREAKING_BALL_TYPES["standard"]))))
     
-    # 変化球能力値が高いほど追加球種
-    if breaking_stat >= 10:
+    # 変化球能力値が高いほど追加球種（1-99スケール）
+    if breaking_stat >= 50:
         num_advanced = random.randint(0, 2)
         balls.extend(random.sample(BREAKING_BALL_TYPES["advanced"], min(num_advanced, len(BREAKING_BALL_TYPES["advanced"]))))
     
-    if breaking_stat >= 13:
+    if breaking_stat >= 65:
         if random.random() < 0.3:
             balls.append(random.choice(BREAKING_BALL_TYPES["rare"]))
     
-    if breaking_stat >= 8 and random.random() < 0.4:
+    if breaking_stat >= 40 and random.random() < 0.4:
         balls.append(random.choice(BREAKING_BALL_TYPES["japanese"]))
     
     return list(set(balls))  # 重複削除
 
 
 def assign_random_abilities(player: Player):
-    """特殊能力をランダム付与"""
+    """特殊能力をランダム付与（1-99スケール対応）"""
     from special_abilities import SpecialAbility, SpecialAbilityType
     
     if player.special_abilities is None:
         from special_abilities import PlayerAbilities
         player.special_abilities = PlayerAbilities()
     
-    # 能力値ベースで特殊能力を付与
+    # 能力値ベースで特殊能力を付与（1-99スケール）
     abilities = player.special_abilities
     
     if player.position == Position.PITCHER:
         # 投手用能力
-        if player.stats.control >= 13 and random.random() < 0.4:
+        if player.stats.control >= 65 and random.random() < 0.4:
             abilities.add_ability(SpecialAbility.CONTROL)
-        if player.stats.speed >= 14 and random.random() < 0.3:
+        if player.stats.speed >= 70 and random.random() < 0.3:
             abilities.add_ability(SpecialAbility.STRIKEOUT)
-        if player.stats.stamina >= 13 and random.random() < 0.3:
+        if player.stats.stamina >= 65 and random.random() < 0.3:
             abilities.add_ability(SpecialAbility.RECOVERY)
-        if player.stats.breaking >= 13 and random.random() < 0.3:
+        if player.stats.breaking >= 65 and random.random() < 0.3:
             abilities.add_ability(SpecialAbility.HEAVY_BALL)
         if player.pitch_type == PitchType.CLOSER and random.random() < 0.5:
             abilities.add_ability(SpecialAbility.CLOSER_ABILITY)
         
         # マイナス能力
-        if player.stats.control <= 7 and random.random() < 0.3:
+        if player.stats.control <= 35 and random.random() < 0.3:
             abilities.add_ability(SpecialAbility.WILD_PITCH)
-        if player.stats.stamina <= 7 and random.random() < 0.3:
+        if player.stats.stamina <= 35 and random.random() < 0.3:
             abilities.add_ability(SpecialAbility.POOR_STAMINA)
     else:
         # 野手用能力
-        if player.stats.contact >= 13 and random.random() < 0.4:
+        if player.stats.contact >= 65 and random.random() < 0.4:
             abilities.add_ability(SpecialAbility.CONTACT_HITTER)
-        if player.stats.power >= 14 and random.random() < 0.3:
+        if player.stats.power >= 70 and random.random() < 0.3:
             abilities.add_ability(SpecialAbility.POWER_HITTER)
-        if player.stats.clutch >= 13 and random.random() < 0.3:
+        if player.stats.clutch >= 65 and random.random() < 0.3:
             abilities.add_ability(SpecialAbility.CLUTCH)
-        if player.stats.run >= 14 and random.random() < 0.3:
+        if player.stats.run >= 70 and random.random() < 0.3:
             abilities.add_ability(SpecialAbility.SPEED_STAR)
-        if player.stats.fielding >= 13 and random.random() < 0.3:
+        if player.stats.fielding >= 65 and random.random() < 0.3:
             abilities.add_ability(SpecialAbility.GOLD_GLOVE)
-        if player.stats.arm >= 13 and random.random() < 0.3:
+        if player.stats.arm >= 65 and random.random() < 0.3:
             abilities.add_ability(SpecialAbility.STRONG_ARM)
         
         # マイナス能力
-        if player.stats.contact <= 6 and random.random() < 0.3:
+        if player.stats.contact <= 30 and random.random() < 0.3:
             abilities.add_ability(SpecialAbility.POOR_CONTACT)
-        if player.stats.power <= 6 and random.random() < 0.3:
+        if player.stats.power <= 30 and random.random() < 0.3:
             abilities.add_ability(SpecialAbility.POOR_POWER)
 
 
@@ -195,9 +252,11 @@ def create_draft_prospect(position: Position,
     
     stats = PlayerStats()
     
-    # ポテンシャルベースで能力値を設定（まだ荒削り）
-    base_min = max(3, potential - 2)
-    base_max = min(13, potential + 3)
+    # ポテンシャルベースで能力値を設定（1-99スケール）
+    # ドラフト入団時は低めの能力値、成長で伸びる
+    # potential 1-10 → 能力値範囲調整
+    base_min = max(15, potential * 4 - 10)  # potential 5なら min=10
+    base_max = min(60, potential * 6 + 5)   # potential 5なら max=35
     
     if position == Position.PITCHER:
         stats.speed = random.randint(base_min, base_max)
@@ -208,7 +267,7 @@ def create_draft_prospect(position: Position,
         stats.contact = random.randint(base_min, base_max)
         stats.power = random.randint(base_min, base_max)
         stats.run = random.randint(base_min, base_max)
-        stats.arm = random.randint(base_min-1, base_max)
+        stats.arm = random.randint(max(1, base_min-5), base_max)
         stats.fielding = random.randint(base_min, base_max)
     
     return DraftProspect(

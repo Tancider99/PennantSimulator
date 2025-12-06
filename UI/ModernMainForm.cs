@@ -24,6 +24,7 @@ namespace PennantSimulator.UI
         private ListBox _gameLog;
         private Label _scoreLabel;
         private System.Windows.Forms.Timer _uiUpdateTimer;
+        private Team? _selectedTeam;  // 現在選択中のチーム
 
         private int _gamesPerTeam;
 
@@ -108,7 +109,7 @@ namespace PennantSimulator.UI
             // Modern action buttons
             var actions = new FlowLayoutPanel { 
                 Dock = DockStyle.Bottom, 
-                Height = 200, 
+                Height = 250, 
                 FlowDirection = FlowDirection.TopDown, 
                 Padding = new Padding(0, 10, 0, 10),
                 BackColor = Color.Transparent
@@ -116,6 +117,9 @@ namespace PennantSimulator.UI
 
             var btnNew = CreateActionButton("🎮 New Game", Theme.Primary);
             btnNew.Click += (s, e) => OpeningNewGame();
+
+            var btnOrder = CreateActionButton("📋 オーダー設定", Color.FromArgb(0, 150, 136));
+            btnOrder.Click += (s, e) => OpenOrderDialog();
 
             var btnTrade = CreateActionButton("💼 Trade", Color.FromArgb(255, 193, 7));
             btnTrade.Click += (s, e) => OpenTradeDialog();
@@ -137,7 +141,7 @@ namespace PennantSimulator.UI
             var btnStats = CreateActionButton("📊 Statistics", Color.FromArgb(103, 58, 183));
             btnStats.Click += (s, e) => ShowStatisticsDialog();
 
-            actions.Controls.AddRange(new Control[] { btnNew, btnTrade, btnDraft, btnTraining, btnSave, btnStats });
+            actions.Controls.AddRange(new Control[] { btnNew, btnOrder, btnTrade, btnDraft, btnTraining, btnSave, btnStats });
             _navPanel.Controls.Add(actions);
 
             // Main content area
@@ -441,10 +445,28 @@ namespace PennantSimulator.UI
         {
             if (index < 0 || index >= _league.Teams.Count) return;
             var team = _league.Teams[index];
+            _selectedTeam = team;
             
             RenderRosterForTeam(team);
             RenderStandings();
             NotificationToast.Show($"Selected: {team.Name}");
+        }
+
+        private void OpenOrderDialog()
+        {
+            if (_selectedTeam == null)
+            {
+                NotificationToast.Show("チームを選択してください");
+                return;
+            }
+            
+            using var dlg = new OrderDialog(_selectedTeam);
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+            {
+                RenderRosterForTeam(_selectedTeam);
+                PopulateTeams(_searchBox.Text);
+                NotificationToast.Show("オーダーを保存しました");
+            }
         }
 
         private void RenderRosterForTeam(Team team)
