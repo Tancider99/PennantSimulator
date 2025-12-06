@@ -43,9 +43,9 @@ def test_physics_engine():
             caught_str = '成功' if defense.is_caught else '失敗'
             print(f'  捕球: {caught_str}, 難易度: {defense.catch_difficulty:.2f}')
             if defense.is_diving_catch:
-                print(f'  ★ダイビングキャッチ！')
+                print(f'  * ダイビングキャッチ！')
             if defense.is_wall_catch:
-                print(f'  ★フェンス際のキャッチ！')
+                print(f'  * フェンス際のキャッチ！')
         print()
 
 def test_multiple_plays():

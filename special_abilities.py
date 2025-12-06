@@ -180,9 +180,9 @@ class PlayerAbilities:
         
         for ability in self.abilities:
             if ability.effect_value > 0:
-                positive.append(f"🔵{ability.display_name}")
+                positive.append(f"+{ability.display_name}")
             else:
-                negative.append(f"🔴{ability.display_name}")
+                negative.append(f"-{ability.display_name}")
         
         result = ""
         if positive:

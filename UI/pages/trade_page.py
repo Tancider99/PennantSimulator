@@ -119,8 +119,8 @@ class TradePackage(QFrame):
         value_layout = QHBoxLayout(value_frame)
         value_layout.setContentsMargins(12, 8, 12, 8)
 
-        value_icon = QLabel("💰")
-        value_icon.setStyleSheet("background: transparent;")
+        value_icon = QLabel("Value")
+        value_icon.setStyleSheet("background: transparent; color: {self.theme.text_muted};")
         value_layout.addWidget(value_icon)
 
         self.value_label = QLabel("トレード価値: 0")
@@ -315,7 +315,7 @@ class TradePage(QWidget):
         title_layout = QVBoxLayout()
         title_layout.setSpacing(4)
 
-        title = QLabel("🔄  トレード")
+        title = QLabel("トレード")
         title.setStyleSheet(f"""
             font-size: 24px;
             font-weight: 700;
@@ -347,7 +347,7 @@ class TradePage(QWidget):
         partner_layout = QHBoxLayout(partner_frame)
         partner_layout.setContentsMargins(12, 8, 12, 8)
 
-        partner_label = QLabel("🤝 トレード相手:")
+        partner_label = QLabel("トレード相手:")
         partner_label.setStyleSheet(f"color: {self.theme.text_secondary}; background: transparent;")
         partner_layout.addWidget(partner_label)
 
@@ -396,7 +396,7 @@ class TradePage(QWidget):
         left_layout.setSpacing(12)
 
         # User team roster
-        self.user_roster_card = PremiumCard("自チームロスター", "👥")
+        self.user_roster_card = PremiumCard("自チームロスター", "")
 
         self.user_roster_table = self._create_roster_table()
         self.user_roster_table.itemDoubleClicked.connect(self._add_user_player)
@@ -530,7 +530,7 @@ class TradePage(QWidget):
         right_layout.setSpacing(12)
 
         # Partner team roster
-        self.partner_roster_card = PremiumCard("相手チームロスター", "👤")
+        self.partner_roster_card = PremiumCard("相手チームロスター", "")
 
         self.partner_roster_table = self._create_roster_table()
         self.partner_roster_table.itemDoubleClicked.connect(self._add_partner_player)
@@ -748,20 +748,20 @@ class TradePage(QWidget):
             ratio = min(user_value, partner_value) / max(user_value, partner_value)
 
         if ratio >= 0.8:
-            fairness_text = "✓ 公平"
+            fairness_text = "FAIR"
             fairness_color = self.theme.success
             border_color = self.theme.success
             can_trade = True
         elif ratio >= 0.6:
-            fairness_text = "⚠ やや不均衡"
+            fairness_text = "UNEVEN"
             fairness_color = self.theme.warning
             border_color = self.theme.warning
             can_trade = True
         else:
             if user_value > partner_value:
-                fairness_text = "✗ 損なトレード"
+                fairness_text = "BAD DEAL"
             else:
-                fairness_text = "✗ 相手が拒否"
+                fairness_text = "REJECTED"
             fairness_color = self.theme.danger
             border_color = self.theme.danger
             can_trade = user_value > partner_value  # Can still accept bad deals
@@ -832,7 +832,7 @@ class TradePage(QWidget):
             # Show success message
             QMessageBox.information(
                 self, "トレード完了",
-                f"🎉 {partner_names}を獲得しました！"
+                f"{partner_names}を獲得しました！"
             )
 
     def _reset_trade(self):

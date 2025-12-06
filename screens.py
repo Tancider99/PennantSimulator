@@ -3393,7 +3393,7 @@ class ScreenRenderer:
         center_y = y + height // 2
         
         # アイコン
-        icon_surf = fonts.title.render("⚾", True, Colors.TEXT_MUTED)
+        icon_surf = fonts.title.render("NPB", True, Colors.TEXT_MUTED)
         icon_rect = icon_surf.get_rect(center=(center_x, center_y - 80))
         self.screen.blit(icon_surf, icon_rect)
         
@@ -4242,15 +4242,15 @@ class ScreenRenderer:
         if position_conflicts:
             warning_y = y + 2
             for conflict in position_conflicts[:2]:  # 最大2件表示
-                warning_surf = fonts.tiny.render(f"⚠ {conflict}", True, Colors.ERROR)
+                warning_surf = fonts.tiny.render(f"! {conflict}", True, Colors.ERROR)
                 self.screen.blit(warning_surf, (order_rect.x + 10, warning_y))
                 warning_y += 16
         
         # プリセット保存/読込ボタン
         preset_y = order_rect.bottom - 35
-        buttons["save_lineup_preset"] = Button(order_rect.x + 10, preset_y, 80, 28, "💾保存", "ghost", font=fonts.tiny)
+        buttons["save_lineup_preset"] = Button(order_rect.x + 10, preset_y, 80, 28, "SAVE", "ghost", font=fonts.tiny)
         buttons["save_lineup_preset"].draw(self.screen)
-        buttons["load_lineup_preset"] = Button(order_rect.x + 95, preset_y, 80, 28, "📂読込", "ghost", font=fonts.tiny)
+        buttons["load_lineup_preset"] = Button(order_rect.x + 95, preset_y, 80, 28, "LOAD", "ghost", font=fonts.tiny)
         buttons["load_lineup_preset"].draw(self.screen)
         
         # ポジションドラッグ中の表示
@@ -4997,11 +4997,11 @@ class ScreenRenderer:
         inning_bg = pygame.Surface((score_w - 16, 20), pygame.SRCALPHA)
         if game_finished:
             inning_bg.fill((200, 50, 80, 180))
-            inning_text = "⚾ FINAL"
+            inning_text = "FINAL"
             inning_color = (255, 220, 220)
         else:
             inning_bg.fill((50, 100, 150, 150))
-            inning_text = f"⚾ {inning}回{'表' if is_top else '裏'}"
+            inning_text = f"{inning}回{'表' if is_top else '裏'}"
             inning_color = (180, 220, 255)
         self.screen.blit(inning_bg, (score_x + 8, score_y + 4))
         inning_surf = fonts.small.render(inning_text, True, inning_color)
@@ -5645,11 +5645,11 @@ class ScreenRenderer:
         inning_bg = pygame.Surface((score_board_w - 16, 22), pygame.SRCALPHA)
         if game_finished:
             inning_bg.fill((200, 50, 80, 180))
-            inning_text = "⚾ FINAL"
+            inning_text = "FINAL"
             inning_color = (255, 220, 220)
         else:
             inning_bg.fill((50, 100, 150, 150))
-            inning_text = f"⚾ {inning}回{'表' if is_top else '裏'}"
+            inning_text = f"{inning}回{'表' if is_top else '裏'}"
             inning_color = (180, 220, 255)
         self.screen.blit(inning_bg, (score_board_x + 8, score_board_y + 4))
         inning_surf = fonts.small.render(inning_text, True, inning_color)

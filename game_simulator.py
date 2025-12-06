@@ -753,7 +753,7 @@ class GameSimulator:
                     self.current_away_pitcher_idx = new_idx
                     self.away_pitcher_stats = {'pitch_count': 0, 'hits': 0, 'walks': 0, 'runs': 0, 'innings': 0}
                 
-                self.log.append(f"  ⚾ 継投: {pitcher.name} → {new_pitcher.name} ({reason})")
+                self.log.append(f"  継投: {pitcher.name} → {new_pitcher.name} ({reason})")
                 return True
         
         return False
@@ -1349,7 +1349,7 @@ def add_substitute_methods_to_simulator():
         if hasattr(self, 'current_batter_idx'):
             old_idx = self.current_batter_idx
             self.current_batter_idx = new_batter_idx
-            self.log.append(f"  ⚾ 代打: {self.home_team.players[new_batter_idx].name}")
+            self.log.append(f"  代打: {self.home_team.players[new_batter_idx].name}")
     
     def substitute_runner(self, new_runner_idx: int, base: int = 1):
         """代走を出す
@@ -1358,7 +1358,7 @@ def add_substitute_methods_to_simulator():
             new_runner_idx: 代走選手のインデックス
             base: 何塁か (1, 2, 3)
         """
-        self.log.append(f"  ⚾ 代走: {self.home_team.players[new_runner_idx].name} ({base}塁)")
+        self.log.append(f"  代走: {self.home_team.players[new_runner_idx].name} ({base}塁)")
     
     def change_pitcher(self, new_pitcher_idx: int, is_home: bool = True):
         """投手交代
@@ -1379,7 +1379,7 @@ def add_substitute_methods_to_simulator():
             team = self.away_team
         
         if 0 <= new_pitcher_idx < len(team.players):
-            self.log.append(f"  ⚾ 継投: {team.players[new_pitcher_idx].name}")
+            self.log.append(f"  継投: {team.players[new_pitcher_idx].name}")
     
     # GameSimulatorクラスにメソッドを追加
     GameSimulator.substitute_batter = substitute_batter

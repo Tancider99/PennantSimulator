@@ -207,7 +207,7 @@ class DraftPage(QWidget):
         title_layout = QVBoxLayout()
         title_layout.setSpacing(4)
 
-        title = QLabel("📋  ドラフト会議")
+        title = QLabel("ドラフト会議")
         title.setStyleSheet(f"""
             font-size: 24px;
             font-weight: 700;
@@ -279,7 +279,7 @@ class DraftPage(QWidget):
         filter_layout = QHBoxLayout(filter_frame)
         filter_layout.setContentsMargins(12, 8, 12, 8)
 
-        position_label = QLabel("🎯 ポジション:")
+        position_label = QLabel("ポジション:")
         position_label.setStyleSheet(f"color: {self.theme.text_secondary}; background: transparent;")
         filter_layout.addWidget(position_label)
 
@@ -312,7 +312,7 @@ class DraftPage(QWidget):
 
         filter_layout.addSpacing(16)
 
-        sort_label = QLabel("📊 並び替え:")
+        sort_label = QLabel("並び替え:")
         sort_label.setStyleSheet(f"color: {self.theme.text_secondary}; background: transparent;")
         filter_layout.addWidget(sort_label)
 
@@ -347,7 +347,7 @@ class DraftPage(QWidget):
         left_layout.addWidget(filter_frame)
 
         # Prospects table
-        prospects_card = PremiumCard("ドラフト候補選手", "👥")
+        prospects_card = PremiumCard("ドラフト候補選手", "")
 
         self.prospects_table = QTableWidget()
         self.prospects_table.setColumnCount(7)
@@ -411,7 +411,7 @@ class DraftPage(QWidget):
         right_layout.setSpacing(12)
 
         # Scout report card
-        self.scout_card = PremiumCard("スカウトレポート", "🔍")
+        self.scout_card = PremiumCard("スカウトレポート", "")
 
         # Player info
         self.scout_name = QLabel("選手を選択してください")
@@ -508,7 +508,7 @@ class DraftPage(QWidget):
         main_layout.addWidget(splitter)
 
         # Draft order section
-        order_card = PremiumCard("指名順", "📝")
+        order_card = PremiumCard("指名順", "")
 
         self.order_scroll = QScrollArea()
         self.order_scroll.setWidgetResizable(True)
@@ -793,32 +793,32 @@ class DraftPage(QWidget):
 
         if prospect["position"] == "投手":
             if prospect["abilities"]["球速"] >= 70:
-                notes.append("🔥 速球派で、最速150km/h超の可能性。")
+                notes.append("速球派で、最速150km/h超の可能性。")
             if prospect["abilities"]["変化球"] >= 65:
-                notes.append("🌀 変化球のキレが良く、決め球として使える。")
+                notes.append("変化球のキレが良く、決め球として使える。")
             if prospect["abilities"]["コントロール"] >= 65:
-                notes.append("🎯 制球力が高く、四球が少ない。")
+                notes.append("制球力が高く、四球が少ない。")
             if prospect["abilities"]["スタミナ"] >= 65:
-                notes.append("💪 体力があり、先発完投も期待できる。")
+                notes.append("体力があり、先発完投も期待できる。")
         else:
             if prospect["abilities"]["ミート"] >= 70:
-                notes.append("🏏 バットコントロールが優秀で、高打率が期待できる。")
+                notes.append("バットコントロールが優秀で、高打率が期待できる。")
             if prospect["abilities"]["パワー"] >= 70:
-                notes.append("💥 長打力があり、ホームランバッターとしての素質あり。")
+                notes.append("長打力があり、ホームランバッターとしての素質あり。")
             if prospect["abilities"]["走力"] >= 70:
-                notes.append("⚡ 足が速く、盗塁や守備範囲で貢献できる。")
+                notes.append("足が速く、盗塁や守備範囲で貢献できる。")
             if prospect["abilities"]["守備力"] >= 65:
-                notes.append("🧤 守備が堅実で、失策が少ない。")
+                notes.append("守備が堅実で、失策が少ない。")
 
         # Potential assessment
         gap = prospect["potential"] - prospect["overall"]
         if gap >= 25:
-            notes.append(f"📈 伸びしろが大きく、将来は{prospect['potential']}クラスまで成長する可能性。")
+            notes.append(f"伸びしろが大きく、将来は{prospect['potential']}クラスまで成長する可能性。")
         elif gap >= 15:
-            notes.append("📊 順調に成長すれば、レギュラークラスに成長する素材。")
+            notes.append("順調に成長すれば、レギュラークラスに成長する素材。")
 
         if not notes:
-            notes.append("📝 平均的な選手。特筆すべき点は少ないが、堅実なプレーが期待できる。")
+            notes.append("平均的な選手。特筆すべき点は少ないが、堅実なプレーが期待できる。")
 
         return " ".join(notes)
 

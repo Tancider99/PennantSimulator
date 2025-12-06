@@ -289,7 +289,7 @@ class HomePage(ContentPanel):
         welcome_card = PremiumWelcomeCard()
 
         # Team logo placeholder with premium styling
-        logo = QLabel("🏟️")
+        logo = QLabel("NPB")
         logo.setFixedSize(80, 80)
         logo.setAlignment(Qt.AlignCenter)
         logo.setStyleSheet(f"""
@@ -383,28 +383,28 @@ class HomePage(ContentPanel):
         # Record
         self.wins_card = PremiumStatCard(
             "戦績", "0勝", "0敗 0分",
-            "🏆", self.theme.success_light
+            "", self.theme.success_light
         )
         stats_layout.addWidget(self.wins_card)
 
         # Win %
         self.pct_card = PremiumStatCard(
             "勝率", ".000", "リーグ順位: -",
-            "📊", self.theme.accent_gold
+            "", self.theme.accent_gold
         )
         stats_layout.addWidget(self.pct_card)
 
         # Games back
         self.gb_card = PremiumStatCard(
             "首位差", "-", "首位まで",
-            "🎯", self.theme.primary_light
+            "", self.theme.primary_light
         )
         stats_layout.addWidget(self.gb_card)
 
         # Next game
         self.next_game_card = PremiumStatCard(
             "次の対戦", "未定", "日程未確定",
-            "⚾", self.theme.info_light
+            "", self.theme.info_light
         )
         stats_layout.addWidget(self.next_game_card)
 
@@ -489,26 +489,26 @@ class HomePage(ContentPanel):
         # Action buttons with premium styling
         roster_btn = QuickActionButton(
             "ロースター編集", "スタメン・ベンチの設定",
-            "👥", self.theme.primary
+            "R", self.theme.primary
         )
         roster_btn.clicked.connect(lambda: self.view_roster_requested.emit())
         actions_grid.addWidget(roster_btn, 0, 0)
 
         lineup_btn = QuickActionButton(
             "打順変更", "打順とポジションの設定",
-            "📝", self.theme.info
+            "L", self.theme.info
         )
         actions_grid.addWidget(lineup_btn, 0, 1)
 
         rotation_btn = QuickActionButton(
             "投手運用", "先発ローテーション設定",
-            "⚾", self.theme.warning
+            "P", self.theme.warning
         )
         actions_grid.addWidget(rotation_btn, 1, 0)
 
         farm_btn = QuickActionButton(
             "ファーム管理", "二軍選手の育成・昇格",
-            "🏃", self.theme.success
+            "F", self.theme.success
         )
         actions_grid.addWidget(farm_btn, 1, 1)
 
@@ -529,9 +529,9 @@ class HomePage(ContentPanel):
 
         # Sample news items
         news_items = [
-            ("🏆 試合結果", "ジャイアンツ 5 - 3 タイガース", "本日"),
-            ("📰 ニュース", "新外国人選手が入団決定", "1日前"),
-            ("🎉 達成", "チーム通算3000勝まであと10勝", "2日前"),
+            ("試合結果", "ジャイアンツ 5 - 3 タイガース", "本日"),
+            ("ニュース", "新外国人選手が入団決定", "1日前"),
+            ("達成", "チーム通算3000勝まであと10勝", "2日前"),
         ]
 
         for title, content, time in news_items:

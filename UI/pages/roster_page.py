@@ -102,7 +102,7 @@ class RosterPage(QWidget):
         toolbar.add_stretch()
 
         # Actions
-        edit_lineup_btn = QPushButton("📝 打順編集")
+        edit_lineup_btn = QPushButton("打順編集")
         edit_lineup_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {self.theme.primary};
@@ -198,12 +198,12 @@ class RosterPage(QWidget):
         # Action buttons
         btn_layout = QHBoxLayout()
 
-        detail_btn = QPushButton("📋 詳細")
+        detail_btn = QPushButton("詳細")
         detail_btn.clicked.connect(self._show_player_detail)
         btn_layout.addWidget(detail_btn)
 
         if self.game_state:
-            trade_btn = QPushButton("🔄 トレード")
+            trade_btn = QPushButton("トレード")
             btn_layout.addWidget(trade_btn)
 
         layout.addLayout(btn_layout)

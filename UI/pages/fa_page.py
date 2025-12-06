@@ -69,7 +69,7 @@ class FAPage(QWidget):
         title_layout = QVBoxLayout()
         title_layout.setSpacing(4)
 
-        title = QLabel("🏷️  フリーエージェント市場")
+        title = QLabel("フリーエージェント市場")
         title.setStyleSheet(f"""
             font-size: 24px;
             font-weight: 700;
@@ -102,8 +102,8 @@ class FAPage(QWidget):
         budget_layout = QHBoxLayout(budget_frame)
         budget_layout.setContentsMargins(16, 8, 16, 8)
 
-        budget_icon = QLabel("💰")
-        budget_icon.setStyleSheet("background: transparent;")
+        budget_icon = QLabel("Budget")
+        budget_icon.setStyleSheet("background: transparent; color: white; font-weight: 600;")
         budget_layout.addWidget(budget_icon)
 
         self.budget_label = QLabel("予算: ¥0")
@@ -145,7 +145,7 @@ class FAPage(QWidget):
         filter_layout = QHBoxLayout(filter_frame)
         filter_layout.setContentsMargins(12, 8, 12, 8)
 
-        position_label = QLabel("🎯 ポジション:")
+        position_label = QLabel("ポジション:")
         position_label.setStyleSheet(f"color: {self.theme.text_secondary}; background: transparent;")
         filter_layout.addWidget(position_label)
 
@@ -178,7 +178,7 @@ class FAPage(QWidget):
 
         filter_layout.addSpacing(16)
 
-        age_label = QLabel("📅 年齢:")
+        age_label = QLabel("年齢:")
         age_label.setStyleSheet(f"color: {self.theme.text_secondary}; background: transparent;")
         filter_layout.addWidget(age_label)
 
@@ -213,7 +213,7 @@ class FAPage(QWidget):
         left_layout.addWidget(filter_frame)
 
         # FA table
-        fa_card = PremiumCard("FA選手一覧", "👥")
+        fa_card = PremiumCard("FA選手一覧", "")
 
         self.fa_table = QTableWidget()
         self.fa_table.setColumnCount(7)
@@ -277,7 +277,7 @@ class FAPage(QWidget):
         right_layout.setSpacing(12)
 
         # Player detail card
-        self.detail_card = PremiumCard("選手詳細", "📊")
+        self.detail_card = PremiumCard("選手詳細", "")
 
         # Player info
         self.player_name = QLabel("選手を選択してください")
@@ -320,11 +320,11 @@ class FAPage(QWidget):
         right_layout.addWidget(self.detail_card)
 
         # Offer card
-        self.offer_card = PremiumCard("オファー", "📝")
+        self.offer_card = PremiumCard("オファー", "")
 
         # Years
         years_layout = QHBoxLayout()
-        years_label = QLabel("📆 契約年数:")
+        years_label = QLabel("契約年数:")
         years_label.setStyleSheet(f"color: {self.theme.text_secondary}; background: transparent;")
         years_layout.addWidget(years_label)
 
@@ -352,7 +352,7 @@ class FAPage(QWidget):
 
         # Salary
         salary_layout = QHBoxLayout()
-        salary_label = QLabel("💴 年俸（万円）:")
+        salary_label = QLabel("年俸（万円）:")
         salary_label.setStyleSheet(f"color: {self.theme.text_secondary}; background: transparent;")
         salary_layout.addWidget(salary_label)
 
@@ -391,8 +391,8 @@ class FAPage(QWidget):
         total_layout = QHBoxLayout(total_frame)
         total_layout.setContentsMargins(12, 10, 12, 10)
 
-        total_icon = QLabel("💰")
-        total_icon.setStyleSheet("background: transparent;")
+        total_icon = QLabel("Total")
+        total_icon.setStyleSheet("background: transparent; color: {self.theme.text_secondary};")
         total_layout.addWidget(total_icon)
 
         self.total_label = QLabel("総額: ¥0")
@@ -421,7 +421,7 @@ class FAPage(QWidget):
         interest_layout.setSpacing(6)
 
         interest_header = QHBoxLayout()
-        interest_label = QLabel("📈 選手の興味:")
+        interest_label = QLabel("選手の興味:")
         interest_label.setStyleSheet(f"color: {self.theme.text_secondary}; background: transparent;")
         interest_header.addWidget(interest_label)
 
@@ -821,7 +821,7 @@ class FAPage(QWidget):
             self.sign_button.setEnabled(False)
 
             QMessageBox.information(
-                self, "🎉 契約成立！",
+                self, "契約成立",
                 f"{p['name']}と{years}年¥{salary:,}万で契約しました！"
             )
         else:

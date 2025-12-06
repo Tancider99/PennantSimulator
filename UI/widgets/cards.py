@@ -12,20 +12,42 @@ from PySide6.QtGui import QColor, QPainter, QPen, QBrush, QFont
 
 import sys
 sys.path.insert(0, '..')
-from UI.theme import get_theme, Theme
+# UI.theme がインポートできない場合のフォールバック
+try:
+    from UI.theme import get_theme, Theme
+except ImportError:
+    pass
 
 class Card(QFrame):
     """Base Industrial Card Widget"""
 
     clicked = Signal()
 
-    def __init__(self, title: str = "", parent=None):
-        # FIX: QFrame constructor only accepts parent (QWidget), NOT title (str)
-        super().__init__(parent)
-        self.theme = get_theme()
+    def __init__(self, title: str = "", icon: str = "", parent=None):
+        # 【修正】引数に icon を追加し、TradePage からの呼び出し (str, str) に対応
+        
+        # 互換性維持のための引数調整: 
+        # 第2引数(icon)にQWidgetが渡された場合は parent とみなす
+        real_parent = parent
+        real_icon = icon
+        
+        if isinstance(icon, QWidget) and parent is None:
+            real_parent = icon
+            real_icon = ""
+
+        # QFrameのコンストラクタには parent (QWidget) のみを渡す
+        super().__init__(real_parent)
+        
+        try:
+            self.theme = get_theme()
+        except:
+            from UI.theme import get_theme
+            self.theme = get_theme()
+
         self._hover_progress = 0.0
         self._is_clickable = False
         self._title = title
+        self._icon = real_icon  # アイコンを保存
 
         self.setObjectName("Card")
         self._setup_style()
@@ -66,6 +88,7 @@ class Card(QFrame):
             deco.setStyleSheet(f"background-color: {self.theme.accent_orange};")
             header_layout.addWidget(deco)
 
+            # Title
             title_label = QLabel(self._title)
             title_label.setStyleSheet(f"""
                 font-size: 13px;
@@ -75,6 +98,17 @@ class Card(QFrame):
                 letter-spacing: 2px;
             """)
             header_layout.addWidget(title_label)
+            
+            # Icon (if present)
+            if self._icon:
+                icon_label = QLabel(self._icon)
+                icon_label.setStyleSheet(f"""
+                    font-size: 14px;
+                    color: {self.theme.text_secondary};
+                    margin-left: 8px;
+                """)
+                header_layout.addWidget(icon_label)
+
             header_layout.addStretch()
             
             # Tech ID
@@ -119,12 +153,33 @@ class Card(QFrame):
     def add_layout(self, layout):
         self.content_layout.addLayout(layout)
 
+    def set_title(self, title: str):
+        """Update the card title"""
+        self._title = title
+        # Find and update the title label in header
+        for i in range(self.main_layout.count()):
+            item = self.main_layout.itemAt(i)
+            if item and item.widget():
+                widget = item.widget()
+                # Look for QLabel in header frame
+                title_label = widget.findChild(QLabel)
+                if title_label and hasattr(widget, 'layout'):
+                    # Find the title label (second widget after deco)
+                    header_layout = widget.layout()
+                    if header_layout and header_layout.count() >= 2:
+                        label_item = header_layout.itemAt(1)
+                        if label_item and label_item.widget():
+                            label_widget = label_item.widget()
+                            if isinstance(label_widget, QLabel):
+                                label_widget.setText(title)
+                                return
+
 class PremiumStatCard(Card):
     """HUD Style Stat Display"""
 
     def __init__(self, title: str, value: str, subtitle: str = "",
                  icon: str = None, color: str = None, parent=None):
-        # FIX: Pass title="" so Card doesn't create a default header, and pass parent
+        # Card.__init__ is compatible with keyword args
         super().__init__(title="", parent=parent)
         self.theme = get_theme()
         self._stat_color = color or self.theme.primary
@@ -424,7 +479,6 @@ class StandingsCard(Card):
     """Data Grid Style Standings"""
 
     def __init__(self, title: str = "LEAGUE STANDINGS", parent=None):
-        # FIX: Ensure we call Card.__init__ correctly which calls QFrame.__init__ with parent
         super().__init__(title=title, parent=parent)
         self.theme = get_theme()
         self._create_layout()

@@ -148,7 +148,7 @@ class PlayerTable(QWidget):
 
         # Search
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("🔍 選手検索...")
+        self.search_input.setPlaceholderText("選手検索...")
         self.search_input.setMinimumWidth(200)
         self.search_input.textChanged.connect(self._filter_players)
         layout.addWidget(self.search_input)

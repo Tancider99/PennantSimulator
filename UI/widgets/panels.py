@@ -12,16 +12,24 @@ from PySide6.QtGui import QColor, QPainter, QLinearGradient
 
 import sys
 sys.path.insert(0, '..')
-from UI.theme import get_theme
+try:
+    from UI.theme import get_theme
+except ImportError:
+    pass
 
 
 class PageHeader(QFrame):
     """Industrial Page Header"""
 
     def __init__(self, title: str, subtitle: str = "", icon: str = "", parent=None):
-        # FIX: QFrame constructor only accepts parent
+        # 【修正】QFrameにはparentのみ渡す
         super().__init__(parent)
-        self.theme = get_theme()
+        try:
+            self.theme = get_theme()
+        except:
+            from UI.theme import get_theme
+            self.theme = get_theme()
+            
         self._title = title
         self._subtitle = subtitle
         self._icon = icon
@@ -90,9 +98,14 @@ class PageHeader(QFrame):
 class InfoPanel(QFrame):
     """Industrial Info Display"""
     def __init__(self, title: str = "", parent=None):
-        # FIX: QFrame constructor only accepts parent
+        # 【修正】QFrameにはparentのみ渡す
         super().__init__(parent)
-        self.theme = get_theme()
+        try:
+            self.theme = get_theme()
+        except:
+            from UI.theme import get_theme
+            self.theme = get_theme()
+            
         self._title = title
         self._setup_ui()
 
@@ -142,7 +155,11 @@ class SidebarPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.theme = get_theme()
+        try:
+            self.theme = get_theme()
+        except:
+            from UI.theme import get_theme
+            self.theme = get_theme()
         self.setFixedWidth(220)
         self._setup_ui()
 
@@ -195,6 +212,7 @@ class SidebarPanel(QWidget):
         layout.addWidget(status_area)
 
     def add_nav_item(self, icon: str, text: str, section: str):
+        # 循環インポート回避のため関数内でインポート
         from .buttons import TabButton
         btn = TabButton(text)
         btn.clicked.connect(lambda: self._on_nav_click(section, btn))
@@ -262,7 +280,11 @@ class ContentPanel(QScrollArea):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.theme = get_theme()
+        try:
+            self.theme = get_theme()
+        except:
+            from UI.theme import get_theme
+            self.theme = get_theme()
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.NoFrame)
         self.setStyleSheet(f"background-color: {self.theme.bg_dark}; border: none;")
@@ -294,7 +316,11 @@ class HeaderPanel(QWidget):
     """Simple Top Bar"""
     def __init__(self, title: str = "", parent=None):
         super().__init__(parent)
-        self.theme = get_theme()
+        try:
+            self.theme = get_theme()
+        except:
+            from UI.theme import get_theme
+            self.theme = get_theme()
         self.setFixedHeight(60)
         self.setStyleSheet(f"background-color: {self.theme.bg_header}; border-bottom: 1px solid {self.theme.border};")
         
@@ -313,7 +339,11 @@ class StatusPanel(QWidget):
     """Bottom Status Bar"""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.theme = get_theme()
+        try:
+            self.theme = get_theme()
+        except:
+            from UI.theme import get_theme
+            self.theme = get_theme()
         self.setFixedHeight(28)
         self.setStyleSheet(f"background-color: {self.theme.bg_darkest}; border-top: 1px solid {self.theme.border};")
         
@@ -354,13 +384,21 @@ class PageContainer(QStackedWidget):
 class SplitPanel(QSplitter):
     def __init__(self, orientation=Qt.Horizontal, parent=None):
         super().__init__(orientation, parent)
-        self.theme = get_theme()
+        try:
+            self.theme = get_theme()
+        except:
+            from UI.theme import get_theme
+            self.theme = get_theme()
         self.setStyleSheet(f"QSplitter::handle {{ background-color: {self.theme.border}; }} QSplitter::handle:hover {{ background-color: {self.theme.primary}; }}")
 
 class FloatingPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.theme = get_theme()
+        try:
+            self.theme = get_theme()
+        except:
+            from UI.theme import get_theme
+            self.theme = get_theme()
         self.setStyleSheet(f"background-color: {self.theme.bg_card}; border: 1px solid {self.theme.border};")
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(20)
@@ -374,7 +412,11 @@ class FloatingPanel(QWidget):
 class ToolbarPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.theme = get_theme()
+        try:
+            self.theme = get_theme()
+        except:
+            from UI.theme import get_theme
+            self.theme = get_theme()
         self.setStyleSheet(f"background-color: {self.theme.bg_card}; border: 1px solid {self.theme.border};")
         self.layout = QHBoxLayout(self)
         self.layout.setContentsMargins(8, 0, 8, 0)

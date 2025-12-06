@@ -855,7 +855,7 @@ class AdvancedGameEngine:
                         self.away_pitchers_used.append(i)
                         self.away_pitch_count = 0
                     
-                    self.log.append(f"  ⚾ 投手交代: {p.name}")
+                    self.log.append(f"  投手交代: {p.name}")
                     return
     
     def simulate_half_inning(self) -> int:
@@ -934,8 +934,8 @@ class AdvancedGameEngine:
     def simulate_game(self) -> Tuple[int, int]:
         """試合全体をシミュレート"""
         self.log = [
-            f"⚾ {self.away_team.name} vs {self.home_team.name}",
-            f"📍 {self.stadium.display_name}　🌤 {self.weather.display_name}",
+            f"{self.away_team.name} vs {self.home_team.name}",
+            f"{self.stadium.display_name} / {self.weather.display_name}",
             "=" * 50
         ]
         
@@ -964,7 +964,7 @@ class AdvancedGameEngine:
             
             # サヨナラ勝ち
             if inning >= 9 and self.home_score > self.away_score:
-                self.log.append("\n🎉 サヨナラ勝ち！")
+                self.log.append("\nサヨナラ勝ち！")
                 break
         
         # 延長戦
@@ -984,7 +984,7 @@ class AdvancedGameEngine:
             self.inning_scores["home"].append(runs)
             
             if self.home_score > self.away_score:
-                self.log.append("\n🎉 サヨナラ勝ち！")
+                self.log.append("\nサヨナラ勝ち！")
                 break
         
         # 勝敗決定

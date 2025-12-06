@@ -115,7 +115,7 @@ class SettingsPage(ContentPanel):
 
         # Title with icon
         title_layout = QVBoxLayout()
-        title = QLabel("⚙️  設定")
+        title = QLabel("設定")
         title.setStyleSheet(f"""
             font-size: 28px;
             font-weight: 700;
@@ -190,11 +190,11 @@ class SettingsPage(ContentPanel):
         """)
 
         # Create tabs
-        tabs.addTab(self._create_display_tab(), "🖥️ 画面表示")
-        tabs.addTab(self._create_game_tab(), "🎮 ゲーム")
-        tabs.addTab(self._create_sim_tab(), "⚡ シミュレーション")
-        tabs.addTab(self._create_audio_tab(), "🔊 サウンド")
-        tabs.addTab(self._create_save_tab(), "💾 セーブ/ロード")
+        tabs.addTab(self._create_display_tab(), "画面表示")
+        tabs.addTab(self._create_game_tab(), "ゲーム")
+        tabs.addTab(self._create_sim_tab(), "シミュレーション")
+        tabs.addTab(self._create_audio_tab(), "サウンド")
+        tabs.addTab(self._create_save_tab(), "セーブ/ロード")
 
         self.add_widget(tabs)
 
@@ -236,7 +236,7 @@ class SettingsPage(ContentPanel):
         layout.setContentsMargins(8, 16, 8, 16)
 
         # Window Size Card
-        window_card = PremiumCard("ウィンドウサイズ", "🖼️")
+        window_card = PremiumCard("ウィンドウサイズ", "")
 
         # Window size preset
         row = SettingRow("ウィンドウサイズ", "ウィンドウの大きさを選択")
@@ -269,7 +269,7 @@ class SettingsPage(ContentPanel):
         layout.addWidget(window_card)
 
         # UI Scale Card
-        scale_card = PremiumCard("UIスケール", "🔍")
+        scale_card = PremiumCard("UIスケール", "")
 
         # UI Scale
         row = SettingRow("UIサイズ", "文字やボタンの大きさを調整")
@@ -318,7 +318,7 @@ class SettingsPage(ContentPanel):
         layout.addWidget(scale_card)
 
         # Theme Card
-        theme_card = PremiumCard("テーマ設定", "🎨")
+        theme_card = PremiumCard("テーマ設定", "")
 
         # Theme
         row = SettingRow("テーマ", "UIの外観を変更")
@@ -350,7 +350,7 @@ class SettingsPage(ContentPanel):
         layout.addWidget(theme_card)
 
         # Stats Display Card
-        stats_card = PremiumCard("統計表示", "📊")
+        stats_card = PremiumCard("統計表示", "")
 
         # Show advanced stats
         row = SettingRow("高度な統計", "WAR、OPS+などの詳細統計を表示")
@@ -362,7 +362,7 @@ class SettingsPage(ContentPanel):
         # Rating system
         row = SettingRow("能力表示", "選手能力の表示方法")
         self.rating_combo = QComboBox()
-        self.rating_combo.addItems(["数値 (1-99)", "ランク (S-G)", "星 (★)", "グラフ"])
+        self.rating_combo.addItems(["数値 (1-99)", "ランク (S-G)", "星", "グラフ"])
         self.rating_combo.setCurrentIndex(0)
         self.rating_combo.setMinimumWidth(180)
         row.set_control(self.rating_combo)
@@ -386,7 +386,7 @@ class SettingsPage(ContentPanel):
         layout.setContentsMargins(8, 16, 8, 16)
 
         # Difficulty card
-        diff_card = PremiumCard("難易度", "🎯")
+        diff_card = PremiumCard("難易度", "")
 
         # Difficulty level
         row = SettingRow("ゲーム難易度", "AI球団の強さを調整")
@@ -418,7 +418,7 @@ class SettingsPage(ContentPanel):
         layout.addWidget(diff_card)
 
         # Season settings card
-        season_card = PremiumCard("シーズン設定", "📅")
+        season_card = PremiumCard("シーズン設定", "")
 
         # Games per season
         row = SettingRow("試合数", "1シーズンあたりの試合数")
@@ -446,7 +446,7 @@ class SettingsPage(ContentPanel):
         layout.addWidget(season_card)
 
         # Roster settings card
-        roster_card = PremiumCard("ロスター設定", "👥")
+        roster_card = PremiumCard("ロスター設定", "")
 
         # Roster limit
         row = SettingRow("1軍登録人数", "1軍に登録できる選手の上限")
@@ -482,7 +482,7 @@ class SettingsPage(ContentPanel):
         layout.setContentsMargins(8, 16, 8, 16)
 
         # Simulation card
-        sim_card = PremiumCard("シミュレーション設定", "⚡")
+        sim_card = PremiumCard("シミュレーション設定", "")
 
         # Simulation speed
         row = SettingRow("シミュレーション速度", "自動進行時の速度")
@@ -524,7 +524,7 @@ class SettingsPage(ContentPanel):
         layout.addWidget(sim_card)
 
         # Physics card
-        physics_card = PremiumCard("物理演算", "🎾")
+        physics_card = PremiumCard("物理演算", "")
 
         # Realistic physics
         row = SettingRow("リアル物理演算", "打球の軌道を物理的に計算")
@@ -543,7 +543,7 @@ class SettingsPage(ContentPanel):
         layout.addWidget(physics_card)
 
         # AI settings card
-        ai_card = PremiumCard("AI設定", "🤖")
+        ai_card = PremiumCard("AI設定", "")
 
         # AI aggressiveness
         row = SettingRow("AI積極性", "AIの采配の積極性")
@@ -572,7 +572,7 @@ class SettingsPage(ContentPanel):
         layout.setContentsMargins(8, 16, 8, 16)
 
         # Audio card
-        audio_card = PremiumCard("サウンド設定", "🔊")
+        audio_card = PremiumCard("サウンド設定", "")
 
         # Master volume
         row = SettingRow("マスター音量", "全体の音量")
@@ -668,7 +668,7 @@ class SettingsPage(ContentPanel):
         layout.setContentsMargins(8, 16, 8, 16)
 
         # Save card
-        save_card = PremiumCard("セーブデータ", "💾")
+        save_card = PremiumCard("セーブデータ", "")
 
         # Auto-save
         row = SettingRow("オートセーブ", "自動的にゲームを保存")
@@ -698,7 +698,7 @@ class SettingsPage(ContentPanel):
         layout.addWidget(save_card)
 
         # Backup card
-        backup_card = PremiumCard("バックアップ", "📦")
+        backup_card = PremiumCard("バックアップ", "")
 
         # Backup location
         backup_row = QFrame()
@@ -752,7 +752,7 @@ class SettingsPage(ContentPanel):
         # Export/Import buttons
         export_layout = QHBoxLayout()
 
-        export_btn = QPushButton("📤 エクスポート")
+        export_btn = QPushButton("エクスポート")
         export_btn.setStyleSheet(f"""
             QPushButton {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -772,7 +772,7 @@ class SettingsPage(ContentPanel):
         export_btn.clicked.connect(self._export_save)
         export_layout.addWidget(export_btn)
 
-        import_btn = QPushButton("📥 インポート")
+        import_btn = QPushButton("インポート")
         import_btn.setStyleSheet(f"""
             QPushButton {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,

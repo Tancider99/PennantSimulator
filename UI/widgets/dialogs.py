@@ -408,7 +408,7 @@ class TradeDialog(BaseDialog):
 
         # My team side
         my_side = QVBoxLayout()
-        my_label = QLabel(f"📤 {self.my_team.name}")
+        my_label = QLabel(f"OUT: {self.my_team.name}")
         my_label.setStyleSheet(f"font-size: 16px; font-weight: 600; color: {self.theme.text_primary};")
         my_side.addWidget(my_label)
         # TODO: Add player selection list
@@ -418,7 +418,7 @@ class TradeDialog(BaseDialog):
 
         # Other team side
         other_side = QVBoxLayout()
-        other_label = QLabel(f"📥 {self.other_team.name}")
+        other_label = QLabel(f"IN: {self.other_team.name}")
         other_label.setStyleSheet(f"font-size: 16px; font-weight: 600; color: {self.theme.text_primary};")
         other_side.addWidget(other_label)
         # TODO: Add player selection list

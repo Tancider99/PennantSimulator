@@ -142,7 +142,7 @@ class SchedulePage(QWidget):
         title_layout = QVBoxLayout()
         title_layout.setSpacing(4)
 
-        title = QLabel("📅  日程・試合結果")
+        title = QLabel("日程・試合結果")
         title.setStyleSheet(f"""
             font-size: 24px;
             font-weight: 700;
@@ -231,7 +231,7 @@ class SchedulePage(QWidget):
         left_panel.setSpacing(16)
 
         # Mini calendar
-        calendar_card = PremiumCard("カレンダー", "📆")
+        calendar_card = PremiumCard("カレンダー", "")
         self.calendar = QCalendarWidget()
         self.calendar.setStyleSheet(f"""
             QCalendarWidget {{
@@ -267,7 +267,7 @@ class SchedulePage(QWidget):
         left_panel.addWidget(calendar_card)
 
         # Upcoming games
-        upcoming_card = PremiumCard("今後の試合", "⏰")
+        upcoming_card = PremiumCard("今後の試合", "")
         self.upcoming_table = self._create_schedule_table(compact=True)
         upcoming_card.add_widget(self.upcoming_table)
         left_panel.addWidget(upcoming_card)
@@ -293,7 +293,7 @@ class SchedulePage(QWidget):
         filter_layout = QHBoxLayout(filter_frame)
         filter_layout.setContentsMargins(12, 8, 12, 8)
 
-        filter_label = QLabel("🔍 表示:")
+        filter_label = QLabel("表示:")
         filter_label.setStyleSheet(f"color: {self.theme.text_secondary}; background: transparent;")
         filter_layout.addWidget(filter_label)
 
@@ -328,7 +328,7 @@ class SchedulePage(QWidget):
         right_panel.addWidget(filter_frame)
 
         # Full schedule table
-        schedule_card = PremiumCard("試合一覧", "📋")
+        schedule_card = PremiumCard("試合一覧", "")
         self.schedule_table = self._create_schedule_table()
         schedule_card.add_widget(self.schedule_table)
         right_panel.addWidget(schedule_card)
@@ -404,7 +404,7 @@ class SchedulePage(QWidget):
 
     def _create_results_section(self, parent_layout):
         """Create recent results section"""
-        results_card = PremiumCard("最近の結果", "🏆")
+        results_card = PremiumCard("最近の結果", "")
 
         results_scroll = QScrollArea()
         results_scroll.setWidgetResizable(True)

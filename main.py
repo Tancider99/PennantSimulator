@@ -1522,7 +1522,7 @@ class NPBGame:
                     errors.append(f"{pos}が{count}人います")
         
         if errors:
-            return "⚠ ポジション重複: " + ", ".join(errors)
+            return "ポジション重複: " + ", ".join(errors)
         
         # 必須ポジションのチェック
         rules = self.settings.game_rules
@@ -1546,7 +1546,7 @@ class NPBGame:
             missing.append(f"外野手（あと{3 - outfield_count}人必要）")
         
         if missing:
-            return "⚠ 守備位置が不足: " + ", ".join(missing)
+            return "守備位置が不足: " + ", ".join(missing)
         
         return ""
     
