@@ -1,3 +1,4 @@
+# filename: tancider99/pennantsimulator/PennantSimulator-dc826ddd1c528c22b1587f45283260277b108bea/UI/pages/roster_page.py
 # -*- coding: utf-8 -*-
 """
 Baseball Team Architect 2027 - Roster Page
@@ -18,7 +19,7 @@ from UI.widgets.cards import Card, PlayerCard
 from UI.widgets.tables import PlayerTable, RosterTable
 from UI.widgets.panels import ContentPanel, InfoPanel, ToolbarPanel
 from UI.widgets.charts import RadarChart
-from UI.widgets.dialogs import PlayerDetailDialog, OrderDialog # OrderDialogを追加
+from UI.widgets.dialogs import PlayerDetailDialog, OrderDialog
 
 
 class RosterPage(QWidget):
@@ -81,46 +82,105 @@ class RosterPage(QWidget):
         self.team_selector = QComboBox()
         self.team_selector.setMinimumWidth(180)
         self.team_selector.setFixedHeight(32)  # Fixed height
+        
+        # コンボボックスのスタイル
+        self.team_selector.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {self.theme.bg_input};
+                color: {self.theme.text_primary};
+                border: 1px solid {self.theme.border};
+                border-radius: 4px;
+                padding: 4px 8px;
+            }}
+            QComboBox::drop-down {{
+                border: none;
+            }}
+            QComboBox::down-arrow {{
+                image: none;
+                border-left: 2px solid {self.theme.text_secondary};
+                border-bottom: 2px solid {self.theme.text_secondary};
+                width: 8px;
+                height: 8px;
+                margin-right: 8px;
+                transform: rotate(-45deg);
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {self.theme.bg_card};
+                color: {self.theme.text_primary};
+                selection-background-color: {self.theme.primary};
+                selection-color: {self.theme.text_highlight};
+                border: 1px solid {self.theme.border};
+            }}
+        """)
+        
         self.team_selector.currentIndexChanged.connect(self._on_team_changed)
         toolbar.add_widget(self.team_selector)
 
         toolbar.add_separator()
 
+        # フィルタボタン用のスタイル（チェック時に白背景・黒文字にする）
+        filter_btn_style = f"""
+            QPushButton {{
+                background-color: {self.theme.bg_card};
+                color: {self.theme.text_primary};
+                border: 1px solid {self.theme.border};
+                border-radius: 4px;
+                padding: 4px 12px;
+            }}
+            QPushButton:checked {{
+                background-color: {self.theme.primary};
+                color: {self.theme.text_highlight}; /* 白背景なので文字は濃色 */
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {self.theme.bg_card_hover};
+                border-color: {self.theme.primary};
+            }}
+            QPushButton:checked:hover {{
+                background-color: {self.theme.primary_hover};
+            }}
+        """
+
         # Filter buttons
         self.show_all_btn = QPushButton("全員")
         self.show_all_btn.setCheckable(True)
         self.show_all_btn.setChecked(True)
+        self.show_all_btn.setStyleSheet(filter_btn_style)
         self.show_all_btn.clicked.connect(lambda: self._filter_players("all"))
         toolbar.add_widget(self.show_all_btn)
 
         self.show_active_btn = QPushButton("支配下")
         self.show_active_btn.setCheckable(True)
+        self.show_active_btn.setStyleSheet(filter_btn_style)
         self.show_active_btn.clicked.connect(lambda: self._filter_players("active"))
         toolbar.add_widget(self.show_active_btn)
 
         self.show_dev_btn = QPushButton("育成")
         self.show_dev_btn.setCheckable(True)
+        self.show_dev_btn.setStyleSheet(filter_btn_style)
         self.show_dev_btn.clicked.connect(lambda: self._filter_players("developmental"))
         toolbar.add_widget(self.show_dev_btn)
 
         toolbar.add_stretch()
 
         # Actions
-        edit_lineup_btn = QPushButton("打順編集")
+        # 【修正】ボタン名を「打順編集」から「オーダー」に変更
+        edit_lineup_btn = QPushButton("オーダー")
         edit_lineup_btn.setCursor(Qt.PointingHandCursor)
+        # 【修正】文字色をwhiteからtext_highlightに変更（背景がprimary=白のため）
         edit_lineup_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {self.theme.primary};
-                color: white;
+                color: {self.theme.text_highlight};
                 border: none;
                 border-radius: 6px;
                 padding: 8px 16px;
+                font-weight: 700;
             }}
             QPushButton:hover {{
                 background-color: {self.theme.primary_hover};
             }}
         """)
-        # ボタンクリックイベントを接続
         edit_lineup_btn.clicked.connect(self._show_order_dialog)
         toolbar.add_widget(edit_lineup_btn)
 
@@ -134,6 +194,7 @@ class RosterPage(QWidget):
 
         # Tabs for different views
         self.tabs = QTabWidget()
+        # 【修正】タブのテキスト色を明示的に指定
         self.tabs.setStyleSheet(f"""
             QTabWidget::pane {{
                 border: 1px solid {self.theme.border};
@@ -141,7 +202,17 @@ class RosterPage(QWidget):
                 background-color: {self.theme.bg_card};
             }}
             QTabBar::tab {{
+                background-color: transparent;
+                color: {self.theme.text_secondary};
                 padding: 10px 20px;
+                border-bottom: 2px solid transparent;
+            }}
+            QTabBar::tab:selected {{
+                color: {self.theme.primary};
+                border-bottom: 2px solid {self.theme.primary};
+            }}
+            QTabBar::tab:hover {{
+                color: {self.theme.text_primary};
             }}
         """)
 
@@ -156,14 +227,6 @@ class RosterPage(QWidget):
         self.pitcher_table.player_selected.connect(self._on_player_selected)
         self.pitcher_table.player_double_clicked.connect(self._on_player_double_clicked)
         self.tabs.addTab(self.pitcher_table, "投手")
-
-        # Starting lineup tab
-        self.lineup_table = RosterTable()
-        self.tabs.addTab(self.lineup_table, "スタメン")
-
-        # Rotation tab
-        self.rotation_table = RosterTable()
-        self.tabs.addTab(self.rotation_table, "ローテーション")
 
         layout.addWidget(self.tabs)
 
@@ -198,13 +261,13 @@ class RosterPage(QWidget):
         panel.setStyleSheet(f"background-color: {self.theme.bg_dark};")
 
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(8, 16, 16, 16)
-        layout.setSpacing(12)
+        layout.setContentsMargins(8, 8, 16, 8)
+        layout.setSpacing(6)
 
         # Player card - compact version
         self.detail_card = PlayerCard(show_stats=True)
         self.detail_card.set_clickable(False)
-        self.detail_card.setFixedHeight(100)  # Fixed compact height
+        self.detail_card.setFixedHeight(100)
         layout.addWidget(self.detail_card)
 
         # Radar chart - in a fixed-size container
@@ -217,20 +280,16 @@ class RosterPage(QWidget):
             }}
         """)
         chart_layout = QVBoxLayout(chart_container)
-        chart_layout.setContentsMargins(8, 8, 8, 8)
+        chart_layout.setContentsMargins(4, 4, 4, 4)
 
         self.radar_chart = RadarChart()
-        self.radar_chart.setFixedSize(220, 220)  # Fixed square size
+        self.radar_chart.setFixedSize(200, 200)
         chart_layout.addWidget(self.radar_chart, 0, Qt.AlignCenter)
 
         layout.addWidget(chart_container)
 
         # Info panel - more compact
         self.info_panel = InfoPanel("選手情報")
-        self.info_panel.add_row("年齢", "-")
-        self.info_panel.add_row("年俸", "-")
-        self.info_panel.add_row("プロ年数", "-")
-        self.info_panel.add_row("ステータス", "-")
         layout.addWidget(self.info_panel)
 
         # Stats panel
@@ -243,15 +302,16 @@ class RosterPage(QWidget):
         btn_container = QWidget()
         btn_container.setStyleSheet("background: transparent;")
         btn_layout = QHBoxLayout(btn_container)
-        btn_layout.setContentsMargins(0, 8, 0, 0)
+        btn_layout.setContentsMargins(0, 4, 0, 0)
 
         detail_btn = QPushButton("詳細")
-        detail_btn.setFixedHeight(36)
+        detail_btn.setFixedHeight(34)
         detail_btn.setCursor(Qt.PointingHandCursor)
+        # 【修正】文字色をwhiteからtext_highlightに変更（背景がprimary=白のため）
         detail_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {self.theme.primary};
-                color: white;
+                color: {self.theme.text_highlight};
                 border: none;
                 border-radius: 6px;
                 padding: 8px 16px;
@@ -277,13 +337,26 @@ class RosterPage(QWidget):
 
         # Update team selector
         self.team_selector.clear()
+        
+        # 【修正】自チームを判別しやすくする
+        player_team_obj = game_state.player_team
+        
         for team in game_state.teams:
-            self.team_selector.addItem(team.name, team)
+            display_name = team.name
+            if player_team_obj and team.name == player_team_obj.name:
+                display_name = f"{team.name} (自チーム)"
+                
+            self.team_selector.addItem(display_name, team)
 
         # Set current team
-        if game_state.player_team:
-            index = game_state.teams.index(game_state.player_team)
-            self.team_selector.setCurrentIndex(index)
+        if player_team_obj:
+            # 名前が変わったのでインデックス検索はオブジェクトの一致で探す
+            for i in range(self.team_selector.count()):
+                if self.team_selector.itemData(i) == player_team_obj:
+                    self.team_selector.setCurrentIndex(i)
+                    break
+        elif game_state.teams:
+            self.team_selector.setCurrentIndex(0)
 
     def _on_team_changed(self, index: int):
         """Handle team selection change"""
@@ -316,19 +389,10 @@ class RosterPage(QWidget):
         self.batter_table.set_players(batters, mode="batter")
         self.pitcher_table.set_players(pitchers, mode="pitcher")
 
-        # Update lineup
-        if team.current_lineup:
-            lineup_players = [team.players[i] for i in team.current_lineup if 0 <= i < len(team.players)]
-            self.lineup_table.set_lineup(lineup_players)
-
-        # Update rotation
-        if team.rotation:
-            rotation_players = [team.players[i] for i in team.rotation if 0 <= i < len(team.players)]
-            self.rotation_table.set_lineup(rotation_players)
-
     def _filter_players(self, filter_type: str):
         """Apply player filter"""
         # Update button states
+        # 排他的なチェック状態にする（手動で制御）
         self.show_all_btn.setChecked(filter_type == "all")
         self.show_active_btn.setChecked(filter_type == "active")
         self.show_dev_btn.setChecked(filter_type == "developmental")

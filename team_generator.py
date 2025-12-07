@@ -208,13 +208,14 @@ def _adjust_developmental_stats(player):
     stats.inf_range = max(1, int(stats.inf_range * factor))
     stats.inf_arm = max(1, int(stats.inf_arm * factor))
     stats.inf_error = max(1, int(stats.inf_error * factor))
-    stats.inf_dp = max(1, int(stats.inf_dp * factor))
+    # 修正: inf_dp はプロパティなので turn_dp を操作する
+    stats.turn_dp = max(1, int(stats.turn_dp * factor))
     
     stats.of_range = max(1, int(stats.of_range * factor))
     stats.of_arm = max(1, int(stats.of_arm * factor))
     stats.of_error = max(1, int(stats.of_error * factor))
     
-    stats.catcher_ab = max(1, int(stats.catcher_ab * factor))
+    stats.catcher_ability = max(1, int(stats.catcher_ability * factor))
     stats.catcher_arm = max(1, int(stats.catcher_arm * factor))
     
     # 投手
@@ -226,7 +227,6 @@ def _adjust_developmental_stats(player):
         stats.movement = max(1, int(stats.movement * factor))
         stats.control = max(1, int(stats.control * factor))
         stats.stamina = max(1, int(stats.stamina * factor))
-
 
 def load_or_create_teams(central_team_names: list, pacific_team_names: list) -> tuple:
     """固定選手データを読み込み、なければ新規生成して保存（球団別ファイル）
