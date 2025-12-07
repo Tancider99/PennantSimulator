@@ -105,6 +105,7 @@ class MainWindow(QMainWindow):
 
         sidebar.add_nav_item("", "HOME", "home")
         sidebar.add_nav_item("", "ROSTER", "roster")
+        sidebar.add_nav_item("", "ORDER", "order")
         sidebar.add_nav_item("", "STATS", "stats")
 
         sidebar.add_separator("SEASON")
@@ -138,7 +139,7 @@ class MainWindow(QMainWindow):
         """Create all application pages"""
         from UI.pages.home_page import HomePage
         from UI.pages.roster_page import RosterPage
-        from UI.pages.live_game_page import LiveGamePage 
+        from UI.pages.live_game_page import LiveGamePage
         from UI.pages.standings_page import StandingsPage
         from UI.pages.schedule_page import SchedulePage
         from UI.pages.stats_page import StatsPage
@@ -146,6 +147,8 @@ class MainWindow(QMainWindow):
         from UI.pages.trade_page import TradePage
         from UI.pages.fa_page import FAPage
         from UI.pages.settings_page import SettingsPage
+        from UI.pages.order_page import OrderPage
+        from UI.pages.player_detail_page import PlayerDetailPage
 
         # Create page instances
         self.home_page = HomePage(self)
@@ -158,9 +161,20 @@ class MainWindow(QMainWindow):
         self.trade_page = TradePage(self)
         self.fa_page = FAPage(self)
         self.settings_page = SettingsPage(self)
+        self.order_page = OrderPage(self)
+        self.player_detail_page = PlayerDetailPage(self)
 
         # Connect settings page signals
         self.settings_page.settings_changed.connect(self._on_settings_changed)
+
+        # Connect order page signals
+        self.order_page.order_saved.connect(self._on_order_saved)
+
+        # Connect player detail page signals
+        self.player_detail_page.back_requested.connect(lambda: self._navigate_to("roster"))
+
+        # Connect roster page to player detail
+        self.roster_page.show_player_detail_requested = lambda player: self._show_player_detail(player)
 
         # Add pages to container
         self.pages.add_page("home", self.home_page)
@@ -173,6 +187,8 @@ class MainWindow(QMainWindow):
         self.pages.add_page("trade", self.trade_page)
         self.pages.add_page("free_agency", self.fa_page)
         self.pages.add_page("settings", self.settings_page)
+        self.pages.add_page("order", self.order_page)
+        self.pages.add_page("player_detail", self.player_detail_page)
 
         # Placeholder for save/load
         self.pages.add_page("save_load", self._create_placeholder("セーブ/ロード"))
@@ -332,7 +348,8 @@ class MainWindow(QMainWindow):
         pages_to_update = [
             self.home_page, self.roster_page, self.game_page,
             self.standings_page, self.schedule_page, self.stats_page,
-            self.draft_page, self.trade_page, self.fa_page
+            self.draft_page, self.trade_page, self.fa_page,
+            self.order_page
         ]
 
         for page in pages_to_update:
@@ -340,6 +357,15 @@ class MainWindow(QMainWindow):
                 page.set_game_state(game_state)
 
         self._on_page_changed(0)
+
+    def _show_player_detail(self, player):
+        """Navigate to player detail page"""
+        self.player_detail_page.set_player(player)
+        self._navigate_to("player_detail")
+
+    def _on_order_saved(self):
+        """Handle order saved - refresh roster page"""
+        self.roster_page._refresh_player_lists()
 
     def show_game(self, home_team, away_team):
         """Switch to game page and start a game"""

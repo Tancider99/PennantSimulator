@@ -5,7 +5,7 @@ OOTP-Style Team Roster Management
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTabWidget,
-    QSplitter, QFrame, QPushButton, QComboBox
+    QSplitter, QFrame, QPushButton, QComboBox, QScrollArea
 )
 from PySide6.QtCore import Qt, Signal
 
@@ -25,12 +25,14 @@ class RosterPage(QWidget):
     """Team roster management page"""
 
     player_selected = Signal(object)
+    show_player_detail_requested = None  # Will be set by MainWindow
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.theme = get_theme()
         self.game_state = None
         self.current_team = None
+        self.main_window = parent  # Reference to parent for navigation
 
         self._setup_ui()
 
@@ -69,6 +71,7 @@ class RosterPage(QWidget):
     def _create_toolbar(self) -> ToolbarPanel:
         """Create the toolbar"""
         toolbar = ToolbarPanel()
+        toolbar.setFixedHeight(50)  # Fixed height for consistency
 
         # Team selector
         team_label = QLabel("チーム:")
@@ -77,6 +80,7 @@ class RosterPage(QWidget):
 
         self.team_selector = QComboBox()
         self.team_selector.setMinimumWidth(180)
+        self.team_selector.setFixedHeight(32)  # Fixed height
         self.team_selector.currentIndexChanged.connect(self._on_team_changed)
         toolbar.add_widget(self.team_selector)
 
@@ -167,24 +171,61 @@ class RosterPage(QWidget):
 
     def _create_player_detail_panel(self) -> QWidget:
         """Create the player detail panel"""
+        # Use scroll area for the panel to handle overflow
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet(f"""
+            QScrollArea {{
+                background-color: {self.theme.bg_dark};
+                border: none;
+            }}
+            QScrollBar:vertical {{
+                background-color: {self.theme.bg_dark};
+                width: 8px;
+            }}
+            QScrollBar::handle:vertical {{
+                background-color: {self.theme.border};
+                border-radius: 4px;
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+        """)
+
         panel = QWidget()
         panel.setStyleSheet(f"background-color: {self.theme.bg_dark};")
 
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(8, 16, 16, 16)
-        layout.setSpacing(16)
+        layout.setSpacing(12)
 
-        # Player card
+        # Player card - compact version
         self.detail_card = PlayerCard(show_stats=True)
         self.detail_card.set_clickable(False)
+        self.detail_card.setFixedHeight(100)  # Fixed compact height
         layout.addWidget(self.detail_card)
 
-        # Radar chart
-        self.radar_chart = RadarChart()
-        self.radar_chart.setMinimumHeight(250)
-        layout.addWidget(self.radar_chart)
+        # Radar chart - in a fixed-size container
+        chart_container = QFrame()
+        chart_container.setStyleSheet(f"""
+            QFrame {{
+                background-color: {self.theme.bg_card};
+                border: 1px solid {self.theme.border};
+                border-radius: 8px;
+            }}
+        """)
+        chart_layout = QVBoxLayout(chart_container)
+        chart_layout.setContentsMargins(8, 8, 8, 8)
 
-        # Info panel
+        self.radar_chart = RadarChart()
+        self.radar_chart.setFixedSize(220, 220)  # Fixed square size
+        chart_layout.addWidget(self.radar_chart, 0, Qt.AlignCenter)
+
+        layout.addWidget(chart_container)
+
+        # Info panel - more compact
         self.info_panel = InfoPanel("選手情報")
         self.info_panel.add_row("年齢", "-")
         self.info_panel.add_row("年俸", "-")
@@ -198,20 +239,35 @@ class RosterPage(QWidget):
 
         layout.addStretch()
 
-        # Action buttons
-        btn_layout = QHBoxLayout()
+        # Action buttons - fixed at bottom
+        btn_container = QWidget()
+        btn_container.setStyleSheet("background: transparent;")
+        btn_layout = QHBoxLayout(btn_container)
+        btn_layout.setContentsMargins(0, 8, 0, 0)
 
         detail_btn = QPushButton("詳細")
+        detail_btn.setFixedHeight(36)
+        detail_btn.setCursor(Qt.PointingHandCursor)
+        detail_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {self.theme.primary};
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background-color: {self.theme.primary_hover};
+            }}
+        """)
         detail_btn.clicked.connect(self._show_player_detail)
         btn_layout.addWidget(detail_btn)
 
-        if self.game_state:
-            trade_btn = QPushButton("トレード")
-            btn_layout.addWidget(trade_btn)
+        layout.addWidget(btn_container)
 
-        layout.addLayout(btn_layout)
-
-        return panel
+        scroll.setWidget(panel)
+        return scroll
 
     def set_game_state(self, game_state):
         """Update with game state"""
@@ -362,19 +418,26 @@ class RosterPage(QWidget):
         self._show_player_detail()
 
     def _show_player_detail(self):
-        """Show player detail dialog"""
+        """Show player detail page"""
         player = self.batter_table.get_selected_player() or self.pitcher_table.get_selected_player()
         if player:
-            dialog = PlayerDetailDialog(player, self)
-            dialog.exec()
+            # Use callback if set by MainWindow, otherwise fall back to dialog
+            if self.show_player_detail_requested:
+                self.show_player_detail_requested(player)
+            else:
+                dialog = PlayerDetailDialog(player, self)
+                dialog.exec()
 
     def _show_order_dialog(self):
-        """Show lineup ordering dialog"""
+        """Navigate to order page"""
         if not self.current_team:
             return
-        
-        dialog = OrderDialog(self.current_team, self)
-        if dialog.exec():
-            # If accepted, data is already updated in Team object by dialog
-            # Just refresh the UI
-            self._refresh_player_lists()
+
+        # Navigate to order page via main window
+        if self.main_window and hasattr(self.main_window, '_navigate_to'):
+            self.main_window._navigate_to("order")
+        else:
+            # Fallback to dialog if main_window navigation not available
+            dialog = OrderDialog(self.current_team, self)
+            if dialog.exec():
+                self._refresh_player_lists()

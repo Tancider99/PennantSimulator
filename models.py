@@ -116,76 +116,112 @@ class ScheduledGame:
 
 @dataclass
 class PlayerStats:
-    """選手能力値（OOTPスタイル & パワプロ風ランク対応）
-    
-    基本能力値は1〜99の範囲（球速を除く）
-    ランク: S(90-99), A(80-89), B(70-79), C(60-69), D(50-59), E(40-49), F(30-39), G(1-29)
+    """選手能力値（OOTPスタイル完全版）
+
+    基本能力値は1〜200の範囲（20刻みで表示: 20=★1, 80=★4, 200=★10）
+    OOTPでは20-80スケールだが、内部的には1-200で管理
     """
     # ===== 打撃能力 (Batting Ratings) =====
-    contact: int = 50      # ミート (Contact / Batting Average)
-    gap: int = 50          # ギャップ (Gap Power / Doubles & Triples)
-    power: int = 50        # パワー (Home Run Power)
-    eye: int = 50          # 選球眼 (Eye / Walks)
-    avoid_k: int = 50      # 三振回避 (Avoid K / Strikeouts)
-    
-    # ===== 投球能力 (Pitching Ratings) =====
-    velocity: int = 145    # 球速 (Velocity) - km/h 実数値 (例: 130-165)
-    stuff: int = 50        # 球威 (Stuff / Strikeouts)
-    movement: int = 50     # ムービング (Movement / Home Runs Allowed)
-    control: int = 50      # コントロール (Control / Walks Allowed)
-    stamina: int = 50      # スタミナ (Stamina)
-    
-    # ===== 守備能力 (Fielding Ratings) =====
-    # 内野 (Infield)
-    inf_range: int = 50    # 守備範囲
-    inf_arm: int = 50      # 肩力
-    inf_error: int = 50    # エラー回避 (高いほどエラーしない)
-    inf_dp: int = 50       # 併殺処理
-    
-    # 外野 (Outfield)
-    of_range: int = 50     # 守備範囲
-    of_arm: int = 50       # 肩力
-    of_error: int = 50     # エラー回避
-    
-    # 捕手 (Catcher)
-    catcher_ab: int = 50   # リード・キャッチング
-    catcher_arm: int = 50  # 肩力・盗塁阻止
-    
+    contact: int = 100         # コンタクト - ヒット性の打球を打つ能力
+    gap: int = 100             # ギャップパワー - 中距離打者能力（二塁打・三塁打）
+    power: int = 100           # ホームランパワー - 長打力
+    eye: int = 100             # 選球眼 - 四球を選ぶ能力
+    avoid_k: int = 100         # 三振回避 - 三振しにくさ
+
     # ===== 走塁能力 (Running Ratings) =====
-    speed: int = 50        # 走力 (Speed)
-    steal: int = 50        # 盗塁技術 (Stealing)
-    baserunning: int = 50  # 走塁技術 (Baserunning)
-    
-    # ===== その他 =====
-    bunt: int = 50         # バント (Sacrifice Bunt)
-    mental: int = 50       # メンタル・回復 (Personality/Durability)
-    injury_res: int = 50   # ケガしにくさ (Injury Resistance)
-    
+    speed: int = 100           # 走塁速度 - 足の速さ
+    steal: int = 100           # 盗塁技術 - スタートの上手さ
+    baserunning: int = 100     # 走塁判断 - 次の塁を狙う判断力
+
+    # ===== バント能力 =====
+    bunt_sac: int = 100        # 送りバント - 犠牲バントの上手さ
+    bunt_hit: int = 100        # セーフティバント - セーフティバントの上手さ
+
+    # ===== 守備能力 (Fielding Ratings) =====
+    # 捕手 (Catcher)
+    catcher_ability: int = 100 # 配球・フレーミング - リード・ブロック能力
+    catcher_arm: int = 100     # 盗塁阻止能力 - 肩の強さ
+
+    # 内野 (Infield)
+    inf_range: int = 100       # 内野守備範囲 - 守備範囲の広さ
+    inf_error: int = 100       # 内野守備技術 - エラー回避能力
+    inf_arm: int = 100         # 内野肩の強さ - 送球の強さ
+    turn_dp: int = 100         # ダブルプレー能力 - 併殺処理の上手さ
+
+    # 外野 (Outfield)
+    of_range: int = 100        # 外野守備範囲 - 守備範囲の広さ
+    of_error: int = 100        # 外野守備技術 - エラー回避能力
+    of_arm: int = 100          # 外野肩の強さ - 送球の強さ
+
+    # ===== 投球能力 (Pitching Ratings) =====
+    stuff: int = 100           # スタッフ - 持ち球の質（奪三振能力）
+    movement: int = 100        # ムーブメント - 変化量とゴロ率
+    control: int = 100         # コントロール - 制球力
+
+    # ===== 投手追加能力 =====
+    velocity: int = 145        # 球速 (km/h) - 130-165の実数値
+    stamina: int = 100         # スタミナ - 持久力
+    hold_runners: int = 100    # ホールドランナーズ - 走者を釘付けにする能力
+    gb_tendency: int = 50      # ゴロ傾向 (0-100) - 50が中立、高いほどゴロ投手
+
+    # ===== その他能力 =====
+    durability: int = 100      # 耐久性 - ケガしにくさ
+    work_ethic: int = 100      # 練習態度 - 成長に影響
+    intelligence: int = 100    # 野球IQ - 判断力全般
+
     # ===== 投手専用 =====
-    breaking_balls: List[str] = field(default_factory=list)  # 持ち球リスト
-    pitch_repertoire: Dict[str, int] = field(default_factory=dict)  # 球種別変化量
-    
-    # ===== 互換性・エイリアス用プロパティ =====
+    pitches: Dict[str, int] = field(default_factory=dict)  # 球種と能力値 {"ストレート": 150, "スライダー": 120}
+
+    # ===== 互換性・エイリアス =====
     @property
     def run(self) -> int: return self.speed
     @property
-    def arm(self) -> int: 
-        # ポジション不明時は最大値を返す
+    def arm(self) -> int:
         return max(self.inf_arm, self.of_arm, self.catcher_arm)
     @property
     def fielding(self) -> int:
-        return max(self.inf_range, self.of_range, self.catcher_ab)
+        return max(self.inf_range, self.of_range, self.catcher_ability)
     @property
     def catching(self) -> int:
         return max(self.inf_error, self.of_error)
     @property
-    def breaking(self) -> int: return self.stuff  # 互換性のためStuffを返す
-    
-    # 互換性セッター (ランダム生成時のエラー回避)
+    def breaking(self) -> int: return self.stuff
+    @property
+    def bunt(self) -> int: return self.bunt_sac
+    @property
+    def mental(self) -> int: return self.intelligence
+    @property
+    def injury_res(self) -> int: return self.durability
+    @property
+    def injury_resistance(self) -> int: return self.durability
+    @property
+    def recovery(self) -> int: return self.durability
+    @property
+    def trajectory(self) -> int: return min(4, max(1, self.power // 50 + 1))
+    @property
+    def chance(self) -> int: return self.intelligence
+    @property
+    def vs_left_batter(self) -> int: return self.contact
+    @property
+    def vs_left_pitcher(self) -> int: return self.stuff
+    @property
+    def vs_pinch(self) -> int: return self.intelligence
+    @property
+    def quick(self) -> int: return self.hold_runners
+    @property
+    def stability(self) -> int: return self.control
+    @property
+    def inf_dp(self) -> int: return self.turn_dp
+    @property
+    def catcher_ab(self) -> int: return self.catcher_ability
+    @property
+    def breaking_balls(self) -> List[str]: return list(self.pitches.keys()) if self.pitches else []
+
+    # 互換性セッター
     @run.setter
     def run(self, value): self.speed = value
     @arm.setter
-    def arm(self, value): 
+    def arm(self, value):
         self.inf_arm = value
         self.of_arm = value
         self.catcher_arm = value
@@ -193,59 +229,75 @@ class PlayerStats:
     def fielding(self, value):
         self.inf_range = value
         self.of_range = value
-        self.catcher_ab = value
+        self.catcher_ability = value
     @breaking.setter
     def breaking(self, value): self.stuff = value
+    @bunt.setter
+    def bunt(self, value): self.bunt_sac = value
 
-    
+    def to_star_rating(self, value: int) -> float:
+        """能力値を★評価に変換 (0.5-5.0)"""
+        return max(0.5, min(5.0, value / 40))
+
+    def to_display_value(self, value: int) -> int:
+        """能力値を20-80スケール表示に変換"""
+        return max(20, min(80, value // 2.5 + 20))
+
     def overall_batting(self) -> float:
         """野手の総合値を計算"""
-        # ミート、パワー、選球眼、走力、守備を総合
-        defense = (self.inf_range + self.of_range + self.catcher_ab) / 3
-        return (self.contact * 2 + self.power * 1.5 + self.eye + self.speed + defense) / 6.0
-    
+        batting = (self.contact * 2 + self.gap * 1.5 + self.power * 1.5 + self.eye + self.avoid_k) / 7
+        running = (self.speed + self.steal + self.baserunning) / 3
+        defense = (self.inf_range + self.of_range + self.catcher_ability) / 3
+        return (batting * 0.5 + running * 0.2 + defense * 0.3)
+
     def overall_pitching(self) -> float:
         """投手の総合値を計算"""
-        # 球速(km/h)を1-99スケールに換算して評価に加える
         vel_rating = self.kmh_to_rating(self.velocity)
-        return (vel_rating * 1.5 + self.stuff * 1.5 + self.movement + self.control * 2 + self.stamina) / 7.0
-    
+        return (self.stuff * 2 + self.movement * 1.5 + self.control * 2 + vel_rating + self.stamina * 0.5) / 7
+
     def speed_to_kmh(self) -> int:
-        """互換性維持: そのままvelocityを返す"""
+        """球速をkm/hで返す"""
         return self.velocity
-    
+
     @staticmethod
     def kmh_to_rating(kmh: int) -> int:
-        """km/hを1-99評価値に変換"""
-        # 130km/h -> 1, 145km/h -> 50, 160km/h -> 99
-        val = (kmh - 130) * 99 / 30
-        return int(max(1, min(99, val)))
-    
+        """km/hを1-200評価値に変換"""
+        # 130km/h -> 20, 145km/h -> 100, 160km/h -> 180
+        val = (kmh - 130) * 160 / 30 + 20
+        return int(max(20, min(200, val)))
+
     def get_rank(self, value: int) -> str:
-        """能力値をランクに変換"""
-        if value >= 90: return "S"
-        elif value >= 80: return "A"
-        elif value >= 70: return "B"
-        elif value >= 60: return "C"
-        elif value >= 50: return "D"
-        elif value >= 40: return "E"
-        elif value >= 30: return "F"
+        """能力値をランクに変換（1-200スケール）"""
+        if value >= 180: return "S"
+        elif value >= 160: return "A"
+        elif value >= 140: return "B"
+        elif value >= 120: return "C"
+        elif value >= 100: return "D"
+        elif value >= 80: return "E"
+        elif value >= 60: return "F"
         else: return "G"
-    
+
     def get_rank_color(self, value: int) -> str:
-        """ランクに応じた色コード"""
-        if value >= 90: return "#FFD700"  # Gold (S)
-        elif value >= 80: return "#FF4500"  # Red-Orange (A)
-        elif value >= 70: return "#FFA500"  # Orange (B)
-        elif value >= 60: return "#FFFF00"  # Yellow (C)
-        elif value >= 50: return "#32CD32"  # Lime Green (D)
-        elif value >= 40: return "#1E90FF"  # Dodger Blue (E)
-        elif value >= 30: return "#4682B4"  # Steel Blue (F)
+        """ランクに応じた色コード（1-200スケール）"""
+        if value >= 180: return "#FFD700"  # Gold (S)
+        elif value >= 160: return "#FF4500"  # Red-Orange (A)
+        elif value >= 140: return "#FFA500"  # Orange (B)
+        elif value >= 120: return "#FFFF00"  # Yellow (C)
+        elif value >= 100: return "#32CD32"  # Lime Green (D)
+        elif value >= 80: return "#1E90FF"  # Dodger Blue (E)
+        elif value >= 60: return "#4682B4"  # Steel Blue (F)
         return "#808080"  # Gray (G)
 
+    def get_star_display(self, value: int) -> str:
+        """能力値を★表示に変換"""
+        stars = self.to_star_rating(value)
+        full = int(stars)
+        half = 1 if stars - full >= 0.5 else 0
+        return "★" * full + ("☆" if half else "")
+
     def get_breaking_balls_display(self) -> str:
-        if not self.breaking_balls: return "なし"
-        return "、".join(self.breaking_balls)
+        if not self.pitches: return "なし"
+        return "、".join(self.pitches.keys())
 
 
 @dataclass
@@ -363,39 +415,94 @@ class Team:
     budget: int = 5000000000
     color: str = None
     abbr: str = None
-    
+
     rotation: List[int] = field(default_factory=list)
     rotation_index: int = 0
     setup_pitchers: List[int] = field(default_factory=list)
     closer_idx: int = -1
-    
+
     bench_batters: List[int] = field(default_factory=list)
     bench_pitchers: List[int] = field(default_factory=list)
-    active_roster: List[int] = field(default_factory=list)
-    farm_roster: List[int] = field(default_factory=list)
-    
+    active_roster: List[int] = field(default_factory=list)  # 一軍登録選手（最大31人）
+    farm_roster: List[int] = field(default_factory=list)    # 二軍選手
+
+    # 出場登録上限
+    ACTIVE_ROSTER_LIMIT = 31
+
     def get_today_starter(self) -> Optional[Player]:
         if not self.rotation: return None
         idx = self.rotation[self.rotation_index % len(self.rotation)]
         if 0 <= idx < len(self.players): return self.players[idx]
         return None
-        
+
     def get_roster_players(self) -> List[Player]:
+        """支配下選手を取得"""
         return [p for p in self.players if not p.is_developmental]
-        
+
+    def get_active_roster_players(self) -> List[Player]:
+        """一軍登録選手を取得"""
+        return [self.players[i] for i in self.active_roster if 0 <= i < len(self.players)]
+
+    def get_farm_roster_players(self) -> List[Player]:
+        """二軍選手を取得"""
+        return [self.players[i] for i in self.farm_roster if 0 <= i < len(self.players)]
+
+    def get_active_roster_count(self) -> int:
+        """一軍登録人数を取得"""
+        return len(self.active_roster)
+
+    def can_add_to_active_roster(self) -> bool:
+        """一軍に追加可能かどうか"""
+        return len(self.active_roster) < self.ACTIVE_ROSTER_LIMIT
+
+    def add_to_active_roster(self, player_idx: int) -> bool:
+        """一軍に選手を追加"""
+        if not self.can_add_to_active_roster():
+            return False
+        if player_idx in self.active_roster:
+            return False
+        if player_idx in self.farm_roster:
+            self.farm_roster.remove(player_idx)
+        self.active_roster.append(player_idx)
+        return True
+
+    def remove_from_active_roster(self, player_idx: int) -> bool:
+        """一軍から選手を外す（二軍へ）"""
+        if player_idx not in self.active_roster:
+            return False
+        self.active_roster.remove(player_idx)
+        if player_idx not in self.farm_roster:
+            self.farm_roster.append(player_idx)
+        return True
+
     def auto_set_bench(self):
-        pass # Placeholder for external logic
+        """ベンチメンバーを自動設定"""
+        # スタメン・ローテ・中継ぎ・抑え以外の一軍メンバーをベンチに
+        assigned = set(self.current_lineup + self.rotation + self.setup_pitchers)
+        if self.closer_idx >= 0:
+            assigned.add(self.closer_idx)
+
+        self.bench_batters = []
+        self.bench_pitchers = []
+
+        for idx in self.active_roster:
+            if idx not in assigned and 0 <= idx < len(self.players):
+                p = self.players[idx]
+                if p.position.value == "投手":
+                    self.bench_pitchers.append(idx)
+                else:
+                    self.bench_batters.append(idx)
 
     def get_closer(self) -> Optional[Player]:
         if 0 <= self.closer_idx < len(self.players): return self.players[self.closer_idx]
         return None
-        
+
     def get_setup_pitcher(self) -> Optional[Player]:
         if self.setup_pitchers:
             idx = self.setup_pitchers[0]
             if 0 <= idx < len(self.players): return self.players[idx]
         return None
-    
+
     @property
     def winning_percentage(self) -> float:
         total = self.wins + self.losses
