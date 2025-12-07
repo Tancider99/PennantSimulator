@@ -37,6 +37,9 @@ class MainWindow(QMainWindow):
         self.game_state = None
         self.settings = QSettings("NPBSimulator", "PennantSimulator")
 
+        # ページインスタンスのキャッシュ（永続化が必要なページ用）
+        self.persistent_pages = {}
+
         self._setup_window()
         self._setup_ui()
         self._setup_connections()
@@ -91,7 +94,7 @@ class MainWindow(QMainWindow):
 
         # Page container
         self.pages = PageContainer()
-        self._create_pages()
+        self._create_persistent_pages() # 永続ページの作成
         content_layout.addWidget(self.pages)
 
         # Status bar
@@ -136,8 +139,25 @@ class MainWindow(QMainWindow):
         else:
             self._navigate_to(section)
 
-    def _create_pages(self):
-        """Create all application pages"""
+    def _create_persistent_pages(self):
+        """Create pages that should persist across navigation"""
+        from UI.pages.player_detail_page import PlayerDetailPage
+        
+        # Player Detail Page
+        self.player_detail_page = PlayerDetailPage(self)
+        self.player_detail_page.back_requested.connect(lambda: self._navigate_to("roster"))
+        self.pages.add_page("player_detail", self.player_detail_page)
+        self.persistent_pages["player_detail"] = self.player_detail_page
+
+        # Title Page (placeholder handled by screens/title_screen.py usually, but if integrated)
+        # Assuming title is special, if implemented as a page:
+        # from UI.screens.title_screen import TitleScreen
+        # self.title_page = TitleScreen()
+        # self.pages.add_page("title", self.title_page)
+
+    def _create_page_instance(self, section: str):
+        """Create a new instance of a page based on section name (Factory Method)"""
+        # Lazy imports to avoid circular dependencies and heavy startup
         from UI.pages.home_page import HomePage
         from UI.pages.roster_page import RosterPage
         from UI.pages.live_game_page import LiveGamePage
@@ -149,50 +169,64 @@ class MainWindow(QMainWindow):
         from UI.pages.fa_page import FAPage
         from UI.pages.settings_page import SettingsPage
         from UI.pages.order_page import OrderPage
-        from UI.pages.player_detail_page import PlayerDetailPage
 
-        # Create page instances
-        self.home_page = HomePage(self)
-        self.roster_page = RosterPage(self)
-        self.game_page = LiveGamePage(self)
-        self.standings_page = StandingsPage(self)
-        self.schedule_page = SchedulePage(self)
-        self.stats_page = StatsPage(self)
-        self.draft_page = DraftPage(self)
-        self.trade_page = TradePage(self)
-        self.fa_page = FAPage(self)
-        self.settings_page = SettingsPage(self)
-        self.order_page = OrderPage(self)
-        self.player_detail_page = PlayerDetailPage(self)
+        page = None
+        
+        if section == "home":
+            page = HomePage(self)
+            page.game_requested.connect(self._on_game_requested)
+            page.view_roster_requested.connect(lambda: self._navigate_to("roster"))
+            self.home_page = page 
+            
+        elif section == "roster":
+            page = RosterPage(self)
+            # Roster needs to connect to the persistent player detail page
+            page.show_player_detail_requested = lambda p: self._show_player_detail(p)
+            self.roster_page = page
+            
+        elif section == "order":
+            page = OrderPage(self)
+            page.order_saved.connect(self._on_order_saved)
+            self.order_page = page
+            
+        elif section == "stats":
+            self.stats_page = StatsPage(self)
+            page = self.stats_page
+            
+        elif section == "schedule":
+            self.schedule_page = SchedulePage(self)
+            page = self.schedule_page
+            
+        elif section == "standings":
+            self.standings_page = StandingsPage(self)
+            page = self.standings_page
+            
+        elif section == "game":
+            page = LiveGamePage(self)
+            page.game_finished.connect(self._on_game_finished)
+            self.game_page = page
+            
+        elif section == "trade":
+            self.trade_page = TradePage(self)
+            page = self.trade_page
+            
+        elif section == "draft":
+            self.draft_page = DraftPage(self)
+            page = self.draft_page
+            
+        elif section == "free_agency":
+            self.fa_page = FAPage(self)
+            page = self.fa_page
+            
+        elif section == "save_load":
+            page = self._create_placeholder("セーブ/ロード")
+            
+        elif section == "settings":
+            page = SettingsPage(self)
+            page.settings_changed.connect(self._on_settings_changed)
+            self.settings_page = page
 
-        # Connect settings page signals
-        self.settings_page.settings_changed.connect(self._on_settings_changed)
-
-        # Connect order page signals
-        self.order_page.order_saved.connect(self._on_order_saved)
-
-        # Connect player detail page signals
-        self.player_detail_page.back_requested.connect(lambda: self._navigate_to("roster"))
-
-        # Connect roster page to player detail
-        self.roster_page.show_player_detail_requested = lambda player: self._show_player_detail(player)
-
-        # Add pages to container
-        self.pages.add_page("home", self.home_page)
-        self.pages.add_page("roster", self.roster_page)
-        self.pages.add_page("game", self.game_page)
-        self.pages.add_page("standings", self.standings_page)
-        self.pages.add_page("schedule", self.schedule_page)
-        self.pages.add_page("stats", self.stats_page)
-        self.pages.add_page("draft", self.draft_page)
-        self.pages.add_page("trade", self.trade_page)
-        self.pages.add_page("free_agency", self.fa_page)
-        self.pages.add_page("settings", self.settings_page)
-        self.pages.add_page("order", self.order_page)
-        self.pages.add_page("player_detail", self.player_detail_page)
-
-        # Placeholder for save/load
-        self.pages.add_page("save_load", self._create_placeholder("セーブ/ロード"))
+        return page
 
     def _create_placeholder(self, name: str) -> QWidget:
         """Create a placeholder page"""
@@ -212,21 +246,15 @@ class MainWindow(QMainWindow):
         return page
 
     def _setup_connections(self):
-        """Set up signal connections"""
+        """Set up global signal connections"""
         self.pages.page_changed.connect(self._on_page_changed)
-        
-        self.home_page.game_requested.connect(self._on_game_requested)
-        self.home_page.view_roster_requested.connect(lambda: self._navigate_to("roster"))
-        
-        # 試合終了時のシグナル接続
-        self.game_page.game_finished.connect(self._on_game_finished)
 
     def _on_game_requested(self):
         """Handle game request from home page"""
         if not self.game_state:
             return
 
-        # 対戦相手決定ロジック（簡易版）
+        # 对戦相手決定ロジック（簡易版）
         player_team = self.game_state.player_team
         opponents = [t for t in self.game_state.teams if t.name != player_team.name]
         
@@ -266,7 +294,6 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "試合結果", msg)
         
         self._navigate_to("home")
-        self.home_page.set_game_state(self.game_state)
 
     def set_sidebar_visible(self, visible: bool):
         """サイドバーとステータスバーの表示切り替え"""
@@ -300,12 +327,57 @@ class MainWindow(QMainWindow):
         self.addAction(escape_action)
 
     def _navigate_to(self, section: str):
-        """Navigate to a section"""
-        # 試合画面以外に移動する場合はサイドバーを表示
-        if section != "game":
-            self.set_sidebar_visible(True)
+        """Navigate to a section, resetting the page state"""
         
-        self.pages.show_page(section)
+        # 1. Update Sidebar Visual Selection
+        self._update_sidebar_selection(section)
+
+        # 2. Check if page is persistent or needs recreation
+        if section in self.persistent_pages or section == "title":
+            # Persistent pages (like player detail) are just shown
+            self.pages.show_page(section)
+        else:
+            # Re-create the page to reset its state
+            new_page = self._create_page_instance(section)
+            
+            if new_page:
+                # Add to container (this should replace the old one if using PageContainer logic,
+                # or just add to stack. We rely on PageContainer to handle key mapping)
+                self.pages.add_page(section, new_page)
+                
+                # Apply current game state to the new page
+                if self.game_state and hasattr(new_page, 'set_game_state'):
+                    new_page.set_game_state(self.game_state)
+                
+                self.pages.show_page(section)
+
+        # 3. Handle Sidebar Visibility
+        if section == "game":
+            self.set_sidebar_visible(False)
+        else:
+            self.set_sidebar_visible(True)
+
+    def _update_sidebar_selection(self, section: str):
+        """Update the sidebar buttons to reflect current section"""
+        # Map section IDs to button labels (as defined in _create_sidebar)
+        section_map = {
+            "home": "HOME", "roster": "ROSTER", "order": "ORDER", "stats": "STATS",
+            "schedule": "SCHEDULE", "standings": "STANDINGS", "game": "GAME",
+            "trade": "TRADE", "draft": "DRAFT", "free_agency": "FREE AGENCY",
+            "save_load": "SAVE / LOAD", "settings": "SETTINGS", "title": "TITLE"
+        }
+        
+        target_label = section_map.get(section)
+        if not target_label:
+            return
+
+        # Find buttons in sidebar and update checked state
+        buttons = self.sidebar.findChildren(ActionButton)
+        for btn in buttons:
+            if btn.text() == target_label:
+                btn.setChecked(True)
+            else:
+                btn.setChecked(False)
 
     def _on_page_changed(self, index: int):
         """Handle page change"""
@@ -346,27 +418,29 @@ class MainWindow(QMainWindow):
         """Set the current game state"""
         self.game_state = game_state
 
-        pages_to_update = [
-            self.home_page, self.roster_page, self.game_page,
-            self.standings_page, self.schedule_page, self.stats_page,
-            self.draft_page, self.trade_page, self.fa_page,
-            self.order_page
-        ]
-
-        for page in pages_to_update:
+        # Update persistent pages
+        for page in self.persistent_pages.values():
             if hasattr(page, 'set_game_state'):
                 page.set_game_state(game_state)
 
+        # Update current visible page if it exists
+        current_widget = self.pages.currentWidget()
+        if current_widget and hasattr(current_widget, 'set_game_state'):
+            current_widget.set_game_state(game_state)
+            
+        # Ensure initial sidebar state is correct if just started
         self._on_page_changed(0)
 
     def _show_player_detail(self, player):
         """Navigate to player detail page"""
+        # This uses the persistent page, so state is preserved until next detail show
         self.player_detail_page.set_player(player)
         self._navigate_to("player_detail")
 
     def _on_order_saved(self):
-        """Handle order saved - refresh roster page"""
-        self.roster_page._refresh_player_lists()
+        """Handle order saved"""
+        # Roster page will be refreshed automatically next time it is visited (recreated)
+        pass
 
     def show_game(self, home_team, away_team):
         """Switch to game page and start a game"""
@@ -427,7 +501,6 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        # ...existing code...
 
 
 def run_app():

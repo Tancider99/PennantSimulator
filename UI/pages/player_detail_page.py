@@ -827,6 +827,7 @@ class PlayerDetailPage(QWidget):
 
         # Tab Widget
         tab_widget = QTabWidget()
+        # 修正: 選択中のタブの文字色を #222222 (黒系) に変更
         tab_widget.setStyleSheet(f"""
             QTabWidget::pane {{
                 border: 0px solid {self.theme.border};
@@ -844,7 +845,7 @@ class PlayerDetailPage(QWidget):
             }}
             QTabBar::tab:selected {{
                 background-color: {self.theme.primary};
-                color: #FFFFFF;
+                color: #222222;  /* 選択時は黒文字 */
             }}
             QTabBar::tab:hover:!selected {{
                 background-color: {self.theme.bg_card_hover};

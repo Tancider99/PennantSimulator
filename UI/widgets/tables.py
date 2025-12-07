@@ -14,6 +14,11 @@ from PySide6.QtGui import QColor, QBrush, QFont, QPainter
 import sys
 sys.path.insert(0, '..')
 from UI.theme import get_theme, Theme
+# PlayerStatsの静的メソッドを利用するためにインポート
+try:
+    from models import PlayerStats
+except ImportError:
+    pass
 
 
 def apply_premium_table_style(table: QTableWidget, theme=None) -> None:
@@ -266,6 +271,12 @@ class PlayerTable(QWidget):
     def _refresh_columns(self, mode: str = "batter"):
         """Set up table columns based on view mode"""
         self.table.clear()
+        
+        # 【修正】以前のデリゲート設定をクリア
+        # これを行わないと、野手→投手へ切り替えたときに、通常のスタッツ列（勝敗など）に
+        # ランク表示用の色付きデリゲートが残ってしまうことがある
+        for i in range(self.table.columnCount()):
+            self.table.setItemDelegateForColumn(i, None)
 
         if mode == "batter":
             headers = [
@@ -345,12 +356,22 @@ class PlayerTable(QWidget):
         else:
             pitch_role = player.pitch_type.value[:2] if player.pitch_type else "投"
             era = record.era if record.innings_pitched > 0 else 0
+            
+            # 【修正】球速(km/h)をランク用数値(1-99)に変換
+            # PlayerStatsクラスがインポートできない場合はインスタンスメソッドを利用
+            if hasattr(stats, 'kmh_to_rating'):
+                # 静的メソッドだがインスタンスからも呼べる
+                vel_rating = stats.kmh_to_rating(stats.velocity)
+            else:
+                # フォールバック計算 (30 + (kmh - 130) * 2)
+                vel_rating = int(max(1, min(99, (stats.velocity - 130) * 2 + 30)))
+
             data = [
                 str(player.uniform_number),
                 player.name,
                 pitch_role,
                 str(player.age),
-                stats.speed,
+                vel_rating,    # 【修正】stats.speed(走力)ではなく、球速ランクを使用
                 stats.control,
                 stats.stamina,
                 stats.breaking,
