@@ -188,18 +188,44 @@ def _add_sub_positions_outfielder(player):
 
 
 def _adjust_developmental_stats(player):
-    """育成選手の能力調整（やや低め）- 1-99スケール対応"""
+    """育成選手の能力調整（やや低め）- OOTP Stats対応"""
     stats = player.stats
     factor = random.uniform(0.7, 0.9)
+    
+    # 打撃
     stats.contact = max(1, int(stats.contact * factor))
+    stats.gap = max(1, int(stats.gap * factor))
     stats.power = max(1, int(stats.power * factor))
-    stats.run = max(1, int(stats.run * factor))
-    stats.arm = max(1, int(stats.arm * factor))
-    stats.fielding = max(1, int(stats.fielding * factor))
+    stats.eye = max(1, int(stats.eye * factor))
+    stats.avoid_k = max(1, int(stats.avoid_k * factor))
+    
+    # 走塁
     stats.speed = max(1, int(stats.speed * factor))
-    stats.control = max(1, int(stats.control * factor))
-    stats.stamina = max(1, int(stats.stamina * factor))
-    stats.breaking = max(1, int(stats.breaking * factor))
+    stats.steal = max(1, int(stats.steal * factor))
+    stats.baserunning = max(1, int(stats.baserunning * factor))
+    
+    # 守備 (全て調整)
+    stats.inf_range = max(1, int(stats.inf_range * factor))
+    stats.inf_arm = max(1, int(stats.inf_arm * factor))
+    stats.inf_error = max(1, int(stats.inf_error * factor))
+    stats.inf_dp = max(1, int(stats.inf_dp * factor))
+    
+    stats.of_range = max(1, int(stats.of_range * factor))
+    stats.of_arm = max(1, int(stats.of_arm * factor))
+    stats.of_error = max(1, int(stats.of_error * factor))
+    
+    stats.catcher_ab = max(1, int(stats.catcher_ab * factor))
+    stats.catcher_arm = max(1, int(stats.catcher_arm * factor))
+    
+    # 投手
+    if player.position == Position.PITCHER:
+        # 球速は少し落とす (例: 145km/h -> 138km/h)
+        stats.velocity = max(120, int(stats.velocity * 0.95))
+        
+        stats.stuff = max(1, int(stats.stuff * factor))
+        stats.movement = max(1, int(stats.movement * factor))
+        stats.control = max(1, int(stats.control * factor))
+        stats.stamina = max(1, int(stats.stamina * factor))
 
 
 def load_or_create_teams(central_team_names: list, pacific_team_names: list) -> tuple:

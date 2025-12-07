@@ -284,102 +284,243 @@ class SelectDialog(BaseDialog):
 
 
 class PlayerDetailDialog(BaseDialog):
-    """Dialog for displaying player details"""
+    """Detailed Player Stats Dialog (Power Pros Style)"""
 
     def __init__(self, player=None, parent=None):
-        super().__init__("選手詳細", parent)
-        self.setMinimumSize(600, 500)
+        super().__init__(f"選手詳細データ - {player.name if player else ''}", parent)
+        self.setMinimumSize(900, 650)
         self.player = player
+        self.theme = get_theme()
 
         if player:
-            self._create_player_view(player)
+            self._create_premium_view(player)
 
         # Close button
         self.add_stretch_to_buttons()
         self.add_button("閉じる", callback=self.accept)
 
-    def _create_player_view(self, player):
-        from .cards import PlayerCard
-        from .charts import RadarChart
+    def _create_premium_view(self, player):
+        """Create the enhanced detailed view"""
+        main_layout = QHBoxLayout()
+        main_layout.setSpacing(24)
 
-        # Header with basic info
-        header = QHBoxLayout()
+        # === Left Column: Profile & Radar ===
+        left_col = QVBoxLayout()
+        
+        # 1. Profile Header
+        profile_frame = self._create_profile_header(player)
+        left_col.addWidget(profile_frame)
 
-        # Player card
-        card = PlayerCard(player, show_stats=False)
-        card.set_clickable(False)
-        header.addWidget(card)
-
-        # Radar chart
-        radar = RadarChart()
-        radar.setFixedSize(250, 250)
+        # 2. Radar Chart
+        chart_container = QFrame()
+        chart_container.setStyleSheet(f"background: {self.theme.bg_card_elevated}; border-radius: 8px;")
+        chart_layout = QVBoxLayout(chart_container)
+        
+        self.radar = RadarChart()
+        self.radar.setFixedSize(300, 300)
         is_pitcher = player.position.value == "投手"
-        radar.set_player_stats(player, is_pitcher)
-        header.addWidget(radar)
+        self.radar.set_player_stats(player, is_pitcher)
+        
+        chart_layout.addWidget(self.radar, 0, Qt.AlignCenter)
+        left_col.addWidget(chart_container)
+        
+        left_col.addStretch()
+        main_layout.addLayout(left_col, stretch=1)
 
-        header_widget = QWidget()
-        header_widget.setLayout(header)
-        self.add_content(header_widget)
+        # === Right Column: Detailed Stats Grid ===
+        right_col = QVBoxLayout()
+        right_col.setSpacing(16)
 
-        # Stats details
-        self._add_stats_section(player)
+        # 3. Main Ability Stats (Grid with Ranks)
+        abilities_frame = self._create_abilities_grid(player)
+        right_col.addWidget(abilities_frame)
 
-        # Career stats
-        self._add_career_section(player)
+        # 4. Special Abilities / Details
+        details_frame = self._create_details_list(player)
+        right_col.addWidget(details_frame, stretch=1)
 
-    def _add_stats_section(self, player):
-        """Add detailed stats section"""
-        from .panels import InfoPanel
+        main_layout.addLayout(right_col, stretch=2)
 
+        container = QWidget()
+        container.setLayout(main_layout)
+        self.add_content(container)
+
+    def _create_profile_header(self, player):
+        frame = QFrame()
+        frame.setStyleSheet(f"background: {self.theme.bg_card}; border-left: 4px solid {self.theme.primary};")
+        layout = QVBoxLayout(frame)
+        
+        # Name & Number
+        top_row = QHBoxLayout()
+        name_lbl = QLabel(player.name)
+        name_lbl.setStyleSheet(f"font-size: 24px; font-weight: 800; color: {self.theme.text_primary};")
+        
+        num_lbl = QLabel(f"#{player.uniform_number}")
+        num_lbl.setStyleSheet(f"font-size: 24px; font-weight: 800; color: {self.theme.text_muted}; font-family: Consolas;")
+        
+        top_row.addWidget(name_lbl)
+        top_row.addStretch()
+        top_row.addWidget(num_lbl)
+        layout.addLayout(top_row)
+        
+        # Info Row
+        info_text = f"{player.position.value} | {player.age}歳 | プロ{player.years_pro}年目 | {player.salary//10000}万円"
+        info_lbl = QLabel(info_text)
+        info_lbl.setStyleSheet(f"color: {self.theme.text_secondary}; font-size: 13px;")
+        layout.addWidget(info_lbl)
+        
+        return frame
+
+    def _create_abilities_grid(self, player):
+        frame = QFrame()
+        frame.setStyleSheet(f"background: {self.theme.bg_card}; border-radius: 8px;")
+        layout = QGridLayout(frame)
+        layout.setSpacing(10)
+        
         stats = player.stats
         is_pitcher = player.position.value == "投手"
-
-        panel = InfoPanel("能力値")
+        
+        # Create Stat Block Helper
+        def create_stat_block(label, value, row, col):
+            container = QWidget()
+            vbox = QVBoxLayout(container)
+            vbox.setContentsMargins(0,0,0,0)
+            vbox.setSpacing(2)
+            
+            lbl = QLabel(label)
+            lbl.setStyleSheet(f"font-size: 11px; color: {self.theme.text_muted};")
+            
+            # Rank Color & Text
+            rank = stats.get_rank(value)
+            color = stats.get_rank_color(value)
+            
+            val_layout = QHBoxLayout()
+            rank_lbl = QLabel(rank)
+            rank_lbl.setStyleSheet(f"font-size: 20px; font-weight: 900; color: {color};")
+            
+            num_lbl = QLabel(str(value))
+            num_lbl.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {self.theme.text_primary}; padding-top: 4px;")
+            
+            val_layout.addWidget(rank_lbl)
+            val_layout.addWidget(num_lbl)
+            val_layout.addStretch()
+            
+            vbox.addWidget(lbl)
+            vbox.addLayout(val_layout)
+            
+            # Bar
+            bar = QFrame()
+            bar.setFixedHeight(4)
+            bar.setStyleSheet(f"background: {self.theme.bg_input}; border-radius: 2px;")
+            fill = QFrame(bar)
+            fill.setFixedHeight(4)
+            fill.setFixedWidth(int(100 * (value/100))) # roughly
+            fill.setStyleSheet(f"background: {color}; border-radius: 2px;")
+            vbox.addWidget(bar)
+            
+            layout.addWidget(container, row, col)
 
         if is_pitcher:
-            panel.add_row("球速", f"{stats.speed_to_kmh()} km/h")
-            panel.add_row("制球", f"{stats.control} ({stats.get_rank(stats.control)})")
-            panel.add_row("スタミナ", f"{stats.stamina} ({stats.get_rank(stats.stamina)})")
-            panel.add_row("変化球", f"{stats.breaking} ({stats.get_rank(stats.breaking)})")
-
-            # Breaking balls
-            if stats.breaking_balls:
-                panel.add_row("持ち球", ", ".join(stats.breaking_balls))
+            # Pitcher Main Stats
+            speed_kmh = stats.speed_to_kmh()
+            # 球速は特殊表示
+            speed_widget = QWidget()
+            sl = QVBoxLayout(speed_widget)
+            sl.setContentsMargins(0,0,0,0)
+            sl.addWidget(QLabel("球速"))
+            sl.addWidget(QLabel(f"{speed_kmh} km/h"))
+            sl.itemAt(0).widget().setStyleSheet(f"font-size: 11px; color: {self.theme.text_muted};")
+            sl.itemAt(1).widget().setStyleSheet(f"font-size: 22px; font-weight: 800; color: {self.theme.text_primary};")
+            layout.addWidget(speed_widget, 0, 0, 1, 2)
+            
+            create_stat_block("コントロール", stats.control, 0, 2)
+            create_stat_block("スタミナ", stats.stamina, 0, 3)
+            create_stat_block("変化球", stats.breaking, 1, 0)
+            create_stat_block("対左打者", stats.vs_left_pitcher, 1, 1)
+            create_stat_block("対ピンチ", stats.vs_pinch, 1, 2)
+            create_stat_block("打たれ強さ", stats.mental, 1, 3)
+            
         else:
-            panel.add_row("ミート", f"{stats.contact} ({stats.get_rank(stats.contact)})")
-            panel.add_row("パワー", f"{stats.power} ({stats.get_rank(stats.power)})")
-            panel.add_row("走力", f"{stats.run} ({stats.get_rank(stats.run)})")
-            panel.add_row("肩力", f"{stats.arm} ({stats.get_rank(stats.arm)})")
-            panel.add_row("守備", f"{stats.fielding} ({stats.get_rank(stats.fielding)})")
-            panel.add_row("捕球", f"{stats.catching} ({stats.get_rank(stats.catching)})")
+            # Batter Main Stats
+            # 弾道 (特殊)
+            traj_widget = QWidget()
+            tl = QVBoxLayout(traj_widget)
+            tl.setContentsMargins(0,0,0,0)
+            tl.addWidget(QLabel("弾道"))
+            tl.addWidget(QLabel(str(stats.trajectory)))
+            tl.itemAt(0).widget().setStyleSheet(f"font-size: 11px; color: {self.theme.text_muted};")
+            tl.itemAt(1).widget().setStyleSheet(f"font-size: 22px; font-weight: 800; color: {self.theme.accent_orange};")
+            layout.addWidget(traj_widget, 0, 0)
+            
+            create_stat_block("ミート", stats.contact, 0, 1)
+            create_stat_block("パワー", stats.power, 0, 2)
+            create_stat_block("走力", stats.run, 0, 3)
+            create_stat_block("肩力", stats.arm, 1, 0)
+            create_stat_block("守備力", stats.fielding, 1, 1)
+            create_stat_block("捕球", stats.catching, 1, 2)
+            create_stat_block("チャンス", stats.chance, 1, 3)
 
-        self.add_content(panel)
+        return frame
 
-    def _add_career_section(self, player):
-        """Add career stats section"""
-        from .panels import InfoPanel
-
-        record = player.record
+    def _create_details_list(self, player):
+        frame = QFrame()
+        frame.setStyleSheet(f"background: {self.theme.bg_card}; border-radius: 8px;")
+        layout = QVBoxLayout(frame)
+        
+        lbl = QLabel("詳細能力 & 特殊能力")
+        lbl.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {self.theme.text_secondary};")
+        layout.addWidget(lbl)
+        
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("border: none; background: transparent;")
+        
+        content = QWidget()
+        grid = QGridLayout(content)
+        grid.setSpacing(12)
+        
+        stats = player.stats
         is_pitcher = player.position.value == "投手"
+        
+        # Helper for sub stats
+        def add_sub_stat(label, value, r, c):
+            rank = stats.get_rank(value)
+            color = stats.get_rank_color(value)
+            l = QLabel(f"{label}: {rank} ({value})")
+            l.setStyleSheet(f"color: {self.theme.text_primary}; font-weight: 600; border-left: 3px solid {color}; padding-left: 6px;")
+            grid.addWidget(l, r, c)
 
-        panel = InfoPanel("今季成績")
-
+        r, c = 0, 0
+        
         if is_pitcher:
-            panel.add_row("登板", str(record.games_pitched))
-            panel.add_row("勝敗", f"{record.wins}勝 {record.losses}敗")
-            panel.add_row("セーブ", str(record.saves))
-            panel.add_row("防御率", f"{record.era:.2f}" if record.innings_pitched > 0 else "-.--")
-            panel.add_row("投球回", f"{record.innings_pitched:.1f}")
-            panel.add_row("奪三振", str(record.strikeouts_pitched))
+            add_sub_stat("クイック", stats.quick, 0, 0)
+            add_sub_stat("安定感", stats.stability, 0, 1)
+            add_sub_stat("ケガしにくさ", stats.injury_resistance, 1, 0)
+            add_sub_stat("回復", stats.recovery, 1, 1)
+            
+            # Breaking balls
+            bb_label = QLabel(f"変化球: {stats.get_breaking_balls_display()}")
+            bb_label.setStyleSheet(f"color: {self.theme.accent_blue}; margin-top: 8px;")
+            grid.addWidget(bb_label, 2, 0, 1, 2)
+            
         else:
-            panel.add_row("打率", f".{int(record.batting_average * 1000):03d}" if record.at_bats > 0 else "---")
-            panel.add_row("打数", str(record.at_bats))
-            panel.add_row("安打", str(record.hits))
-            panel.add_row("本塁打", str(record.home_runs))
-            panel.add_row("打点", str(record.rbis))
-            panel.add_row("盗塁", str(record.stolen_bases))
+            add_sub_stat("対左投手", stats.vs_left_batter, 0, 0)
+            add_sub_stat("盗塁", stats.steal, 0, 1)
+            add_sub_stat("走塁", stats.base_running, 1, 0)
+            add_sub_stat("送球", stats.arm, 1, 1) # Reuse arm? or separate stat if available
+            add_sub_stat("ケガしにくさ", stats.injury_resistance, 2, 0)
+            add_sub_stat("回復", stats.recovery, 2, 1)
+            add_sub_stat("バント", stats.bunt, 3, 0)
 
-        self.add_content(panel)
+        # Special Abilities from object (if exists)
+        if player.special_abilities:
+            # ここは実装に合わせて調整。現状は文字列リストなどを想定
+            pass
+
+        scroll.setWidget(content)
+        layout.addWidget(scroll)
+        
+        return frame
 
 
 class TradeDialog(BaseDialog):
