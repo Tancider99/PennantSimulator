@@ -22,7 +22,7 @@ class TeamListItem(QPushButton):
         self._league = league
         self._selected = False
         
-        self.setFixedHeight(32)
+        self.setFixedHeight(40)  # 高さを確保
         self.setCursor(Qt.PointingHandCursor)
         
         layout = QHBoxLayout(self)
@@ -31,40 +31,40 @@ class TeamListItem(QPushButton):
         
         # League Indicator Bar
         self.bar = QFrame()
-        self.bar.setFixedSize(4, 32)
+        self.bar.setFixedSize(4, 40)
         c = self.theme.north_league if league == "north" else self.theme.south_league
         self.bar.setStyleSheet(f"background-color: {c};")
         layout.addWidget(self.bar)
         
-        # Name
+        # Name (等幅フォント)
         self.name_label = QLabel(team_name.upper())
         self.name_label.setStyleSheet(f"""
             font-size: 14px;
             font-weight: 700;
             color: {self.theme.text_primary};
             letter-spacing: 1px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            border: none;
         """)
         layout.addWidget(self.name_label)
         
         layout.addStretch()
-        
-        # Selection Marker
-        self.marker = QLabel("◄")
-        self.marker.setStyleSheet(f"color: {self.theme.primary}; font-size: 12px;")
-        self.marker.hide()
-        layout.addWidget(self.marker)
         
         self._update_style()
 
     def set_selected(self, selected: bool):
         self._selected = selected
         if selected:
-            self.marker.show()
-            self.name_label.setStyleSheet(f"color: {self.theme.text_primary}; font-weight: 700;")
-            self.setStyleSheet(f"background-color: {self.theme.bg_card_hover}; border: none; border-radius: 0px;")
+            self.bar.setFixedWidth(6)
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {self.theme.bg_card_hover};
+                    border: none;
+                    outline: none;
+                }}
+            """)
         else:
-            self.marker.hide()
-            self.name_label.setStyleSheet(f"color: {self.theme.text_primary}; font-weight: 700;")
+            self.bar.setFixedWidth(4)
             self._update_style()
 
     def _update_style(self):
@@ -73,41 +73,37 @@ class TeamListItem(QPushButton):
                 QPushButton {{
                     background-color: transparent;
                     border: none;
-                    border-radius: 0px;
                     text-align: left;
+                    outline: none;
                 }}
                 QPushButton:hover {{
                     background-color: {self.theme.bg_card_elevated};
                 }}
             """)
 
-class StatBox(QFrame):
-    """Industrial Stat Box"""
-    def __init__(self, label: str, parent=None):
+class StatRow(QWidget):
+    """詳細パネル内の1行データ表示用"""
+    def __init__(self, label, value, parent=None):
         super().__init__(parent)
         self.theme = get_theme()
-        self.setStyleSheet(f"""
-            background-color: {self.theme.bg_card};
-            border: none;
-            border-radius: 0px;
-        """)
-        l = QVBoxLayout(self)
-        l.setContentsMargins(12, 8, 12, 8)
-        l.setSpacing(2)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 2, 0, 2)
         
-        self.lbl = QLabel(label)
-        self.lbl.setStyleSheet(f"color: {self.theme.text_muted}; font-size: 10px; text-transform: uppercase;")
-        l.addWidget(self.lbl)
+        lbl = QLabel(label)
+        lbl.setStyleSheet(f"color: {self.theme.text_muted}; font-size: 12px; border: none;")
+        layout.addWidget(lbl)
         
-        self.val = QLabel("--")
-        self.val.setStyleSheet(f"color: {self.theme.text_primary}; font-size: 18px; font-family: 'Consolas'; font-weight: 700;")
-        l.addWidget(self.val)
+        layout.addStretch()
+        
+        self.val = QLabel(str(value))
+        self.val.setStyleSheet(f"color: {self.theme.text_primary}; font-size: 13px; font-weight: bold; font-family: 'Consolas', monospace; border: none;")
+        layout.addWidget(self.val)
 
     def set_value(self, value):
         self.val.setText(str(value))
 
 class TeamOverviewPanel(QFrame):
-    """Large Data Display Panel"""
+    """Large Data Display Panel - Enhanced"""
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -121,48 +117,94 @@ class TeamOverviewPanel(QFrame):
                 border: 1px solid {self.theme.border};
                 border-top: 4px solid {self.theme.primary};
             }}
+            QLabel {{
+                border: none;
+                background: transparent;
+            }}
         """)
         
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(20)
+        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setSpacing(15)
         
-        # Header
+        # Header Section
         self.header_label = QLabel("NO DATA SELECTED")
         self.header_label.setStyleSheet(f"""
-            font-size: 32px;
-            font-weight: 300;
+            font-size: 28px;
+            font-weight: 700;
             color: {self.theme.text_primary};
-            letter-spacing: 4px;
+            letter-spacing: 2px;
+            font-family: 'Consolas', sans-serif;
         """)
         layout.addWidget(self.header_label)
         
         self.sub_header = QLabel("WAITING FOR INPUT...")
-        self.sub_header.setStyleSheet(f"color: {self.theme.text_secondary}; font-family: 'Consolas';")
+        self.sub_header.setStyleSheet(f"color: {self.theme.primary}; font-family: 'Consolas'; font-size: 14px; font-weight: bold;")
         layout.addWidget(self.sub_header)
         
         line = QFrame()
         line.setFixedHeight(1)
-        line.setStyleSheet(f"background-color: {self.theme.border};")
+        line.setStyleSheet(f"background-color: {self.theme.border}; border: none;")
         layout.addWidget(line)
         
-        # Stats Grid
-        self.stats_grid = QGridLayout()
-        self.stats_grid.setSpacing(10)
+        # Main Content Area
+        content_layout = QGridLayout()
+        content_layout.setSpacing(20)
         
-        self.boxes = {}
-        keys = [("PLAYERS", 0, 0), ("PITCHERS", 0, 1), ("BATTERS", 0, 2),
-                ("AVG AGE", 1, 0), ("AVG OVR", 1, 1), ("STAR", 1, 2)]
+        # --- Section 1: Team Info ---
+        group1 = self._create_group_box("TEAM INFO")
+        self.info_rows = {
+            "BUDGET": StatRow("資金", "--"),
+            "SALARY": StatRow("総年俸", "--"),
+            "YEARS": StatRow("平均在籍", "--"),
+            "AGE": StatRow("平均年齢", "--"),
+        }
+        for w in self.info_rows.values():
+            group1.layout().addWidget(w)
+        content_layout.addWidget(group1, 0, 0)
         
-        for k, r, c in keys:
-            box = StatBox(k)
-            self.boxes[k] = box
-            self.stats_grid.addWidget(box, r, c)
-            
-        layout.addLayout(self.stats_grid)
-        
-        # Confirm Button (Industrial Style)
+        # --- Section 2: Roster Breakdown ---
+        group2 = self._create_group_box("ROSTER")
+        self.roster_rows = {
+            "TOTAL": StatRow("総人数", "--"),
+            "PITCHERS": StatRow("投手", "--"),
+            "CATCHERS": StatRow("捕手", "--"),
+            "INFIELD": StatRow("内野手", "--"),
+            "OUTFIELD": StatRow("外野手", "--"),
+            "FOREIGN": StatRow("外国人", "--"),
+        }
+        for w in self.roster_rows.values():
+            group2.layout().addWidget(w)
+        content_layout.addWidget(group2, 0, 1)
+
+        # --- Section 3: Performance Ratings (Batting) ---
+        group3 = self._create_group_box("OFFENSE RATINGS")
+        self.offense_rows = {
+            "AVG_CONTACT": StatRow("ミート力", "--"),
+            "AVG_POWER": StatRow("パワー", "--"),
+            "AVG_SPEED": StatRow("走力", "--"),
+            "BEST_BATTER": StatRow("注目打者", "--"),
+        }
+        for w in self.offense_rows.values():
+            group3.layout().addWidget(w)
+        content_layout.addWidget(group3, 1, 0)
+
+        # --- Section 4: Performance Ratings (Pitching) ---
+        group4 = self._create_group_box("PITCHING RATINGS")
+        self.pitching_rows = {
+            "AVG_VEL": StatRow("平均球速", "--"),
+            "AVG_CTRL": StatRow("制球力", "--"),
+            "AVG_STAMINA": StatRow("スタミナ", "--"),
+            "BEST_PITCHER": StatRow("エース", "--"),
+        }
+        for w in self.pitching_rows.values():
+            group4.layout().addWidget(w)
+        content_layout.addWidget(group4, 1, 1)
+
+        layout.addLayout(content_layout)
         layout.addStretch()
+        
+        # Confirm Button
         self.confirm_btn = QPushButton("INITIATE SEQUENCE [CONFIRM]")
         self.confirm_btn.setEnabled(False)
         self.confirm_btn.setCursor(Qt.PointingHandCursor)
@@ -175,6 +217,8 @@ class TeamOverviewPanel(QFrame):
                 font-family: 'Consolas';
                 font-weight: 700;
                 letter-spacing: 2px;
+                font-size: 16px;
+                outline: none;
             }}
             QPushButton:enabled {{
                 background-color: {self.theme.primary};
@@ -187,24 +231,79 @@ class TeamOverviewPanel(QFrame):
         """)
         layout.addWidget(self.confirm_btn)
 
+    def _create_group_box(self, title):
+        box = QFrame()
+        # 枠線(border)を削除しました
+        box.setStyleSheet(f"background-color: {self.theme.bg_input}; border-radius: 4px; border: none;")
+        l = QVBoxLayout(box)
+        l.setContentsMargins(15, 15, 15, 15)
+        l.setSpacing(5)
+        
+        title_lbl = QLabel(title)
+        title_lbl.setStyleSheet(f"color: {self.theme.accent_blue}; font-size: 11px; font-weight: bold; margin-bottom: 5px; border: none;")
+        l.addWidget(title_lbl)
+        return box
+
     def set_team(self, team, name, league):
         self.header_label.setText(name.upper())
         self.sub_header.setText(f"LEAGUE: {league.upper()} | STATUS: ACTIVE")
         self.confirm_btn.setEnabled(True)
         
-        # Update boxes (Mock data logic)
         if team:
             players = team.players
-            self.boxes["PLAYERS"].set_value(len(players))
-            self.boxes["PITCHERS"].set_value(len([p for p in players if p.position.value == "投手"]))
-            self.boxes["BATTERS"].set_value(len([p for p in players if p.position.value != "投手"]))
+            pitchers = [p for p in players if "投手" in str(p.position.value)]
+            batters = [p for p in players if "投手" not in str(p.position.value)]
+            catchers = [p for p in players if "捕手" in str(p.position.value)]
+            infielders = [p for p in players if any(x in str(p.position.value) for x in ["一塁", "二塁", "三塁", "遊撃"])]
+            outfielders = [p for p in players if "外野" in str(p.position.value)]
+            foreign = [p for p in players if p.is_foreign]
+
+            # Info
+            budget_oku = team.budget / 100000000
+            total_salary_oku = sum(p.salary for p in players) / 100000000
+            avg_age = sum(p.age for p in players) / len(players) if players else 0
+            avg_years = sum(p.years_pro for p in players) / len(players) if players else 0
             
-            avg_ovr = sum(p.overall_rating for p in players) / len(players) if players else 0
-            self.boxes["AVG OVR"].set_value(f"{avg_ovr:.1f}")
-            self.boxes["AVG AGE"].set_value(f"{24.5}") # Placeholder
+            self.info_rows["BUDGET"].set_value(f"{budget_oku:.1f}億円")
+            self.info_rows["SALARY"].set_value(f"{total_salary_oku:.1f}億円")
+            self.info_rows["YEARS"].set_value(f"{avg_years:.1f}年")
+            self.info_rows["AGE"].set_value(f"{avg_age:.1f}歳")
+
+            # Roster
+            self.roster_rows["TOTAL"].set_value(f"{len(players)}名")
+            self.roster_rows["PITCHERS"].set_value(f"{len(pitchers)}名")
+            self.roster_rows["CATCHERS"].set_value(f"{len(catchers)}名")
+            self.roster_rows["INFIELD"].set_value(f"{len(infielders)}名")
+            self.roster_rows["OUTFIELD"].set_value(f"{len(outfielders)}名")
+            self.roster_rows["FOREIGN"].set_value(f"{len(foreign)}名")
             
-            top = max(players, key=lambda p: p.overall_rating) if players else None
-            self.boxes["STAR"].set_value(top.name if top else "--")
+            # Offense Stats
+            if batters:
+                avg_contact = sum(p.stats.contact for p in batters) / len(batters)
+                avg_power = sum(p.stats.power for p in batters) / len(batters)
+                avg_speed = sum(p.stats.speed for p in batters) / len(batters)
+                best_batter = max(batters, key=lambda p: p.stats.overall_batting())
+                
+                self.offense_rows["AVG_CONTACT"].set_value(f"{avg_contact:.0f}")
+                self.offense_rows["AVG_POWER"].set_value(f"{avg_power:.0f}")
+                self.offense_rows["AVG_SPEED"].set_value(f"{avg_speed:.0f}")
+                self.offense_rows["BEST_BATTER"].set_value(best_batter.name)
+            else:
+                for k in self.offense_rows: self.offense_rows[k].set_value("--")
+
+            # Pitching Stats
+            if pitchers:
+                avg_vel = sum(p.stats.velocity for p in pitchers) / len(pitchers)
+                avg_ctrl = sum(p.stats.control for p in pitchers) / len(pitchers)
+                avg_stam = sum(p.stats.stamina for p in pitchers) / len(pitchers)
+                best_pitcher = max(pitchers, key=lambda p: p.stats.overall_pitching())
+
+                self.pitching_rows["AVG_VEL"].set_value(f"{avg_vel:.0f} km/h")
+                self.pitching_rows["AVG_CTRL"].set_value(f"{avg_ctrl:.0f}")
+                self.pitching_rows["AVG_STAMINA"].set_value(f"{avg_stam:.0f}")
+                self.pitching_rows["BEST_PITCHER"].set_value(best_pitcher.name)
+            else:
+                for k in self.pitching_rows: self.pitching_rows[k].set_value("--")
 
 class TeamSelectScreen(QWidget):
     """Starfield Style Team Select"""
@@ -235,42 +334,40 @@ class TeamSelectScreen(QWidget):
         back.clicked.connect(self.back_clicked.emit)
         back.setStyleSheet(f"""
             background: transparent; border: none; color: {self.theme.text_muted};
-            font-family: 'Consolas'; text-align: left;
+            font-family: 'Consolas', monospace; text-align: left; font-size: 14px;
+            outline: none;
         """)
         left_layout.addWidget(back)
         
         title = QLabel("TEAM SELECTION")
-        title.setStyleSheet(f"font-size: 24px; font-weight: 300; letter-spacing: 4px; color: {self.theme.text_primary}; margin-top: 10px;")
+        title.setStyleSheet(f"font-size: 24px; font-weight: 300; letter-spacing: 4px; color: {self.theme.text_primary}; margin-top: 20px; margin-bottom: 20px; border: none;")
         left_layout.addWidget(title)
         
-        # Team Lists
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("background: transparent; border: none;")
-        scroll_content = QWidget()
-        scroll_layout = QVBoxLayout(scroll_content)
-        scroll_layout.setSpacing(2)
+        # Team Lists (ScrollAreaを廃止し、QVBoxLayoutに直接配置)
+        teams_container = QWidget()
+        teams_layout = QVBoxLayout(teams_container)
+        teams_layout.setContentsMargins(0, 0, 0, 0)
+        teams_layout.setSpacing(4)
         
         self.items = []
         
-        # Headers
-        scroll_layout.addWidget(self._create_header("NORTH ORBIT"))
-        self._add_teams(scroll_layout, "north", [
+        # Headers & Teams
+        teams_layout.addWidget(self._create_header("NORTH ORBIT"))
+        self._add_teams(teams_layout, "north", [
             "Tokyo Bravers", "Osaka Thunders", "Nagoya Sparks",
             "Hiroshima Phoenix", "Yokohama Mariners", "Shinjuku Spirits"
         ])
         
-        scroll_layout.addSpacing(20)
+        teams_layout.addSpacing(20)
         
-        scroll_layout.addWidget(self._create_header("SOUTH ORBIT"))
-        self._add_teams(scroll_layout, "south", [
+        teams_layout.addWidget(self._create_header("SOUTH ORBIT"))
+        self._add_teams(teams_layout, "south", [
             "Fukuoka Phoenix", "Saitama Bears", "Sendai Flames",
             "Chiba Mariners", "Sapporo Fighters", "Kobe Buffaloes"
         ])
         
-        scroll_layout.addStretch()
-        scroll.setWidget(scroll_content)
-        left_layout.addWidget(scroll)
+        teams_layout.addStretch()
+        left_layout.addWidget(teams_container)
         
         layout.addWidget(left)
         
@@ -281,7 +378,7 @@ class TeamSelectScreen(QWidget):
 
     def _create_header(self, text):
         lbl = QLabel(text)
-        lbl.setStyleSheet(f"color: {self.theme.accent_blue}; font-size: 11px; letter-spacing: 2px; font-weight: 700; margin-bottom: 8px;")
+        lbl.setStyleSheet(f"color: {self.theme.accent_blue}; font-size: 12px; letter-spacing: 2px; font-weight: 700; margin-bottom: 8px; margin-top: 10px; border: none;")
         return lbl
 
     def _add_teams(self, layout, league, names):
