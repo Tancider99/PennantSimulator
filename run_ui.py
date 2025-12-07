@@ -235,8 +235,8 @@ class GameController(QMainWindow):
         self.game_state.north_league_name = "North League"
         self.game_state.south_league_name = "South League"
 
-        # Initialize NPB schedule engine
-        print("  Generating NPB schedule...")
+        # Initialize league schedule engine
+        print("  Generating league schedule...")
         self.game_state.initialize_schedule()
         if self.game_state.schedule:
             print(f"  Schedule: {len(self.game_state.schedule.games)} games generated")

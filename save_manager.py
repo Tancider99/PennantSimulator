@@ -253,11 +253,11 @@ class SaveManager:
 
 
 def create_save_data(game) -> Dict[str, Any]:
-    """NPBGameインスタンスからセーブデータを作成
-    
+    """Gameインスタンスからセーブデータを作成
+
     Args:
-        game: NPBGameインスタンス
-    
+        game: Gameインスタンス
+
     Returns:
         セーブデータの辞書
     """
@@ -422,11 +422,11 @@ def _serialize_record(record) -> Dict[str, Any]:
 
 def load_save_data(game, save_data: Dict[str, Any]) -> bool:
     """セーブデータからゲーム状態を復元
-    
+
     Args:
-        game: NPBGameインスタンス
+        game: Gameインスタンス
         save_data: セーブデータ
-    
+
     Returns:
         成功したかどうか
     """

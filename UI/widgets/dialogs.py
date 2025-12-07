@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Baseball Team Architect 2027 - Dialog Widgets
-OOTP-Style Modal Dialogs and Popups
+Custom Modal Dialogs and Popups
 """
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -18,7 +18,7 @@ from UI.theme import get_theme
 
 
 class BaseDialog(QDialog):
-    """Base dialog with OOTP styling"""
+    """Base dialog with custom styling"""
 
     def __init__(self, title: str = "", parent=None):
         super().__init__(parent)

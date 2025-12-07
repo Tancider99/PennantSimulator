@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Baseball Team Architect 2027 - Schedule Page
-OOTP-Style Premium Game Schedule and Results
+Premium Game Schedule and Results
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QCalendarWidget,

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Baseball Team Architect 2027 - Roster Page
-OOTP-Style Team Roster Management
+Team Roster Management
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTabWidget,

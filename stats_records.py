@@ -393,8 +393,8 @@ class StreakTracker:
         self.active_streaks: Dict[str, Streak] = {}
         self.historical_streaks: List[Streak] = []
         
-        # NPB歴代記録
-        self.npb_records = {
+        # 歴代記録
+        self.records = {
             "hitting_streak": Streak("連続試合安打", 0, 33, "高橋慶彦"),
             "games_played": Streak("連続試合出場", 0, 2215, "衣笠祥雄"),
             "consecutive_wins": Streak("連勝", 0, 28, "田中将大"),
@@ -424,8 +424,8 @@ class StreakTracker:
     
     def check_record(self, streak_type: str, current: int) -> bool:
         """記録更新かチェック"""
-        if streak_type in self.npb_records:
-            return current > self.npb_records[streak_type].record_count
+        if streak_type in self.records:
+            return current > self.records[streak_type].record_count
         return False
     
     def get_top_active_streaks(self, streak_type: str, count: int = 5) -> List[Streak]:

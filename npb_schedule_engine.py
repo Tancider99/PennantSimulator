@@ -19,8 +19,8 @@ from collections import defaultdict
 from models import Team, League, Schedule, ScheduledGame, GameStatus
 
 
-class NPBScheduleEngine:
-    """NPB式日程作成エンジン"""
+class LeagueScheduleEngine:
+    """リーグ日程作成エンジン"""
 
     # NPB基本設定
     GAMES_PER_SEASON = 143
@@ -248,9 +248,8 @@ class NPBScheduleEngine:
 
         return stats
 
-
-def create_npb_schedule(year: int, central_teams: List[Team],
+def create_league_schedule(year: int, central_teams: List[Team],
                        pacific_teams: List[Team]) -> Schedule:
-    """NPB式日程を作成するヘルパー関数"""
-    engine = NPBScheduleEngine(year)
+    """リーグ日程を作成するヘルパー関数"""
+    engine = LeagueScheduleEngine(year)
     return engine.generate_schedule(central_teams, pacific_teams)

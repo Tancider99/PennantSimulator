@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-NPBペナントシミュレーター - 画面描画モジュール
+ペナントシミュレーター - 画面描画モジュール
 すべての画面をプロフェッショナルなデザインで統一
 """
 import pygame
@@ -17,8 +17,8 @@ from ui_pro import (
     draw_selection_effect, lerp_color
 )
 from constants import (
-    TEAM_COLORS, NPB_CENTRAL_TEAMS, NPB_PACIFIC_TEAMS,
-    NPB_STADIUMS, TEAM_ABBREVIATIONS, NPB_BATTING_TITLES, NPB_PITCHING_TITLES
+    TEAM_COLORS, CENTRAL_TEAMS, PACIFIC_TEAMS,
+    STADIUMS, TEAM_ABBREVIATIONS, BATTING_TITLES, PITCHING_TITLES
 )
 from game_state import DifficultyLevel
 from models import Team, Player

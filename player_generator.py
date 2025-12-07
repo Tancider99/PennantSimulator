@@ -35,104 +35,105 @@ def create_random_player(position: Position,
 
     stats = PlayerStats()
 
-    # 能力値生成ヘルパー (正規分布、1-200スケール)
-    def get_stat(mu=100, sigma=30, min_val=20, max_val=200):
+    # 能力値生成ヘルパー (正規分布、1-99スケール)
+    def get_stat(mu=50, sigma=15, min_val=1, max_val=99):
         val = int(random.gauss(mu, sigma))
         return max(min_val, min(max_val, val))
 
     if position == Position.PITCHER:
-        # --- 投手能力 ---
-        # 球速: 平均146km/h, 標準偏差5km/h, 範囲130-165
-        stats.velocity = get_stat(146, 5, 130, 165)
+          # --- 投手能力 ---
+          # 球速: 平均145km/h, 標準偏差7km/h, 範囲120-170（大部分は140-160の間）
+                stats.velocity = int(random.gauss(145, 7))
+                stats.velocity = max(120, min(170, stats.velocity))
 
-        # 基本3能力 (1-200)
-        stats.stuff = get_stat(100, 35)
-        stats.movement = get_stat(100, 30)
-        stats.control = get_stat(100, 35)
-        stats.stamina = get_stat(100, 40)
-        stats.hold_runners = get_stat(100, 25)
-        stats.gb_tendency = get_stat(50, 20, 0, 100)  # ゴロ傾向は0-100
+                # 基本3能力 (1-99)
+                stats.stuff = get_stat(50)
+                stats.movement = get_stat(50)
+                stats.control = get_stat(50)
+                stats.stamina = get_stat(50)
+                stats.hold_runners = get_stat(50)
+                stats.gb_tendency = get_stat(50, 20, 1, 99)  # ゴロ傾向は1-99
 
-        # 守備 (投手)
-        stats.inf_range = get_stat(80, 20)
-        stats.inf_arm = get_stat(80, 20)
-        stats.inf_error = get_stat(100, 20)
+                # 守備 (投手)
+                stats.inf_range = get_stat(50)
+                stats.inf_arm = get_stat(50)
+                stats.inf_error = get_stat(50)
 
-        # 打撃 (投手は低い)
-        stats.contact = get_stat(30, 10, 20, 80)
-        stats.gap = get_stat(30, 10, 20, 80)
-        stats.power = get_stat(30, 10, 20, 80)
-        stats.eye = get_stat(30, 10, 20, 80)
-        stats.avoid_k = get_stat(30, 10, 20, 80)
+                # 打撃 (投手は低い)
+                stats.contact = get_stat(15, 7, 1, 40)
+                stats.gap = get_stat(15, 7, 1, 40)
+                stats.power = get_stat(15, 7, 1, 40)
+                stats.eye = get_stat(15, 7, 1, 40)
+                stats.avoid_k = get_stat(15, 7, 1, 40)
 
-        # 走塁 (投手は低い)
-        stats.speed = get_stat(60, 15, 20, 100)
-        stats.steal = get_stat(40, 10, 20, 80)
-        stats.baserunning = get_stat(50, 15, 20, 100)
+                # 走塁 (投手は低い)
+                stats.speed = get_stat(20, 7, 1, 60)
+                stats.steal = get_stat(10, 5, 1, 40)
+                stats.baserunning = get_stat(15, 7, 1, 60)
 
-        # 変化球 (pitchesディクショナリに格納)
-        balls = ["ストレート", "スライダー", "カーブ", "フォーク", "チェンジアップ", "カットボール", "シンカー", "ツーシーム"]
-        num_pitches = random.randint(3, 6)
-        selected_balls = random.sample(balls, num_pitches)
-        stats.pitches = {ball: get_stat(100, 30, 40, 180) for ball in selected_balls}
-        # ストレートは必ず含める
-        if "ストレート" not in stats.pitches:
-            stats.pitches["ストレート"] = get_stat(120, 25, 60, 180)
+                # 変化球 (pitchesディクショナリに格納)
+                balls = ["ストレート", "スライダー", "カーブ", "フォーク", "チェンジアップ", "カットボール", "シンカー", "ツーシーム"]
+                num_pitches = random.randint(3, 6)
+                selected_balls = random.sample(balls, num_pitches)
+                stats.pitches = {ball: get_stat(50) for ball in selected_balls}
+                # ストレートは必ず含める
+                if "ストレート" not in stats.pitches:
+                        stats.pitches["ストレート"] = get_stat()
 
     else:
         # --- 野手能力 ---
-        stats.contact = get_stat(100, 35)
-        stats.gap = get_stat(100, 30)
-        stats.power = get_stat(100, 40)
-        stats.eye = get_stat(100, 35)
-        stats.avoid_k = get_stat(100, 30)
+        stats.contact = get_stat(50)
+        stats.gap = get_stat(50)
+        stats.power = get_stat(50)
+        stats.eye = get_stat(50)
+        stats.avoid_k = get_stat(50)
 
-        stats.speed = get_stat(100, 35)
-        stats.steal = get_stat(stats.speed, 20)  # 足が速いと盗塁も上手い傾向
-        stats.baserunning = get_stat(stats.speed, 20)
+        stats.speed = get_stat(50)
+        stats.steal = get_stat(50)
+        stats.baserunning = get_stat(50)
 
         # バント
-        stats.bunt_sac = get_stat(100, 40)
-        stats.bunt_hit = get_stat(80, 30, 20, 160)
+        stats.bunt_sac = get_stat(50)
+        stats.bunt_hit = get_stat(50)
 
         # 守備 (ポジション別補正)
         if position == Position.CATCHER:
-            stats.catcher_ability = get_stat(110, 30)
-            stats.catcher_arm = get_stat(110, 30)
-            stats.inf_range = get_stat(60, 20)  # 捕手の内野守備は低い
-            stats.inf_error = get_stat(80, 20)
-            stats.turn_dp = get_stat(60, 20)
+            stats.catcher_ability = get_stat(50)
+            stats.catcher_arm = get_stat(50)
+            stats.inf_range = get_stat(50)
+            stats.inf_error = get_stat(50)
+            stats.turn_dp = get_stat(50)
         elif position in [Position.SHORTSTOP, Position.SECOND]:
-            stats.inf_range = get_stat(120, 30)
-            stats.inf_arm = get_stat(100, 30)
-            stats.inf_error = get_stat(110, 25)
-            stats.turn_dp = get_stat(110, 30)
+            stats.inf_range = get_stat(50)
+            stats.inf_arm = get_stat(50)
+            stats.inf_error = get_stat(50)
+            stats.turn_dp = get_stat(50)
         elif position == Position.THIRD:
-            stats.inf_range = get_stat(100, 30)
-            stats.inf_arm = get_stat(130, 30)  # 三塁は肩
-            stats.inf_error = get_stat(100, 25)
-            stats.turn_dp = get_stat(90, 25)
+            stats.inf_range = get_stat(50)
+            stats.inf_arm = get_stat(50)
+            stats.inf_error = get_stat(50)
+            stats.turn_dp = get_stat(50)
         elif position == Position.FIRST:
-            stats.inf_range = get_stat(80, 25)
-            stats.inf_arm = get_stat(80, 25)
-            stats.inf_error = get_stat(110, 25)
-            stats.turn_dp = get_stat(80, 25)
+            stats.inf_range = get_stat(50)
+            stats.inf_arm = get_stat(50)
+            stats.inf_error = get_stat(50)
+            stats.turn_dp = get_stat(50)
         elif position == Position.OUTFIELD:
-            stats.of_range = get_stat(110, 30)
-            stats.of_arm = get_stat(110, 30)
-            stats.of_error = get_stat(100, 25)
+            stats.of_range = get_stat(50)
+            stats.of_arm = get_stat(50)
+            stats.of_error = get_stat(50)
 
         # 投手能力 (野手)
         stats.velocity = 130
-        stats.control = 20
-        stats.stuff = 20
-        stats.movement = 20
-        stats.stamina = 40
+        stats.control = 50
+        stats.stuff = 50
+        stats.movement = 50
+        stats.stamina = 50
 
     # 共通能力
-    stats.durability = get_stat(100, 40)
-    stats.work_ethic = get_stat(100, 30)
-    stats.intelligence = get_stat(100, 30)
+    stats.durability = get_stat(50)
+    stats.work_ethic = get_stat(50)
+    stats.intelligence = get_stat(50)
 
     # 年俸計算
     if position == Position.PITCHER:

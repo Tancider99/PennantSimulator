@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Baseball Team Architect 2027 - Settings Page
-OOTP-Style Professional Settings Interface with Premium Design
+Professional Settings Interface with Premium Design
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
@@ -322,7 +322,7 @@ class SettingsPage(ContentPanel):
         # Theme
         row = SettingRow("テーマ", "UIの外観を変更")
         self.theme_combo = QComboBox()
-        self.theme_combo.addItems(["ダーク（OOTP風）", "ダークブルー", "ミッドナイト", "クラシック"])
+        self.theme_combo.addItems(["ダーク", "ダークブルー", "ミッドナイト", "クラシック"])
         self.theme_combo.setCurrentIndex(0)
         self.theme_combo.setMinimumWidth(180)
         row.set_control(self.theme_combo)
@@ -820,7 +820,7 @@ class SettingsPage(ContentPanel):
             "physics": True,
             "wind": True,
             "ai_aggression": "普通",
-            "theme": "ダーク（OOTP風）",
+            "theme": "ダーク",
             "language": "日本語",
             "font_size": "中",
             "advanced_stats": True,
@@ -854,7 +854,7 @@ class SettingsPage(ContentPanel):
         self.fullscreen_check.setChecked(self.settings.get("fullscreen", False))
         self.start_maximized_check.setChecked(self.settings.get("start_maximized", False))
         self.scale_slider.setValue(self.settings.get("ui_scale", 100))
-        self.theme_combo.setCurrentText(self.settings.get("theme", "ダーク（OOTP風）"))
+        self.theme_combo.setCurrentText(self.settings.get("theme", "ダーク"))
         self.lang_combo.setCurrentText(self.settings.get("language", "日本語"))
         self.font_combo.setCurrentText(self.settings.get("font_size", "中"))
         self.adv_stats_check.setChecked(self.settings.get("advanced_stats", True))
@@ -945,7 +945,7 @@ class SettingsPage(ContentPanel):
         """Export save data"""
         file_path, _ = QFileDialog.getSaveFileName(
             self, "セーブデータをエクスポート",
-            "", "NPB Save Files (*.npbs)"
+            "", "Save Files (*.psav)"
         )
         if file_path:
             QMessageBox.information(
@@ -957,7 +957,7 @@ class SettingsPage(ContentPanel):
         """Import save data"""
         file_path, _ = QFileDialog.getOpenFileName(
             self, "セーブデータをインポート",
-            "", "NPB Save Files (*.npbs)"
+            "", "Save Files (*.psav)"
         )
         if file_path:
             result = QMessageBox.question(

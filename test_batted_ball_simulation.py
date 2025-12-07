@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 打球シミュレーションの精度テスト
-NPBの実際のデータと比較して改善点を特定する
+実際のデータと比較して改善点を特定する
 """
 import random
 import math
@@ -11,9 +11,9 @@ from physics_engine import (
     GROUNDBALL_MAX_ANGLE, LINEDRIVE_MAX_ANGLE, FLYBALL_MIN_ANGLE
 )
 
-# NPB 2023年シーズンの実際の統計データ（参考値）
-NPB_ACTUAL_STATS = {
-    # リーグ全体の打撃成績（NPB平均）
+# 2023年シーズンの実際の統計データ（参考値）
+ACTUAL_STATS = {
+    # リーグ全体の打撃成績（平均値）
     "batting_average": 0.247,  # 打率
     "on_base_percentage": 0.314,  # 出塁率
     "slugging_percentage": 0.377,  # 長打率
@@ -39,7 +39,7 @@ NPB_ACTUAL_STATS = {
 
 
 def create_average_batter():
-    """NPB平均的な打者のステータス"""
+    """平均的な打者のステータス"""
     class BatterStats:
         def __init__(self):
             self.contact = 13  # コンタクト（1-20）
@@ -75,7 +75,7 @@ def create_contact_batter():
 
 
 def create_average_pitcher():
-    """NPB平均的な投手のステータス"""
+    """平均的な投手のステータス"""
     class PitcherStats:
         def __init__(self):
             self.speed = 13     # 球速（1-20）
@@ -208,27 +208,27 @@ def simulate_batted_balls(num_simulations: int = 10000):
         pct = count / total_types * 100
         print(f"  {ht:10}: {count:5} ({pct:5.1f}%)")
     
-    # NPBとの比較
-    print("\n--- NPB実データとの比較 ---")
+    # 実データとの比較
+    print("\n--- 実データとの比較 ---")
     
     # 打球タイプ比較
     sim_gb_rate = hit_types["ground"] / total_types
     sim_fb_rate = (hit_types["fly"] + hit_types["popup"]) / total_types
     sim_ld_rate = hit_types["line"] / total_types
     
-    print(f"\nゴロ率:    シミュ {sim_gb_rate*100:.1f}%  vs  NPB {NPB_ACTUAL_STATS['groundball_rate']*100:.1f}%")
-    print(f"フライ率:  シミュ {sim_fb_rate*100:.1f}%  vs  NPB {NPB_ACTUAL_STATS['flyball_rate']*100:.1f}%")
-    print(f"ライナー率: シミュ {sim_ld_rate*100:.1f}%  vs  NPB {NPB_ACTUAL_STATS['linedrive_rate']*100:.1f}%")
+    print(f"\nゴロ率:    シミュ {sim_gb_rate*100:.1f}%  vs  実データ {ACTUAL_STATS['groundball_rate']*100:.1f}%")
+    print(f"フライ率:  シミュ {sim_fb_rate*100:.1f}%  vs  実データ {ACTUAL_STATS['flyball_rate']*100:.1f}%")
+    print(f"ライナー率: シミュ {sim_ld_rate*100:.1f}%  vs  実データ {ACTUAL_STATS['linedrive_rate']*100:.1f}%")
     
     # 安打率（インプレイ時）
     batting_avg = hits / total
-    print(f"\nBABIP:     シミュ {batting_avg:.3f}  vs  NPB ~0.290-0.300")
+    print(f"\nBABIP:     シミュ {batting_avg:.3f}  vs  実データ ~0.290-0.300")
     
     # 長打率
     hr_rate = results.get("ホームラン", 0) / total
     doubles = results.get("二塁打", 0) / total
     triples = results.get("三塁打", 0) / total
-    print(f"\nHR率:      シミュ {hr_rate*100:.2f}%  vs  NPB ~2-3%")
+    print(f"\nHR率:      シミュ {hr_rate*100:.2f}%  vs  実データ ~2-3%")
     print(f"二塁打率:  シミュ {doubles*100:.2f}%")
     print(f"三塁打率:  シミュ {triples*100:.2f}%")
     
@@ -301,11 +301,11 @@ def simulate_at_bats(num_at_bats: int = 5000):
     walk_rate = walks / total
     
     print("\n--- 成績 ---")
-    print(f"打率:    {batting_avg:.3f}  (NPB平均: {NPB_ACTUAL_STATS['batting_average']:.3f})")
-    print(f"出塁率:  {obp:.3f}  (NPB平均: {NPB_ACTUAL_STATS['on_base_percentage']:.3f})")
-    print(f"長打率:  {slg:.3f}  (NPB平均: {NPB_ACTUAL_STATS['slugging_percentage']:.3f})")
-    print(f"三振率:  {strikeout_rate:.3f}  (NPB平均: {NPB_ACTUAL_STATS['strikeout_rate']:.3f})")
-    print(f"四球率:  {walk_rate:.3f}  (NPB平均: {NPB_ACTUAL_STATS['walk_rate']:.3f})")
+    print(f"打率:    {batting_avg:.3f}  (平均: {ACTUAL_STATS['batting_average']:.3f})")
+    print(f"出塁率:  {obp:.3f}  (平均: {ACTUAL_STATS['on_base_percentage']:.3f})")
+    print(f"長打率:  {slg:.3f}  (平均: {ACTUAL_STATS['slugging_percentage']:.3f})")
+    print(f"三振率:  {strikeout_rate:.3f}  (平均: {ACTUAL_STATS['strikeout_rate']:.3f})")
+    print(f"四球率:  {walk_rate:.3f}  (平均: {ACTUAL_STATS['walk_rate']:.3f})")
     
     print(f"\n平均球数: {sum(pitch_counts)/len(pitch_counts):.1f}球")
     

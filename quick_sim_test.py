@@ -13,8 +13,8 @@ from physics_engine import (
 )
 import math
 
-# NPB リーグ平均目標値
-NPB_STATS = {
+ # リーグ平均目標値
+LEAGUE_STATS = {
     "groundball_rate": 0.45,   # GB%=45%
     "linedrive_rate": 0.10,    # LD%=10%
     "flyball_rate": 0.35,      # FB%=35%
@@ -141,9 +141,9 @@ def quick_test(n=5000):
     print("\n=== 打球の質 (contact_quality) ===")
     total_quality = soft_count + mid_count + hard_count
     if total_quality > 0:
-        print(f"  Soft  (cq<0.35): {soft_count:4} ({soft_count/total_quality*100:5.1f}%) 目標={NPB_STATS['soft_rate']*100:.0f}%")
-        print(f"  Mid   (0.35-0.70): {mid_count:4} ({mid_count/total_quality*100:5.1f}%) 目標={NPB_STATS['mid_rate']*100:.0f}%")
-        print(f"  Hard  (cq>0.70): {hard_count:4} ({hard_count/total_quality*100:5.1f}%) 目標={NPB_STATS['hard_rate']*100:.0f}%")
+        print(f"  Soft  (cq<0.35): {soft_count:4} ({soft_count/total_quality*100:5.1f}%) 目標={LEAGUE_STATS['soft_rate']*100:.0f}%")
+        print(f"  Mid   (0.35-0.70): {mid_count:4} ({mid_count/total_quality*100:5.1f}%) 目標={LEAGUE_STATS['mid_rate']*100:.0f}%")
+        print(f"  Hard  (cq>0.70): {hard_count:4} ({hard_count/total_quality*100:5.1f}%) 目標={LEAGUE_STATS['hard_rate']*100:.0f}%")
     
     # 統計
     print("\n=== 打球速度・角度の統計 ===")

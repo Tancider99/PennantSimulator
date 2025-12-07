@@ -28,7 +28,7 @@ from save_manager import SaveManager
 # 打球物理計算システム
 # ========================================
 class BallPhysics:
-    """打球の物理計算クラス - NPB実データに基づくリアルなシミュレーション"""
+    """打球の物理計算クラス - 実データに基づくリアルなシミュレーション"""
     
     # フィールド定義（メートル単位）
     FIELD_DEPTH = 120  # センターまでの距離
@@ -36,9 +36,9 @@ class BallPhysics:
     FENCE_DISTANCE = 122  # フェンスまでの距離（センター）
     FENCE_DISTANCE_CORNER = 100  # フェンスまでの距離（両翼）
     
-    # NPB実績に基づく結果確率（2023年シーズン参考）
+    # 実績に基づく結果確率（2023年シーズン参考）
     # 平均打率.250、長打率.380、三振率20%、四球率8%
-    NPB_STATS = {
+    LEAGUE_STATS = {
         'avg_batting_avg': 0.250,  # リーグ平均打率
         'avg_obp': 0.320,  # リーグ平均出塁率
         'avg_slg': 0.380,  # リーグ平均長打率
@@ -956,8 +956,8 @@ class BallPhysics:
         return abilities
 
 
-class NPBGame:
-    """NPBゲームメインクラス"""
+class LeagueGame:
+    """リーグゲームメインクラス"""
     
     def __init__(self):
         pygame.init()
@@ -974,7 +974,7 @@ class NPBGame:
         else:
             self.screen = pygame.display.set_mode((screen_width, screen_height), pygame.RESIZABLE)
         
-        pygame.display.set_caption("NPB プロ野球ペナントシミュレーター 2026")
+        pygame.display.set_caption("ペナントシミュレーター 2026")
         
         # レンダラーと状態管理
         self.renderer = ScreenRenderer(self.screen)
@@ -10351,7 +10351,7 @@ class NPBGame:
 
 def main():
     """エントリーポイント"""
-    game = NPBGame()
+    game = LeagueGame()
     game.run()
 
 

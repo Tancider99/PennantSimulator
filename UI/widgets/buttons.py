@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-NPB Pennant Simulator - Button Widgets
-OOTP-Style Action Buttons and Controls
+Pennant Simulator - Button Widgets
+Custom Action Buttons and Controls
 """
 from PySide6.QtWidgets import (
     QPushButton, QWidget, QHBoxLayout, QVBoxLayout, QLabel,

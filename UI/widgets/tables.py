@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Baseball Team Architect 2027 - Table Widgets
-OOTP-Style Data Tables and Lists
+Custom Data Tables and Lists
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
@@ -22,7 +22,7 @@ except ImportError:
 
 
 def apply_premium_table_style(table: QTableWidget, theme=None) -> None:
-    """Apply consistent premium OOTP-style to any QTableWidget"""
+    """Apply consistent premium custom style to any QTableWidget"""
     if theme is None:
         theme = get_theme()
 
@@ -129,7 +129,7 @@ class SortableTableWidgetItem(QTableWidgetItem):
 
 
 class PlayerTable(QWidget):
-    """OOTP-Style Player Table with sorting, filtering, and stats"""
+    """Player Table with sorting, filtering, and stats"""
 
     player_selected = Signal(object)  # Emits player object
     player_double_clicked = Signal(object)

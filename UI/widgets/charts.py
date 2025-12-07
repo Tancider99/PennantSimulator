@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Baseball Team Architect 2027 - Chart Widgets
-OOTP-Style Visualization Components
+Custom Visualization Components
 """
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QSizePolicy
 from PySide6.QtCore import Qt, QRect, QPoint
@@ -134,13 +134,7 @@ class RadarChart(QWidget):
             painter.setBrush(QBrush(gradient))
             painter.setPen(QPen(QColor(self.theme.primary), 2))
             painter.drawPolygon(polygon)
-
-            # Draw points
-            painter.setBrush(QBrush(QColor(self.theme.primary_light)))
-            painter.setPen(QPen(QColor("white"), 2))
-            for point in points:
-                # 【修正】点のサイズを 5,5 から 3,3 に変更
-                painter.drawEllipse(point, 3, 3)
+            # 点は描画しない
 
     def _draw_labels(self, painter: QPainter, cx: int, cy: int, radius: int, angle_step: float):
         """Draw labels around the chart"""
@@ -171,28 +165,7 @@ class RadarChart(QWidget):
         font.setBold(True)
         painter.setFont(font)
 
-        for i, label in enumerate(self.labels):
-            value = self.data.get(label, 0)
-            normalized = value / self.max_value
-            angle = -math.pi / 2 + i * angle_step
-            r = int(radius * normalized) + 15  # Offset from point
-
-            x = cx + int(r * math.cos(angle))
-            y = cy + int(r * math.sin(angle))
-
-            # Color based on rating
-            color = Theme.get_rating_color(value)
-            rank = Theme.get_rating_rank(value)
-
-            # Draw background
-            painter.setBrush(QBrush(QColor(color)))
-            painter.setPen(Qt.NoPen)
-            painter.drawRoundedRect(x - 12, y - 10, 24, 18, 4, 4)
-
-            # Draw rank text
-            painter.setPen(QColor("white"))
-            text_rect = painter.fontMetrics().boundingRect(rank)
-            painter.drawText(x - text_rect.width() // 2, y + text_rect.height() // 4, rank)
+        # ランク表示は描画しない
 
 
 class BarChart(QWidget):

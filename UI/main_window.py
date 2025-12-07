@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Pennant Simulator 2027 - Main Window
-OOTP-Style Professional Main Interface with Premium Features
+Professional Main Interface with Premium Features
 """
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -25,7 +25,7 @@ from farm_game_simulator import simulate_farm_games_for_day
 
 
 class MainWindow(QMainWindow):
-    """Main application window with OOTP-style layout and resizable features"""
+    """Main application window with custom layout and resizable features"""
 
     # Signals
     fullscreen_changed = Signal(bool)
@@ -35,7 +35,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.theme = get_theme()
         self.game_state = None
-        self.settings = QSettings("NPBSimulator", "PennantSimulator")
+        self.settings = QSettings("PennantSim", "PennantSimulator")
 
         # ページインスタンスのキャッシュ（永続化が必要なページ用）
         self.persistent_pages = {}
@@ -518,10 +518,10 @@ def run_app():
     window = MainWindow()
 
     from game_state import GameState
-    from team_generator import create_all_npb_teams
+    from team_generator import create_all_teams
 
     # Demo setup
-    teams = create_all_npb_teams()
+    teams = create_all_teams()
     game_state = GameState(
         teams=teams,
         current_year=2027,

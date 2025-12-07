@@ -462,7 +462,7 @@ class PlayerRecord:
     @property
     def woba(self) -> float:
         """wOBA (Weighted On-Base Average) - 簡易版"""
-        # NPB用に調整した係数
+        # 調整した係数
         numerator = (0.69 * (self.walks - self.intentional_walks) +
                     0.72 * self.hit_by_pitch +
                     0.89 * self.singles +
@@ -572,7 +572,7 @@ class PlayerRecord:
         """FIP (Fielding Independent Pitching)"""
         if self.innings_pitched == 0:
             return 0.0
-        constant = 3.10  # NPB用の定数
+        constant = 3.10  # 定数
         return ((13 * self.home_runs_allowed + 3 * (self.walks_allowed + self.hit_batters) - 2 * self.strikeouts_pitched) / self.innings_pitched) + constant
 
     @property

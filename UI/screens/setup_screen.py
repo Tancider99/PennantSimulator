@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-NPB Pennant Simulator - Game Setup Screen
+Pennant Simulator - Game Setup Screen
 Initial configuration after team selection
 """
 from PySide6.QtWidgets import (

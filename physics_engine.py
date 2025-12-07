@@ -14,7 +14,7 @@ from enum import Enum
 # ===== 物理定数 =====
 GRAVITY = 9.80665  # 重力加速度 (m/s^2)
 AIR_DENSITY_SEA_LEVEL = 1.225  # 海面での空気密度 (kg/m^3)
-BALL_MASS = 0.1417  # NPB公式球質量 (kg) - 141.7g〜148.8g
+BALL_MASS = 0.1417  # 公式球質量 (kg) - 141.7g〜148.8g
 BALL_RADIUS = 0.0365  # ボール半径 (m) - 72.93mm〜74.84mm
 BALL_AREA = math.pi * BALL_RADIUS ** 2  # ボール断面積
 BALL_CIRCUMFERENCE = 2 * math.pi * BALL_RADIUS  # ボール周長
@@ -24,13 +24,13 @@ DRAG_COEFFICIENT_BASE = 0.35  # 基本抗力係数 (回転なし)
 MAGNUS_COEFFICIENT = 0.30  # マグナス係数
 LIFT_COEFFICIENT = 0.25  # 揚力係数
 
-# フィールド寸法 (m) - NPB標準
+# フィールド寸法 (m) - 標準
 MOUND_DISTANCE = 18.44  # マウンドからホームベースまでの距離
 BASE_DISTANCE = 27.431  # 塁間距離 (90フィート)
 HOME_TO_SECOND = 38.795  # ホームから二塁まで
 INFIELD_GRASS_LINE = 29.0  # 内野芝生ラインまでの距離
 
-# 外野フェンス寸法 (NPB各球場の平均値ベース)
+# 外野フェンス寸法 (各球場の平均値ベース)
 OUTFIELD_FENCE_CENTER = 122.0  # センターフェンスまでの距離 (m)
 OUTFIELD_FENCE_LEFT_CENTER = 116.0  # 左中間
 OUTFIELD_FENCE_RIGHT_CENTER = 116.0  # 右中間  
@@ -38,7 +38,7 @@ OUTFIELD_FENCE_LEFT = 100.0  # レフトポール
 OUTFIELD_FENCE_RIGHT = 100.0  # ライトポール
 FENCE_HEIGHT = 4.2  # フェンスの高さ (m)
 
-# 外野手の標準守備位置 (ホームからの距離, m) - NPBの実際の位置に近い値
+# 外野手の標準守備位置 (ホームからの距離, m) - 実際の位置に近い値
 OF_POSITION_DEEP = 95.0  # 深めの守備位置（強打者対策）
 OF_POSITION_NORMAL = 85.0  # 通常の守備位置
 OF_POSITION_SHALLOW = 75.0  # 前進守備位置
@@ -613,7 +613,7 @@ class PhysicsEngine:
         difficulty = base_difficulty * (1 - (fielder.fielding - 12) * 0.025)
         difficulty = max(0, min(1, difficulty))
         
-        # 捕球判定 - NPBフライ安打率14%に合わせて捕球率を上げる
+        # 捕球判定 - フライ安打率14%に合わせて捕球率を上げる
         is_caught = False
         is_diving = False
         is_wall_catch = False
@@ -752,9 +752,9 @@ class PhysicsEngine:
     def _determine_hit_result_advanced(self, ball_data: BattedBallData, distance: float, 
                                         max_height: float, fence_distance: float,
                                         hang_time: float, defense_result: OutfieldCatchResult) -> HitResult:
-        """打球の結果を外野守備を考慮して判定（NPBデータベース）
+        """打球の結果を外野守備を考慮して判定（データベース）
         
-        NPB実データ目標値:
+        実データ目標値:
         - ゴロ安打率: 約23% (内野安打含む)
         - ライナー安打率: 約68%
         - フライ安打率: 約14% (HR除く)
@@ -766,7 +766,7 @@ class PhysicsEngine:
         exit_velocity = ball_data.exit_velocity
         hit_type = self._classify_hit_type(launch_angle, exit_velocity)
         
-        # ===== ホームラン判定 (NPB: 打球の約3-5%がHR) =====
+        # ===== ホームラン判定 (打球の約3-5%がHR) =====
         # フェンスを十分超える打球のみ
         if distance >= fence_distance + 3 and max_height > FENCE_HEIGHT * 1.2:
             return HitResult.HOME_RUN
@@ -878,7 +878,7 @@ class PhysicsEngine:
                 # フライ安打率を下げる（目標14%）
                 if defense_result.is_caught:
                     return HitResult.FLYOUT
-                # 浅いフライは追加の捕球チャンス（NPB外野手は上手い）
+                # 浅いフライは追加の捕球チャンス（外野手は上手い）
                 # 距離40-55mの浅いフライは高確率で捕球
                 shallow_catch_chance = 0.85 - (distance - 40) * 0.025
                 if random.random() < shallow_catch_chance:
@@ -894,7 +894,7 @@ class PhysicsEngine:
             return HitResult.FLYOUT
         
         # ===== 捕球できなかった場合の追加判定（フライ） =====
-        # NPB外野手はフライを高確率で捕球（目標フライBABIP=0.220）
+        # 外野手はフライを高確率で捕球（目標フライBABIP=0.220）
         if hit_type == "fly":
             # 距離に基づく追加の捕球チャンス
             # 55-90mの範囲では捕球率を調整
@@ -941,7 +941,7 @@ class PhysicsEngine:
         
         elif hit_type == "fly":
             # フライボール（外野守備を突破したもの）
-            # NPB目標: フライ安打率 約14%（HR除く）
+            # 目標: フライ安打率 約14%（HR除く）
             # 守備を突破したフライは長打になりやすい
             if distance < 65:
                 return HitResult.SINGLE

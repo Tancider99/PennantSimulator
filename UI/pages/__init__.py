@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Baseball Team Architect 2027 - Page Modules
-OOTP-Style Application Pages
+Application Pages
 """
 from .home_page import HomePage
 from .roster_page import RosterPage

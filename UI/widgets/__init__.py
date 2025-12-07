@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Baseball Team Architect 2027 - Custom Widgets
-OOTP-Style Professional Components
+Custom Professional Components
 """
 from .cards import *
 from .tables import *

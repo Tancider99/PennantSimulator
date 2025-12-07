@@ -75,13 +75,13 @@ class Theme:
     bg_input: str = "#0b0c10"
     bg_header: str = "#141619"
 
-    # === Team Colors (NPB) ===
+    # === Team Colors ===
     central_league: str = "#5fbcd3"
     pacific_league: str = "#e06c75"
     north_league: str = "#5fbcd3"   # Use same as central_league for now
     south_league: str = "#e06c75"   # Use same as pacific_league for now
 
-    # === NPB Rating Colors ===
+    # === Rating Colors ===
     rating_s: str = "#ff6b6b"   # S Rank
     rating_a: str = "#ffa726"   # A Rank
     rating_b: str = "#ffd700"   # B Rank

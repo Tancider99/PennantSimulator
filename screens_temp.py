@@ -1,6 +1,6 @@
 ﻿#-*-cod in g: utf-8-*-
 """
-NPBペナントシミュレーター-画面描画モジュール
+ペナントシミュレーター-画面描画モジュール
 すべての画面をプロフェッショナルなデザインで統一
 """
 imp or t pygame
@@ -17,8 +17,8 @@ draw_BACKground,draw_header,draw_rounded_rect,draw_shadow,
 lerp_col or
 )
 from constants imp or t(
-TEAM_COLORS,NPB_CENTRAL_TEAMS,NPB_PACIFIC_TEAMS,
-NPB_STADIUMS,TEAM_ABBREVIATIONS,NPB_BATTING_TITLES,NPB_PITCHING_TITLES
+TEAM_COLORS,CENTRAL_TEAMS,PACIFIC_TEAMS,
+STADIUMS,TEAM_ABBREVIATIONS,BATTING_TITLES,PITCHING_TITLES
 )
 from game_state imp or t D if ficultyLevel
 from mo del s imp or t Team,Player
@@ -1144,10 +1144,10 @@ rec or d_surf=fonts.t in y.render(rec or d_text,True,Col or s.TEXT_MUTED)
 self.screen.blit(rec or d_surf,(cl_x+85,y))
 
 #勝率
-rate=team.w in _rate if team.games_played>0else0
-rate_text=f".{in t(rate*1000): 03d}"
-rate_surf=fonts.t in y.render(rate_text,True,Col or s.TEXT_MUTED)
-self.screen.blit(rate_surf,(cl_x+140,y))
+rate = team.win_rate if team.games_played > 0 else 0
+rate_text = f".{int(rate * 1000):03d}"
+rate_surf = fonts.tiny.render(rate_text, True, Col or s.TEXT_MUTED)
+self.screen.blit(rate_surf, (cl_x+140, y))
 
 #パ・リーグ
 pl_x=cl_x+st and in gs_width+30
@@ -1178,7 +1178,7 @@ rec or d_surf=fonts.t in y.render(rec or d_text,True,Col or s.TEXT_MUTED)
 self.screen.blit(rec or d_surf,(pl_x+85,y))
 
 #勝率
-rate=team.w in _rate if team.games_played>0else0
+rate = team.win_rate if team.games_played > 0 else 0
 rate_text=f".{in t(rate*1000): 03d}"
 rate_surf=fonts.t in y.render(rate_text,True,Col or s.TEXT_MUTED)
 self.screen.blit(rate_surf,(pl_x+140,y))
@@ -2321,7 +2321,7 @@ y+=38
 #========================================
 def draw_schedule_screen(self,schedule_manager,player_team,scroll_off set: in t=0,
 selected_game_idx: in t=-1)->Dict[str,Button]:
-"""スケジュール画面を描画（NPB完全版）"""
+"""スケジュール画面を描画（完全版）"""
 draw_BACKground(self.screen,"gradient")
 
 width=self.screen.get_width()

@@ -88,7 +88,7 @@ class GameStateManager:
         self.current_opponent: Optional[Team] = None
         self.current_date: str = "2027-03-29"  # 開幕日
 
-        # NPB日程エンジン
+        # 日程エンジン
         self.schedule_engine = None
         self.schedule = None
 
@@ -109,11 +109,11 @@ class GameStateManager:
         self.game_history: List[dict] = []
 
     def initialize_schedule(self):
-        """NPB日程を初期化"""
-        from npb_schedule_engine import NPBScheduleEngine
+        """日程を初期化"""
+        from npb_schedule_engine import LeagueScheduleEngine
         from models import League
 
-        self.schedule_engine = NPBScheduleEngine(self.current_year)
+        self.schedule_engine = LeagueScheduleEngine(self.current_year)
 
         # チームをリーグ別に分類
         central = [t for t in self.all_teams if t.league == League.CENTRAL]

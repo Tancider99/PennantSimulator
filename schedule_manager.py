@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-NPB準拠スケジュール管理システム
+リーグスケジュール管理システム
 """
 import random
 from typing import List, Optional, Tuple, Dict
@@ -8,13 +8,13 @@ from models import Schedule, ScheduledGame, Team, GameStatus, League, TeamLevel
 import datetime
 
 class ScheduleManager:
-    """NPB準拠シーズンスケジュール管理クラス"""
+    """リーグシーズンスケジュール管理クラス"""
     
     def __init__(self, year: int = 2027):
         self.year = year
         self.schedule = Schedule()
         
-        # NPB日程設定
+        # 日程設定
         self.opening_day = datetime.date(year, 3, 29)
         self.interleague_start = datetime.date(year, 5, 28)
         self.interleague_end = datetime.date(year, 6, 16)
@@ -24,7 +24,7 @@ class ScheduleManager:
     
     # ... (generate_season_schedule 等の既存メソッドはそのまま) ...
     def generate_season_schedule(self, central_teams: List[Team], pacific_teams: List[Team]) -> Schedule:
-        """NPB準拠のシーズンスケジュールを生成（143試合制）"""
+        """リーグのシーズンスケジュールを生成（143試合制）"""
         self.schedule = Schedule()
         
         # 各リーグのカードリストを生成
