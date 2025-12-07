@@ -673,16 +673,26 @@ class GamePage(QWidget):
             self.score_labels["away_10"].setText(str(away_score))
             self.score_labels["home_10"].setText(str(home_score))
 
+            # ... (前略)
             self._pause_simulation()
+            
+            # ヒット数の簡易集計 (シミュレータが持っていない場合は計算)
+            h_hits = sum(1 for line in self.simulator.log if "ヒット" in line and self.simulator.home_team.name in line) # 簡易的な例
+            a_hits = sum(1 for line in self.simulator.log if "ヒット" in line and self.simulator.away_team.name in line)
 
-            # Emit finished
+            # Emit finished with detailed data
             self.game_finished.emit({
                 'home_score': home_score,
                 'away_score': away_score,
                 'home_team': self.simulator.home_team,
-                'away_team': self.simulator.away_team
+                'away_team': self.simulator.away_team,
+                'inning_scores_home': self.simulator.inning_scores_home,
+                'inning_scores_away': self.simulator.inning_scores_away,
+                'home_hits': h_hits, # 実際にはSimulatorから正確な値を取得推奨
+                'away_hits': a_hits,
+                # 'home_pitchers': self.simulator.home_pitchers_used, 
+                # 'away_pitchers': self.simulator.away_pitchers_used
             })
-
     def _add_log_entry(self, text: str, is_highlight: bool = False):
         """Add a premium log entry to the play-by-play"""
         label = QLabel(text)

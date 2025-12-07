@@ -398,6 +398,70 @@ class MainWindow(QMainWindow):
         size = event.size()
         self.status.set_right_text(f"{size.width()}x{size.height()}")
 
+    def _create_pages(self):
+        """Create all application pages"""
+        from UI.pages.home_page import HomePage
+        from UI.pages.roster_page import RosterPage
+        from UI.pages.live_game_page import LiveGamePage 
+        from UI.pages.standings_page import StandingsPage
+        from UI.pages.schedule_page import SchedulePage
+        from UI.pages.stats_page import StatsPage
+        from UI.pages.draft_page import DraftPage
+        from UI.pages.trade_page import TradePage
+        from UI.pages.fa_page import FAPage
+        from UI.pages.settings_page import SettingsPage
+        # Import Result Page
+        from UI.pages.game_result_page import GameResultPage
+
+        # Create page instances
+        self.home_page = HomePage(self)
+        self.roster_page = RosterPage(self)
+        self.game_page = LiveGamePage(self)
+        self.standings_page = StandingsPage(self)
+        self.schedule_page = SchedulePage(self)
+        self.stats_page = StatsPage(self)
+        self.draft_page = DraftPage(self)
+        self.trade_page = TradePage(self)
+        self.fa_page = FAPage(self)
+        self.settings_page = SettingsPage(self)
+        self.result_page = GameResultPage(self) # New
+
+        # Connect signals
+        self.settings_page.settings_changed.connect(self._on_settings_changed)
+        self.result_page.return_home_requested.connect(lambda: self._navigate_to("home")) # Return to home
+
+        # Add pages to container
+        self.pages.add_page("home", self.home_page)
+        self.pages.add_page("roster", self.roster_page)
+        self.pages.add_page("game", self.game_page)
+        self.pages.add_page("result", self.result_page) # Add result page
+        self.pages.add_page("standings", self.standings_page)
+        self.pages.add_page("schedule", self.schedule_page)
+        self.pages.add_page("stats", self.stats_page)
+        self.pages.add_page("draft", self.draft_page)
+        self.pages.add_page("trade", self.trade_page)
+        self.pages.add_page("free_agency", self.fa_page)
+        self.pages.add_page("settings", self.settings_page)
+        self.pages.add_page("save_load", self._create_placeholder("セーブ/ロード"))
+
+    def _on_game_finished(self, result):
+        """Handle game finish"""
+        # サイドバーとステータスバーを再表示
+        self.set_sidebar_visible(True)
+        
+        # ゲーム状態に結果を記録 (GameStateManager の record_game_result を呼び出す)
+        if self.game_state and hasattr(self.game_state, 'record_game_result'):
+            self.game_state.record_game_result(
+                result['home_team'], result['away_team'], 
+                result['home_score'], result['away_score']
+            )
+        
+        # 結果ページにデータをセットして遷移
+        self.result_page.set_result(result)
+        self._navigate_to("result")
+        
+        # ホームページの更新
+        self.home_page.set_game_state(self.game_state)
 
 def run_app():
     """Run the application"""

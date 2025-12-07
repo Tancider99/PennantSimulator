@@ -18,7 +18,7 @@ from UI.widgets.cards import Card, PlayerCard
 from UI.widgets.tables import PlayerTable, RosterTable
 from UI.widgets.panels import ContentPanel, InfoPanel, ToolbarPanel
 from UI.widgets.charts import RadarChart
-from UI.widgets.dialogs import PlayerDetailDialog
+from UI.widgets.dialogs import PlayerDetailDialog, OrderDialog # OrderDialogを追加
 
 
 class RosterPage(QWidget):
@@ -103,6 +103,7 @@ class RosterPage(QWidget):
 
         # Actions
         edit_lineup_btn = QPushButton("打順編集")
+        edit_lineup_btn.setCursor(Qt.PointingHandCursor)
         edit_lineup_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {self.theme.primary};
@@ -115,6 +116,8 @@ class RosterPage(QWidget):
                 background-color: {self.theme.primary_hover};
             }}
         """)
+        # ボタンクリックイベントを接続
+        edit_lineup_btn.clicked.connect(self._show_order_dialog)
         toolbar.add_widget(edit_lineup_btn)
 
         return toolbar
@@ -364,3 +367,14 @@ class RosterPage(QWidget):
         if player:
             dialog = PlayerDetailDialog(player, self)
             dialog.exec()
+
+    def _show_order_dialog(self):
+        """Show lineup ordering dialog"""
+        if not self.current_team:
+            return
+        
+        dialog = OrderDialog(self.current_team, self)
+        if dialog.exec():
+            # If accepted, data is already updated in Team object by dialog
+            # Just refresh the UI
+            self._refresh_player_lists()

@@ -6,10 +6,11 @@ OOTP-Style Modal Dialogs and Popups
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QWidget, QFrame, QGraphicsDropShadowEffect, QMessageBox,
-    QLineEdit, QComboBox, QSpinBox, QTextEdit
+    QLineEdit, QComboBox, QSpinBox, QTextEdit, QListWidget, 
+    QListWidgetItem, QAbstractItemView
 )
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt, Signal, QSize
+from PySide6.QtGui import QColor, QIcon
 
 import sys
 sys.path.insert(0, '..')
@@ -536,6 +537,178 @@ class SaveLoadDialog(BaseDialog):
             self.save_selected.emit(slot_index)
         else:
             self.load_selected.emit(slot_index)
+        self.accept()
+
+
+class OrderDialog(BaseDialog):
+    """Lineup ordering dialog"""
+    
+    def __init__(self, team, parent=None):
+        super().__init__(f"打順設定: {team.name}", parent)
+        self.setMinimumSize(800, 600)
+        self.team = team
+        
+        self._setup_lists()
+        
+        # Buttons
+        self.add_stretch_to_buttons()
+        self.add_button("キャンセル", callback=self.reject)
+        self.add_button("決定", style="primary", callback=self._on_save)
+
+    def _setup_lists(self):
+        container = QWidget()
+        main_layout = QHBoxLayout(container)
+        main_layout.setSpacing(16)
+        
+        # --- Left: Starting Lineup ---
+        left_layout = QVBoxLayout()
+        lineup_label = QLabel("スターティングメンバー")
+        lineup_label.setStyleSheet(f"color: {self.theme.text_primary}; font-weight: 600;")
+        left_layout.addWidget(lineup_label)
+        
+        self.lineup_list = QListWidget()
+        self.lineup_list.setDragDropMode(QAbstractItemView.DragDrop)
+        self.lineup_list.setDefaultDropAction(Qt.MoveAction)
+        self.lineup_list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.lineup_list.setStyleSheet(f"""
+            QListWidget {{
+                background-color: {self.theme.bg_input};
+                border: 1px solid {self.theme.border};
+                border-radius: 4px;
+                color: {self.theme.text_primary};
+                font-size: 14px;
+            }}
+            QListWidget::item {{
+                padding: 8px;
+                border-bottom: 1px solid {self.theme.border};
+            }}
+            QListWidget::item:selected {{
+                background-color: {self.theme.primary_light};
+                color: white;
+            }}
+        """)
+        left_layout.addWidget(self.lineup_list)
+        
+        # Initialize Lineup
+        if self.team.current_lineup:
+            for idx in self.team.current_lineup:
+                if 0 <= idx < len(self.team.players):
+                    p = self.team.players[idx]
+                    self._add_player_item(self.lineup_list, p, idx)
+        
+        # Fix lineup size to 9 (add placeholders if less)
+        while self.lineup_list.count() < 9:
+            item = QListWidgetItem("--- 空き ---")
+            item.setData(Qt.UserRole, -1)
+            self.lineup_list.addItem(item)
+            
+        main_layout.addLayout(left_layout, stretch=1)
+        
+        # --- Center: Controls ---
+        center_layout = QVBoxLayout()
+        center_layout.addStretch()
+        
+        to_bench_btn = QPushButton("→")
+        to_bench_btn.setFixedSize(40, 40)
+        to_bench_btn.clicked.connect(self._move_to_bench)
+        center_layout.addWidget(to_bench_btn)
+        
+        to_lineup_btn = QPushButton("←")
+        to_lineup_btn.setFixedSize(40, 40)
+        to_lineup_btn.clicked.connect(self._move_to_lineup)
+        center_layout.addWidget(to_lineup_btn)
+        
+        center_layout.addStretch()
+        main_layout.addLayout(center_layout)
+        
+        # --- Right: Bench ---
+        right_layout = QVBoxLayout()
+        bench_label = QLabel("ベンチ (野手)")
+        bench_label.setStyleSheet(f"color: {self.theme.text_primary}; font-weight: 600;")
+        right_layout.addWidget(bench_label)
+        
+        self.bench_list = QListWidget()
+        self.bench_list.setDragDropMode(QAbstractItemView.DragDrop)
+        self.bench_list.setDefaultDropAction(Qt.MoveAction)
+        self.bench_list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.bench_list.setStyleSheet(self.lineup_list.styleSheet())
+        right_layout.addWidget(self.bench_list)
+        
+        # Initialize Bench (Active batters not in lineup)
+        roster = self.team.get_roster_players()
+        lineup_idxs = set(self.team.current_lineup)
+        
+        for p in roster:
+            p_idx = self.team.players.index(p)
+            # Exclude pitchers and already in lineup
+            if p.position.value != "投手" and p_idx not in lineup_idxs:
+                self._add_player_item(self.bench_list, p, p_idx)
+                
+        main_layout.addLayout(right_layout, stretch=1)
+        
+        self.add_content(container)
+
+    def _add_player_item(self, list_widget, player, index):
+        item = QListWidgetItem(f"{player.position.value}  {player.name}")
+        item.setData(Qt.UserRole, index)
+        # item.setForeground(...) 
+        list_widget.addItem(item)
+
+    def _move_to_bench(self):
+        row = self.lineup_list.currentRow()
+        if row < 0: return
+        
+        item = self.lineup_list.takeItem(row)
+        idx = item.data(Qt.UserRole)
+        
+        if idx != -1:
+            self.bench_list.addItem(item)
+            
+        # Replace lineup slot with placeholder
+        placeholder = QListWidgetItem("--- 空き ---")
+        placeholder.setData(Qt.UserRole, -1)
+        self.lineup_list.insertItem(row, placeholder)
+
+    def _move_to_lineup(self):
+        row = self.bench_list.currentRow()
+        if row < 0: return
+        
+        # Find a placeholder or swap with selected lineup item
+        target_row = self.lineup_list.currentRow()
+        
+        # If no selection in lineup, find first empty
+        if target_row < 0:
+            for i in range(self.lineup_list.count()):
+                if self.lineup_list.item(i).data(Qt.UserRole) == -1:
+                    target_row = i
+                    break
+        
+        if target_row < 0:
+            # Lineup full, maybe swap? For now just return
+            return 
+            
+        item = self.bench_list.takeItem(row)
+        
+        # Handle swap if target not empty
+        target_item = self.lineup_list.item(target_row)
+        target_idx = target_item.data(Qt.UserRole)
+        
+        self.lineup_list.takeItem(target_row)
+        self.lineup_list.insertItem(target_row, item)
+        
+        if target_idx != -1:
+            # Return displaced player to bench
+            self.bench_list.addItem(target_item)
+
+    def _on_save(self):
+        new_lineup = []
+        for i in range(self.lineup_list.count()):
+            idx = self.lineup_list.item(i).data(Qt.UserRole)
+            if idx != -1:
+                new_lineup.append(idx)
+        
+        self.team.current_lineup = new_lineup
+        self.team.auto_set_bench() # Refresh bench based on new lineup
         self.accept()
 
 
