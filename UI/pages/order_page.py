@@ -605,7 +605,9 @@ class OrderPage(QWidget):
         self._refresh_pitcher_farm_list()
         self._update_status_label()
 
-    def _update_status_label(self):
+    def _get_active_player_count(self) -> int:
+        """Calculate total players in active roster"""
+        if not self.current_team: return 0
         team = self.current_team
         active_set = set()
         active_set.update([x for x in team.current_lineup if x >= 0])
@@ -613,9 +615,17 @@ class OrderPage(QWidget):
         active_set.update([x for x in team.rotation if x >= 0])
         active_set.update([x for x in team.setup_pitchers if x >= 0])
         active_set.update([x for x in team.closers if x >= 0])
+        return len(active_set)
+
+    def _update_status_label(self):
+        if not self.current_team: return
+        count = self._get_active_player_count()
         
-        count = len(active_set)
-        limit = team.ACTIVE_ROSTER_LIMIT
+        # Use models.Team.ACTIVE_ROSTER_LIMIT if available, else 31
+        limit = 31
+        if hasattr(self.current_team, 'ACTIVE_ROSTER_LIMIT'):
+            limit = self.current_team.ACTIVE_ROSTER_LIMIT
+
         self.status_label.setText(f"一軍登録数: {count}/{limit}")
         color = self.theme.success if count <= limit else self.theme.danger
         self.status_label.setStyleSheet(f"color: {color}; font-weight: bold; margin-left: 20px;")
@@ -990,6 +1000,22 @@ class OrderPage(QWidget):
                 target_list = team.setup_pitchers
                 while len(target_list) <= row: target_list.append(-1)
                 target_p_idx = target_list[row]
+
+        # --- CHECK ROSTER LIMIT (Added) ---
+        # If adding from outside (source is None) to an empty slot (-1),
+        # check if we exceed 31 players.
+        if source_list is None and target_p_idx == -1:
+            active_count = self._get_active_player_count()
+            limit = 31
+            if hasattr(team, 'ACTIVE_ROSTER_LIMIT'):
+                limit = team.ACTIVE_ROSTER_LIMIT
+                
+            if active_count >= limit:
+                QMessageBox.warning(self, "登録制限", f"一軍登録枠({limit}人)を超えています。\n枠を空けるか、既存の選手と入れ替えてください。")
+                self._refresh_all()
+                del table.dropped_player_idx
+                return
+        # ----------------------------------
         
         # 3. Perform Swap or Move
         # If source is active (found in lists), we swap.
@@ -1042,6 +1068,15 @@ class OrderPage(QWidget):
         t.setup_pitchers = [-1] * 8 
         t.closers = [-1] * 2
 
+        # Define limits
+        TOTAL_LIMIT = 31
+        if hasattr(t, 'ACTIVE_ROSTER_LIMIT'):
+            TOTAL_LIMIT = t.ACTIVE_ROSTER_LIMIT
+            
+        # Target breakdown: ~13 Pitchers, ~18 Fielders (adjust if limit changes)
+        PITCHER_TARGET = int(TOTAL_LIMIT * (13/31)) # approx 13 if 31
+        BATTER_TARGET = TOTAL_LIMIT - PITCHER_TARGET
+
         # --- Helper: Score Calculators ---
         def get_condition_mult(p):
             # Condition 1-9, 5 is neutral. Range 0.8 to 1.2
@@ -1092,10 +1127,11 @@ class OrderPage(QWidget):
         pitchers.sort(key=lambda i: get_pitcher_score(t.players[i], 'starter'), reverse=True)
         
         # Assign Rotation (Top 6)
-        rotation_candidates = pitchers[:6]
-        remaining_pitchers = pitchers[6:]
+        rotation_count = 6
+        rotation_candidates = pitchers[:rotation_count]
+        remaining_pitchers = pitchers[rotation_count:]
         
-        for i in range(min(6, len(rotation_candidates))):
+        for i in range(min(rotation_count, len(rotation_candidates))):
             t.rotation[i] = rotation_candidates[i]
             
         # Assign Closer (Top 1 from remaining)
@@ -1103,9 +1139,15 @@ class OrderPage(QWidget):
             remaining_pitchers.sort(key=lambda i: get_pitcher_score(t.players[i], 'closer'), reverse=True)
             t.closers[0] = remaining_pitchers.pop(0)
             
-        # Assign Setup/Relief (Rest, sorted by relief score)
+        # Assign Setup/Relief (Rest, sorted by relief score, until PITCHER_TARGET reached)
         remaining_pitchers.sort(key=lambda i: get_pitcher_score(t.players[i], 'relief'), reverse=True)
-        for i in range(min(8, len(remaining_pitchers))):
+        
+        # How many setup pitchers allowed?
+        # Used: rotation_len + 1 (closer)
+        used_p = len([x for x in t.rotation if x != -1]) + len([x for x in t.closers if x != -1])
+        setup_limit = max(0, PITCHER_TARGET - used_p)
+        
+        for i in range(min(8, setup_limit, len(remaining_pitchers))):
             t.setup_pitchers[i] = remaining_pitchers[i]
             
         # --- 2. Fielder Assignment (Greedy by Defensive Priority) ---
@@ -1234,12 +1276,15 @@ class OrderPage(QWidget):
                     t.current_lineup[i] = final_order[i]['idx']
                     t.lineup_positions[i] = final_order[i]['pos']
 
-        # --- 4. Bench Assignment ---
+        # --- 4. Bench Assignment (Limit based on BATTER_TARGET) ---
         # Remaining batters to bench
         remaining_bench = [i for i in batters if i not in used_indices]
         # Sort by utility (maybe subs with good defense or high speed for pinch run)
         remaining_bench.sort(key=lambda i: t.players[i].overall_rating, reverse=True)
-        t.bench_batters = remaining_bench
+        
+        # Bench Limit: BATTER_TARGET - 9 (Starters)
+        bench_limit = max(0, BATTER_TARGET - 9)
+        t.bench_batters = remaining_bench[:bench_limit]
         
         self._refresh_all()
         
