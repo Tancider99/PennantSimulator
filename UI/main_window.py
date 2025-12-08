@@ -36,6 +36,10 @@ class MainWindow(QMainWindow):
         self.theme = get_theme()
         self.game_state = None
         self.settings = QSettings("PennantSim", "PennantSimulator")
+        
+        # Navigation State
+        self.current_section = "home"
+        self.previous_section = "home"
 
         # ページインスタンスのキャッシュ（永続化が必要なページ用）
         self.persistent_pages = {}
@@ -152,7 +156,8 @@ class MainWindow(QMainWindow):
         
         # Player Detail Page
         self.player_detail_page = PlayerDetailPage(self)
-        self.player_detail_page.back_requested.connect(lambda: self._navigate_to("roster"))
+        # Connect back signal to dynamic handler
+        self.player_detail_page.back_requested.connect(self._on_player_detail_back)
         self.pages.add_page("player_detail", self.player_detail_page)
         self.persistent_pages["player_detail"] = self.player_detail_page
 
@@ -188,6 +193,8 @@ class MainWindow(QMainWindow):
         elif section == "order":
             page = OrderPage(self)
             page.order_saved.connect(self._on_order_saved)
+            # 修正: 選手詳細シグナルをメインウィンドウのメソッドに接続
+            page.player_detail_requested.connect(self._show_player_detail)
             self.order_page = page
             
         elif section == "stats":
@@ -259,12 +266,36 @@ class MainWindow(QMainWindow):
 
         # Simple opponent selection logic
         player_team = self.game_state.player_team
+        
+        # Check if player team is valid to play
+        valid_starters = len([x for x in player_team.current_lineup if x != -1])
+        valid_rotation = len([x for x in player_team.rotation if x != -1])
+        
+        if valid_starters < 9:
+            QMessageBox.critical(self, "エラー", f"チーム {player_team.name} のスタメンが9人未満です。\nオーダー画面で設定してください。")
+            return
+        if valid_rotation == 0:
+            QMessageBox.critical(self, "エラー", f"チーム {player_team.name} の先発投手が設定されていません。\nオーダー画面で設定してください。")
+            return
+
         opponents = [t for t in self.game_state.teams if t.name != player_team.name]
         
         if not opponents:
             return
 
         opponent = random.choice(opponents)
+        
+        # Check opponent validity (simple check)
+        opp_starters = len([x for x in opponent.current_lineup if x != -1])
+        opp_rotation = len([x for x in opponent.rotation if x != -1])
+        
+        if opp_starters < 9 or opp_rotation == 0:
+             # Auto fix for opponent if invalid (since user can't easily edit AI teams yet)
+             opponent.auto_assign_rosters()
+             opponent.auto_set_bench() # This might reset rosters to standard if broken
+             # Re-check? If auto-assign fails, we skip game or warn.
+             # For now assume auto-assign works.
+
         is_home_game = random.choice([True, False])
         
         home_team = player_team if is_home_game else opponent
@@ -357,6 +388,9 @@ class MainWindow(QMainWindow):
             self.set_sidebar_visible(False)
         else:
             self.set_sidebar_visible(True)
+            
+        # 4. Update Navigation State
+        self.current_section = section
 
     def _update_sidebar_selection(self, section: str):
         """Update the sidebar buttons to reflect current section"""
@@ -436,9 +470,18 @@ class MainWindow(QMainWindow):
 
     def _show_player_detail(self, player):
         """Navigate to player detail page"""
-        # This uses the persistent page, so state is preserved until next detail show
+        # Save current section to return to it later
+        if self.current_section != "player_detail":
+            self.previous_section = self.current_section
+            
         self.player_detail_page.set_player(player)
         self._navigate_to("player_detail")
+        
+    def _on_player_detail_back(self):
+        """Handle back button from player detail page"""
+        # Return to the previous section
+        target = self.previous_section if self.previous_section else "home"
+        self._navigate_to(target)
 
     def _on_order_saved(self):
         """Handle order saved"""

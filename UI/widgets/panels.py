@@ -437,6 +437,9 @@ class ToolbarPanel(QWidget):
     def add_stretch(self):
         self.layout.addStretch()
 
+    def add_spacing(self, size):
+        self.layout.addSpacing(size)
+
 class GradientPanel(QWidget):
     def __init__(self, colors=None, parent=None):
         super().__init__(parent)

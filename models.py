@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Tuple
 from enum import Enum
 import datetime
+import random  # Added for condition update
 
 
 class Position(Enum):
@@ -515,6 +516,9 @@ class Player:
     record_third: PlayerRecord = field(default_factory=PlayerRecord)
 
     career_stats: CareerStats = field(default_factory=CareerStats)
+    
+    # 状態管理 (1-9, 5=普通, 9=絶好調)
+    condition: int = 5
 
     def __post_init__(self):
         if self.team_level is None:
@@ -582,6 +586,11 @@ class Player:
                 best_pos = current_pos_enum
         if best_pos != self.position:
             self.position = best_pos
+            
+    def update_condition(self):
+        """調子をランダムに更新 (ランダムウォーク: -1, 0, +1)"""
+        change = random.choices([-1, 0, 1], weights=[0.25, 0.5, 0.25])[0]
+        self.condition = max(1, min(9, self.condition + change))
 
     @property
     def overall_rating(self) -> int:
@@ -611,7 +620,10 @@ class Team:
     rotation: List[int] = field(default_factory=list)
     rotation_index: int = 0
     setup_pitchers: List[int] = field(default_factory=list)
-    closer_idx: int = -1
+    
+    # 修正: closer_idxを廃止し、closersリストを導入
+    # 古いデータとの互換性のため、プロパティで対応
+    closers: List[int] = field(default_factory=list)
 
     bench_batters: List[int] = field(default_factory=list)
     bench_pitchers: List[int] = field(default_factory=list)
@@ -627,11 +639,32 @@ class Team:
     ACTIVE_ROSTER_LIMIT = 31
     FARM_ROSTER_LIMIT = 40
     THIRD_ROSTER_LIMIT = 30
+    
+    # 互換性プロパティ
+    @property
+    def closer_idx(self) -> int:
+        return self.closers[0] if self.closers else -1
+    
+    @closer_idx.setter
+    def closer_idx(self, val: int):
+        if val == -1:
+            self.closers = []
+        else:
+            if not self.closers:
+                self.closers = [val]
+            else:
+                self.closers[0] = val
 
     # (メソッド群は変更なし)
     def get_today_starter(self) -> Optional[Player]:
         if not self.rotation: return None
-        idx = self.rotation[self.rotation_index % len(self.rotation)]
+        # Skip empty slots (-1)
+        valid_starters = [p for p in self.rotation if p != -1]
+        if not valid_starters: return None
+        
+        # 簡易的にリストの順番で回す
+        # 実際には日付管理が必要だが、ここではインデックスのみ
+        idx = valid_starters[self.rotation_index % len(valid_starters)]
         if 0 <= idx < len(self.players): return self.players[idx]
         return None
 
@@ -718,8 +751,9 @@ class Team:
         for idx in self.third_roster: self.players[idx].team_level = TeamLevel.THIRD
 
     def auto_set_bench(self):
-        assigned = set(self.current_lineup + self.rotation + self.setup_pitchers)
-        if self.closer_idx >= 0: assigned.add(self.closer_idx)
+        # ベンチ入り自動設定（割り当て済みを除く）
+        assigned = set(self.current_lineup + self.rotation + self.setup_pitchers + self.closers)
+        
         self.bench_batters = []
         self.bench_pitchers = []
         for idx in self.active_roster:
@@ -729,13 +763,16 @@ class Team:
                 else: self.bench_batters.append(idx)
 
     def get_closer(self) -> Optional[Player]:
-        if 0 <= self.closer_idx < len(self.players): return self.players[self.closer_idx]
+        # 互換性のため最初の抑えを返す
+        if self.closers and 0 <= self.closers[0] < len(self.players):
+            return self.players[self.closers[0]]
         return None
 
     def get_setup_pitcher(self) -> Optional[Player]:
         if self.setup_pitchers:
-            idx = self.setup_pitchers[0]
-            if 0 <= idx < len(self.players): return self.players[idx]
+            # -1スキップ
+            for idx in self.setup_pitchers:
+                if 0 <= idx < len(self.players): return self.players[idx]
         return None
 
     @property
