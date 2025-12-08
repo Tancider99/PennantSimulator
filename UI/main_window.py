@@ -73,12 +73,12 @@ class MainWindow(QMainWindow):
 
     def _setup_ui(self):
         """Create the main UI layout"""
-        # North widget
-        north = QWidget()
-        north.setStyleSheet(f"background-color: {self.theme.bg_dark};") # 背景色設定
-        self.setNorthWidget(north)
+        # Main container widget
+        main_container = QWidget()
+        main_container.setStyleSheet(f"background-color: {self.theme.bg_dark};") # 背景色設定
+        self.setCentralWidget(main_container)
 
-        main_layout = QHBoxLayout(north)
+        main_layout = QHBoxLayout(main_container)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
@@ -107,26 +107,32 @@ class MainWindow(QMainWindow):
         """Create the navigation sidebar"""
         sidebar = SidebarPanel()
 
+        # HOME, ROSTER, ORDER
         sidebar.add_nav_item("", "HOME", "home")
         sidebar.add_nav_item("", "ROSTER", "roster")
         sidebar.add_nav_item("", "ORDER", "order")
-        sidebar.add_nav_item("", "STATS", "stats")
 
+        # SEASON
         sidebar.add_separator("SEASON")
         sidebar.add_nav_item("", "SCHEDULE", "schedule")
         sidebar.add_nav_item("", "STANDINGS", "standings")
-        sidebar.add_nav_item("", "GAME", "game")
+        sidebar.add_nav_item("", "STATS", "stats")
 
+        # MANAGEMENT
         sidebar.add_separator("MANAGEMENT")
-        sidebar.add_nav_item("", "TRADE", "trade")
-        sidebar.add_nav_item("", "DRAFT", "draft")
-        sidebar.add_nav_item("", "FREE AGENCY", "free_agency")
+        sidebar.add_nav_item("", "FARM", "farm_swap")
+        sidebar.add_nav_item("", "CONTRACTS", "contract_changes")
+        sidebar.add_nav_item("", "ACQUISITIONS", "reinforcement")
 
+        # BUSINESS
+        sidebar.add_separator("BUSINESS")
+        sidebar.add_nav_item("", "STAFF", "staff")
+        sidebar.add_nav_item("", "FINANCE", "finance")
+
+        # SYSTEM
         sidebar.add_separator("SYSTEM")
         sidebar.add_nav_item("", "SAVE / LOAD", "save_load")
         sidebar.add_nav_item("", "SETTINGS", "settings")
-
-        sidebar.add_stretch()
         sidebar.add_nav_item("", "TITLE", "title")
 
         sidebar.navigation_clicked.connect(self._on_sidebar_nav)
@@ -148,12 +154,6 @@ class MainWindow(QMainWindow):
         self.player_detail_page.back_requested.connect(lambda: self._navigate_to("roster"))
         self.pages.add_page("player_detail", self.player_detail_page)
         self.persistent_pages["player_detail"] = self.player_detail_page
-
-        # Title Page (placeholder handled by screens/title_screen.py usually, but if integrated)
-        # Assuming title is special, if implemented as a page:
-        # from UI.screens.title_screen import TitleScreen
-        # self.title_page = TitleScreen()
-        # self.pages.add_page("title", self.title_page)
 
     def _create_page_instance(self, section: str):
         """Create a new instance of a page based on section name (Factory Method)"""
@@ -205,7 +205,8 @@ class MainWindow(QMainWindow):
             page = LiveGamePage(self)
             page.game_finished.connect(self._on_game_finished)
             self.game_page = page
-            
+        
+        # Unimplemented pages (kept for code reference but not in sidebar)
         elif section == "trade":
             self.trade_page = TradePage(self)
             page = self.trade_page
@@ -218,13 +219,13 @@ class MainWindow(QMainWindow):
             self.fa_page = FAPage(self)
             page = self.fa_page
             
-        elif section == "save_load":
-            page = self._create_placeholder("セーブ/ロード")
-            
         elif section == "settings":
             page = SettingsPage(self)
             page.settings_changed.connect(self._on_settings_changed)
             self.settings_page = page
+
+        # New sidebar items (farm_swap, contract_changes, reinforcement, staff, finance, save_load)
+        # are currently unimplemented and return None.
 
         return page
 
@@ -254,7 +255,7 @@ class MainWindow(QMainWindow):
         if not self.game_state:
             return
 
-        # 对戦相手決定ロジック（簡易版）
+        # Simple opponent selection logic
         player_team = self.game_state.player_team
         opponents = [t for t in self.game_state.teams if t.name != player_team.name]
         
@@ -271,7 +272,7 @@ class MainWindow(QMainWindow):
 
     def _on_game_finished(self, result):
         """Handle game finish"""
-        # サイドバーとステータスバーを再表示
+        # Show sidebar and status bar again
         self.set_sidebar_visible(True)
         
         home_score = result['home_score']
@@ -279,24 +280,22 @@ class MainWindow(QMainWindow):
         home_team = result['home_team']
         away_team = result['away_team']
         
-        winner_name = "引き分け"
+        winner_name = "DRAW"
         if home_score > away_score:
             winner_name = home_team.name
         elif away_score > home_score:
             winner_name = away_team.name
             
-        # 試合結果をゲーム状態に記録
         if self.game_state:
             self.game_state.record_game_result(home_team, away_team, home_score, away_score)
         
-        # 試合結果を表示してホームに戻る
-        msg = f"試合終了\n\n{away_team.name} {away_score} - {home_score} {home_team.name}\n\n勝者: {winner_name}"
-        QMessageBox.information(self, "試合結果", msg)
+        msg = f"Game Finished\n\n{away_team.name} {away_score} - {home_score} {home_team.name}\n\nWinner: {winner_name}"
+        QMessageBox.information(self, "Result", msg)
         
         self._navigate_to("home")
 
     def set_sidebar_visible(self, visible: bool):
-        """サイドバーとステータスバーの表示切り替え"""
+        """Toggle sidebar and status bar visibility"""
         self.sidebar.setVisible(visible)
         self.status.setVisible(visible)
 
@@ -309,9 +308,6 @@ class MainWindow(QMainWindow):
             "4": "schedule",
             "5": "standings",
             "6": "game",
-            "7": "trade",
-            "8": "draft",
-            "9": "free_agency",
             "0": "settings",
         }
 
@@ -329,23 +325,26 @@ class MainWindow(QMainWindow):
     def _navigate_to(self, section: str):
         """Navigate to a section, resetting the page state"""
         
+        # Check if page is persistent or creatable (handle unimplemented items)
+        is_persistent = section in self.persistent_pages or section == "title"
+        new_page = None
+
+        if not is_persistent:
+            new_page = self._create_page_instance(section)
+            # If page creation returned None (unimplemented), do nothing
+            if new_page is None:
+                return
+        
         # 1. Update Sidebar Visual Selection
         self._update_sidebar_selection(section)
 
         # 2. Check if page is persistent or needs recreation
-        if section in self.persistent_pages or section == "title":
-            # Persistent pages (like player detail) are just shown
+        if is_persistent:
             self.pages.show_page(section)
         else:
-            # Re-create the page to reset its state
-            new_page = self._create_page_instance(section)
-            
             if new_page:
-                # Add to container (this should replace the old one if using PageContainer logic,
-                # or just add to stack. We rely on PageContainer to handle key mapping)
                 self.pages.add_page(section, new_page)
                 
-                # Apply current game state to the new page
                 if self.game_state and hasattr(new_page, 'set_game_state'):
                     new_page.set_game_state(self.game_state)
                 
@@ -361,9 +360,11 @@ class MainWindow(QMainWindow):
         """Update the sidebar buttons to reflect current section"""
         # Map section IDs to button labels (as defined in _create_sidebar)
         section_map = {
-            "home": "HOME", "roster": "ROSTER", "order": "ORDER", "stats": "STATS",
-            "schedule": "SCHEDULE", "standings": "STANDINGS", "game": "GAME",
-            "trade": "TRADE", "draft": "DRAFT", "free_agency": "FREE AGENCY",
+            "home": "HOME", "roster": "ROSTER", "order": "ORDER", 
+            "schedule": "SCHEDULE", "standings": "STANDINGS", "stats": "STATS",
+            "farm_swap": "FARM", "contract_changes": "CONTRACTS",
+            "reinforcement": "ACQUISITIONS",
+            "staff": "STAFF", "finance": "FINANCE",
             "save_load": "SAVE / LOAD", "settings": "SETTINGS", "title": "TITLE"
         }
         
@@ -382,8 +383,8 @@ class MainWindow(QMainWindow):
     def _on_page_changed(self, index: int):
         """Handle page change"""
         if self.game_state:
-            self.status.set_left_text(f"{self.game_state.current_year}年")
-            self.status.set_right_text(f"チーム: {self.game_state.player_team.name if self.game_state.player_team else '未選択'}")
+            self.status.set_left_text(f"Year {self.game_state.current_year}")
+            self.status.set_right_text(f"Team: {self.game_state.player_team.name if self.game_state.player_team else 'None'}")
 
     def _on_settings_changed(self, settings: dict):
         """Handle settings changes"""
@@ -439,13 +440,12 @@ class MainWindow(QMainWindow):
 
     def _on_order_saved(self):
         """Handle order saved"""
-        # Roster page will be refreshed automatically next time it is visited (recreated)
         pass
 
     def show_game(self, home_team, away_team):
         """Switch to game page and start a game"""
         self._navigate_to("game")
-        # 試合開始時はサイドバーを非表示
+        # Hide sidebar during game
         self.set_sidebar_visible(False)
         self.game_page.start_game(home_team, away_team)
 

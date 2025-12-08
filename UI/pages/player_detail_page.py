@@ -87,39 +87,6 @@ class StatBlock(QFrame):
 
         layout.addLayout(value_layout)
 
-        # Progress bar
-        bar_container = QFrame()
-        bar_container.setFixedHeight(6)
-        bar_container.setStyleSheet(f"""
-            QFrame {{
-                background-color: {self.theme.bg_input};
-                border-radius: 3px;
-                border: none;
-            }}
-        """)
-
-        # 1-99スケールなので、そのままパーセンテージとして使用可能
-        fill_width = int(value)  
-        if fill_width > 100: fill_width = 100
-        if fill_width < 0: fill_width = 0
-        
-        # Simple bar implementation using layout
-        bar_layout = QHBoxLayout(bar_container)
-        bar_layout.setContentsMargins(0, 0, 0, 0)
-        bar_layout.setSpacing(0)
-        
-        filled = QFrame()
-        filled.setStyleSheet(f"background-color: {color}; border-radius: 3px;")
-        
-        empty = QFrame()
-        empty.setStyleSheet("background-color: transparent;")
-        
-        if fill_width > 0:
-            bar_layout.addWidget(filled, fill_width)
-        bar_layout.addWidget(empty, 100 - fill_width)
-
-        layout.addWidget(bar_container)
-
 
 class PlayerDetailPage(QWidget):
     """Detailed player information page"""
@@ -268,11 +235,11 @@ class PlayerDetailPage(QWidget):
     def _create_header(self, player) -> QFrame:
         """Create the player header"""
         header = QFrame()
+        # border-left を削除しました
         header.setStyleSheet(f"""
             QFrame {{
                 background-color: {self.theme.bg_card};
-                border: 1px solid {self.theme.border};
-                border-left: 4px solid {self.theme.primary};
+                border: none;
                 border-radius: 8px;
             }}
         """)

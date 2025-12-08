@@ -125,7 +125,8 @@ class GameController(QMainWindow):
     def _setup_screens(self):
         """Set up all screens in a stacked widget"""
         self.stack = QStackedWidget()
-        self.setNorthWidget(self.stack)
+        # 修正: QMainWindowのメソッド名は setCentralWidget のままである必要があります
+        self.setCentralWidget(self.stack)
 
         # Create screens
         self.loading_screen = self.LoadingScreen()
@@ -194,6 +195,7 @@ class GameController(QMainWindow):
         from team_generator import load_or_create_teams
 
         # Fictional team names for copyright compliance
+        # North League 
         north_team_names = [
             "Tokyo Bravers",
             "Osaka Thunders",
@@ -202,6 +204,7 @@ class GameController(QMainWindow):
             "Yokohama Mariners",
             "Shinjuku Spirits"
         ]
+        # South League
         south_team_names = [
             "Fukuoka Phoenix",
             "Saitama Bears",
