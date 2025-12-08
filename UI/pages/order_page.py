@@ -1033,83 +1033,214 @@ class OrderPage(QWidget):
     def _auto_fill(self):
         if not self.current_team: return
         t = self.current_team
-        limit = t.ACTIVE_ROSTER_LIMIT
         
-        # Reset
+        # Reset lists
         t.current_lineup = [-1] * 9
+        t.lineup_positions = [""] * 9  # Will be filled dynamically
         t.bench_batters = []
-        t.rotation = [-1] * 8
+        t.rotation = [-1] * 8  # Ensure padded to 8 for table
         t.setup_pitchers = [-1] * 8 
         t.closers = [-1] * 2
-        t.lineup_positions = ["捕", "一", "二", "三", "遊", "左", "中", "右", "DH"]
-        
-        # 1. Sort Candidates
-        batters = [i for i,p in enumerate(t.players) if p.position.value != "投手" and not p.is_developmental]
-        batters.sort(key=lambda i: t.players[i].overall_rating, reverse=True)
-        
-        pitchers = [i for i,p in enumerate(t.players) if p.position.value == "投手" and not p.is_developmental]
-        pitchers.sort(key=lambda i: t.players[i].overall_rating, reverse=True)
-        
-        # 2. Fill Essentials (Lineup=9, Rotation=6, Closer=1) 
-        
-        # Lineup
-        used_batters = []
-        for i in range(min(9, len(batters))):
-            t.current_lineup[i] = batters[i]
-            used_batters.append(batters[i])
+
+        # --- Helper: Score Calculators ---
+        def get_condition_mult(p):
+            # Condition 1-9, 5 is neutral. Range 0.8 to 1.2
+            return 1.0 + (p.condition - 5) * 0.05
+
+        def get_batting_score(p):
+            # Simple weighted batting score
+            s = p.stats
+            # Contact, Power, Speed, Eye
+            val = (s.contact * 1.0 + s.power * 1.2 + s.speed * 0.5 + s.eye * 0.5)
+            return val * get_condition_mult(p)
+
+        def get_defense_score(p, pos_name_long):
+            # Check aptitude
+            apt = p.stats.defense_ranges.get(pos_name_long, 0)
+            if apt < 20: return 0 # Threshold for auto-assignment
             
-        # Rotation
-        starters = [i for i in pitchers if t.players[i].pitch_type.value == "先発"]
-        relievers = [i for i in pitchers if i not in starters]
-        
-        # Ensure we have 6 starters (standard auto fill)
-        current_rotation = []
-        if len(starters) >= 6:
-            current_rotation = starters[:6]
-            relievers = starters[6:] + relievers 
-        else:
-            current_rotation = starters + relievers[:6-len(starters)]
-            relievers = relievers[6-len(starters):]
+            s = p.stats
+            # Defense score: Range + Error + Arm (weighted by position importance?)
+            # Simplified:
+            def_val = (apt * 1.5 + s.error * 0.5 + s.arm * 0.5)
+            return def_val
+
+        def get_pitcher_score(p, role):
+            # role: 'starter', 'relief', 'closer'
+            s = p.stats
+            base = s.overall_pitching() * 99 # scale up
             
-        for i in range(len(current_rotation)):
-            t.rotation[i] = current_rotation[i]
-        
-        # Closer (fill 1)
-        if relievers:
-            t.closers[0] = relievers.pop(0)
+            apt_mult = 1.0
+            if role == 'starter':
+                apt_mult = p.starter_aptitude / 50.0
+                # Stamina bonus
+                base += s.stamina * 0.5
+            elif role == 'closer':
+                apt_mult = p.closer_aptitude / 50.0
+                # Velocity/Stuff bonus
+                base += (s.velocity - 130) * 2 + s.stuff * 0.5
+            else: # relief
+                apt_mult = p.middle_aptitude / 50.0
             
-        # 3. Fill Remaining Spots up to Limit
-        # Current Count
-        count = 0
-        count += len([x for x in t.current_lineup if x != -1])
-        count += len([x for x in t.rotation if x != -1])
-        count += len([x for x in t.closers if x != -1])
+            return base * apt_mult * get_condition_mult(p)
+
+        # --- 1. Pitcher Assignment ---
+        pitchers = [i for i, p in enumerate(t.players) 
+                   if p.position.value == "投手" and not p.is_developmental]
         
-        remaining_batters = [b for b in batters if b not in used_batters]
-        remaining_pitchers = relievers 
+        # Sort for Rotation
+        pitchers.sort(key=lambda i: get_pitcher_score(t.players[i], 'starter'), reverse=True)
         
-        # Simple balanced fill for bench/relief
-        while count < limit:
-            added = False
+        # Assign Rotation (Top 6)
+        rotation_candidates = pitchers[:6]
+        remaining_pitchers = pitchers[6:]
+        
+        for i in range(min(6, len(rotation_candidates))):
+            t.rotation[i] = rotation_candidates[i]
             
-            # Add Batter
-            if remaining_batters and count < limit:
-                t.bench_batters.append(remaining_batters.pop(0))
-                count += 1
-                added = True
+        # Assign Closer (Top 1 from remaining)
+        if remaining_pitchers:
+            remaining_pitchers.sort(key=lambda i: get_pitcher_score(t.players[i], 'closer'), reverse=True)
+            t.closers[0] = remaining_pitchers.pop(0)
+            
+        # Assign Setup/Relief (Rest, sorted by relief score)
+        remaining_pitchers.sort(key=lambda i: get_pitcher_score(t.players[i], 'relief'), reverse=True)
+        for i in range(min(8, len(remaining_pitchers))):
+            t.setup_pitchers[i] = remaining_pitchers[i]
+            
+        # --- 2. Fielder Assignment (Greedy by Defensive Priority) ---
+        batters = [i for i, p in enumerate(t.players) 
+                  if p.position.value != "投手" and not p.is_developmental]
+        
+        # Defensive Positions Priority: C -> SS -> 2B -> CF -> 3B -> RF -> LF -> 1B
+        # Map: Short Name -> Long Name
+        pos_map = {
+            "捕": "捕手", "遊": "遊撃手", "二": "二塁手", "中": "中堅手", 
+            "三": "三塁手", "右": "右翼手", "左": "左翼手", "一": "一塁手"
+        }
+        def_priority = ["捕", "遊", "二", "中", "三", "右", "左", "一"]
+        
+        selected_starters = {} # pos_short -> player_idx
+        used_indices = set()
+        
+        for short_pos in def_priority:
+            long_pos = pos_map[short_pos]
+            best_idx = -1
+            best_score = -1
+            
+            for idx in batters:
+                if idx in used_indices: continue
+                p = t.players[idx]
                 
-            # Add Pitcher (Setup)
-            if remaining_pitchers and count < limit:
-                # Find empty slot in setup
-                for i in range(8):
-                    if t.setup_pitchers[i] == -1:
-                        t.setup_pitchers[i] = remaining_pitchers.pop(0)
-                        count += 1
-                        added = True
-                        break
-            if not added:
-                break
+                # Check absolute minimum aptitude
+                apt = p.stats.defense_ranges.get(long_pos, 0)
+                if apt < 20: continue 
+                
+                # Score = Batting * 0.6 + Defense * 0.4 (roughly)
+                # Adjust weight based on position (C/SS/2B need more defense)
+                def_weight = 1.0
+                if short_pos in ["捕", "遊", "二"]: def_weight = 1.5
+                
+                score = (get_batting_score(p) + get_defense_score(p, long_pos) * def_weight)
+                
+                if score > best_score:
+                    best_score = score
+                    best_idx = idx
             
+            if best_idx != -1:
+                selected_starters[short_pos] = best_idx
+                used_indices.add(best_idx)
+        
+        # DH Assignment
+        dh_candidates = [i for i in batters if i not in used_indices]
+        dh_candidates.sort(key=lambda i: get_batting_score(t.players[i]), reverse=True)
+        if dh_candidates:
+            selected_starters["DH"] = dh_candidates[0]
+            used_indices.add(dh_candidates[0])
+            
+        # Fill gaps if any position missing (pick best overall available, even if low aptitude, or use sub)
+        # For simplicity, if missing, just pick best hitting remaining player
+        missing_positions = [p for p in def_priority + ["DH"] if p not in selected_starters]
+        for p in missing_positions:
+            remaining = [i for i in batters if i not in used_indices]
+            if remaining:
+                # Just pick best hitter
+                remaining.sort(key=lambda i: get_batting_score(t.players[i]), reverse=True)
+                selected_starters[p] = remaining[0]
+                used_indices.add(remaining[0])
+
+        # --- 3. Batting Order Construction ---
+        # We have 9 players in `selected_starters`. Now order them 1-9.
+        # Strategy:
+        # 1. Lead-off: High Speed + OBP (Eye)
+        # 2. #2: High Contact + Bunt
+        # 3. #3: Best Hitter (OPS)
+        # 4. #4: High Power + RBI
+        # 5. #5: Power
+        # 6-9: Remaining sorted by batting score descending
+        
+        lineup_candidates = []
+        for pos, idx in selected_starters.items():
+            if idx == -1: continue
+            lineup_candidates.append({"pos": pos, "idx": idx, "p": t.players[idx]})
+            
+        final_order = [None] * 9
+        
+        # Only proceed if we have enough players
+        if len(lineup_candidates) >= 1:
+            # Helper to safely pick and remove
+            def pick_best(candidates, sort_key):
+                if not candidates: return None
+                best = max(candidates, key=sort_key)
+                candidates.remove(best)
+                return best
+
+            # 4. Cleanup (#4) - Highest Power
+            final_order[3] = pick_best(lineup_candidates, lambda x: x['p'].stats.power)
+            
+            # 3. Best (#3) - Highest Batting Score remaining
+            final_order[2] = pick_best(lineup_candidates, lambda x: get_batting_score(x['p']))
+            
+            # 1. Lead (#1) - Speed
+            final_order[0] = pick_best(lineup_candidates, lambda x: x['p'].stats.speed)
+            
+            # 5. #5 - Power remaining
+            final_order[4] = pick_best(lineup_candidates, lambda x: x['p'].stats.power)
+            
+            # 2. #2 - Contact/Bunt
+            final_order[1] = pick_best(lineup_candidates, lambda x: x['p'].stats.contact + x['p'].stats.bunt_sac)
+            
+            # 6-9: Sort by batting score
+            lineup_candidates.sort(key=lambda x: get_batting_score(x['p']), reverse=True)
+            for i in range(len(lineup_candidates)):
+                # Fill empty slots starting from 6th (index 5)
+                # Note: Some slots 0-4 might be None if we ran out of players, handled below
+                found_slot = False
+                for slot in range(5, 9):
+                    if final_order[slot] is None:
+                        final_order[slot] = lineup_candidates[i]
+                        found_slot = True
+                        break
+                if not found_slot:
+                    # Fill any empty slots 0-4
+                     for slot in range(5):
+                        if final_order[slot] is None:
+                            final_order[slot] = lineup_candidates[i]
+                            break
+
+            # Apply to Team
+            for i in range(9):
+                if final_order[i]:
+                    t.current_lineup[i] = final_order[i]['idx']
+                    t.lineup_positions[i] = final_order[i]['pos']
+
+        # --- 4. Bench Assignment ---
+        # Remaining batters to bench
+        remaining_bench = [i for i in batters if i not in used_indices]
+        # Sort by utility (maybe subs with good defense or high speed for pinch run)
+        remaining_bench.sort(key=lambda i: t.players[i].overall_rating, reverse=True)
+        t.bench_batters = remaining_bench
+        
         self._refresh_all()
         
     def _on_player_detail_clicked(self):

@@ -647,12 +647,15 @@ class LiveGamePage(QWidget):
     def _on_pitch(self):
         if self.live_engine.is_game_over(): return
         
+        # Determine batter for strategy
+        batter, _ = self.live_engine.get_current_batter()
+        
         # Decide strategy via AI if CPU turn (simplified for demo)
         strat = self.selected_strategy
         if not self.live_engine.state.is_top: # Home (Player) is batting
              pass 
         else: # CPU batting
-             strat = self.live_engine.ai.decide_strategy(self.live_engine.state, None, None)
+             strat = self.live_engine.ai.decide_strategy(self.live_engine.state, None, None, batter)
 
         res, pitch, ball = self.live_engine.simulate_pitch(strat)
         play_res = self.live_engine.process_pitch_result(res, pitch, ball)
@@ -698,8 +701,9 @@ class LiveGamePage(QWidget):
     def _run_full_simulation(self):
         # AI vs AI simulation loop
         while not self.live_engine.is_game_over():
+            batter, _ = self.live_engine.get_current_batter()
             # AI decisions
-            strat = self.live_engine.ai.decide_strategy(self.live_engine.state, None, None)
+            strat = self.live_engine.ai.decide_strategy(self.live_engine.state, None, None, batter)
             r, p, b = self.live_engine.simulate_pitch(strat)
             self.live_engine.process_pitch_result(r, p, b)
         self._finish()
