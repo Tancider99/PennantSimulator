@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-ライブ試合エンジン (修正版: 守備指標計測機能追加 + バランス調整)
+ライブ試合エンジン (修正版: パワー偏重是正・全体的な投高打低化調整)
 """
 import random
 import math
@@ -8,7 +8,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Tuple, List, Optional, Dict
 from enum import Enum
-from models import Position, Player, Team, PlayerRecord, PitchType, TeamLevel, generate_best_lineup
+from models import Position, Player, Team, PlayerRecord, PitchType, TeamLevel, generate_best_lineup, Stadium
 
 # ========================================
 # 定数・ユーティリティ
@@ -245,7 +245,7 @@ class PitchGenerator:
         "スプリット": {"base_speed": 140, "h_break": 3, "v_break": -28}
     }
 
-    def generate_pitch(self, pitcher: Player, batter: Player, catcher: Player, state: GameState, strategy="NORMAL") -> PitchData:
+    def generate_pitch(self, pitcher: Player, batter: Player, catcher: Player, state: GameState, strategy="NORMAL", stadium: Stadium = None) -> PitchData:
         is_risp = state.is_risp()
         is_close = abs(state.home_score - state.away_score) <= 2
         
@@ -253,6 +253,9 @@ class PitchGenerator:
         control = get_effective_stat(pitcher, 'control', batter, is_risp, is_close)
         movement = get_effective_stat(pitcher, 'movement', batter, is_risp, is_close)
         
+        if stadium:
+             control = control / max(0.5, stadium.pf_bb)
+
         if catcher:
             lead = get_effective_stat(catcher, 'catcher_lead', is_close_game=is_close)
             control += (lead - 50) * 0.2
@@ -368,10 +371,14 @@ class BattedBallGenerator:
         elif quality_roll < con_eff * 0.85: quality = "medium"
         else: quality = "soft"
         
-        base_v = 101 + (power - 50) * 0.68
+        # Power Effect Reduced (0.60 -> 0.45)
+        base_v = 101 + (power - 50) * 0.45
+
         if strategy == "POWER": base_v += 9
         
-        if quality == "hard": base_v += 18 + (power/12)
+        if quality == "hard": 
+            # Hard hit bonus reduced (power/12 -> power/20)
+            base_v += 15 + (power/20)
         if quality == "soft": base_v -= 30
         
         traj_bias = 5 + (trajectory * 5)
@@ -410,7 +417,8 @@ class BattedBallGenerator:
         elif htype == BattedBallType.POPUP: dist *= 0.3
         else:
             dist *= 0.84
-            dist *= (1.0 + (power-50)*0.0022)
+            # Power Distance Effect Reduced (0.0018 -> 0.0008)
+            dist *= (1.0 + (power-50)*0.0008)
             
         dist = max(0, dist)
         spray = random.gauss(0, 25)
@@ -422,9 +430,12 @@ class BattedBallGenerator:
         return BattedBallData(velo, angle, spray, htype, dist, 4.0, land_x, land_y, [], quality)
 
 class DefenseEngine:
-    def judge(self, ball: BattedBallData, defense_team: Team, team_level: TeamLevel = TeamLevel.FIRST):
+    def judge(self, ball: BattedBallData, defense_team: Team, team_level: TeamLevel = TeamLevel.FIRST, stadium: Stadium = None):
         abs_spray = abs(ball.spray_angle)
-        fence_dist = 122 - (abs_spray / 45.0) * (122 - 100)
+        
+        base_fence = 122 - (abs_spray / 45.0) * (122 - 100)
+        pf_hr = stadium.pf_hr if stadium else 1.0
+        fence_dist = base_fence / math.sqrt(pf_hr) 
         
         if ball.hit_type == BattedBallType.FLYBALL and ball.distance > fence_dist and abs_spray < 45:
             return PlayResult.HOME_RUN
@@ -441,29 +452,36 @@ class DefenseEngine:
             defense_range = 1
             error_rating = 1
             
-        # --- Hit Probability Calculation (Capture this for Metrics) ---
+        # Hit Probability Calculation (Refined for Realistic BABIP)
         hit_prob = 0.0
         
+        # ▼▼▼ 修正: 全体的なヒット確率の下方修正 (投高打低化) して、 BABIPを適正化 ▼▼▼
         if ball.hit_type == BattedBallType.GROUNDBALL:
-            hit_prob = 0.30
-            if ball.distance < 45: hit_prob -= (defense_range - 50) * 0.01
-            else: hit_prob = 0.62
+            hit_prob = 0.26 # 0.23 -> 0.26
+            if ball.distance < 45: 
+                hit_prob -= (defense_range - 50) * 0.01
+            else: 
+                hit_prob = 0.48 # 0.45 -> 0.48
         elif ball.hit_type == BattedBallType.LINEDRIVE:
-            hit_prob = 0.65
+            hit_prob = 0.64 # 0.60 -> 0.64
             hit_prob -= (defense_range - 50) * 0.005
         elif ball.hit_type == BattedBallType.FLYBALL:
-            hit_prob = 0.18 
+            hit_prob = 0.15 # 0.12 -> 0.15
             hit_prob -= (defense_range - 50) * 0.005
         elif ball.hit_type == BattedBallType.POPUP:
             hit_prob = 0.01
         
-        if ball.contact_quality == "hard": hit_prob += 0.25
-        if ball.contact_quality == "soft": hit_prob -= 0.1
+        # ▼▼▼ 修正: Hard/Soft補正の抑制で突出を防止 (0.15 -> 0.12) ▼▼▼
+        if ball.contact_quality == "hard": hit_prob += 0.12 
+        if ball.contact_quality == "soft": hit_prob -= 0.12
+        # ▲▲▲ 修正終了 ▲▲▲
         
+        if stadium:
+            hit_prob *= stadium.pf_1b
+
         # Clamp hit probability
         hit_prob = max(0.01, min(0.99, hit_prob))
         
-        # --- Defensive Metrics Recording ---
         run_value_factor = 0.75 
 
         is_hit = random.random() < hit_prob
@@ -480,7 +498,13 @@ class DefenseEngine:
                 rec.def_drs_raw -= (1.0 - hit_prob) * run_value_factor
 
         if is_hit:
-            if ball.distance > 100 or (ball.distance > 80 and ball.hit_type == BattedBallType.LINEDRIVE):
+            pf_2b = stadium.pf_2b if stadium else 1.0
+            pf_3b = stadium.pf_3b if stadium else 1.0
+            
+            triple_dist = 100 / math.sqrt(pf_3b)
+            double_dist = 80 / math.sqrt(pf_2b)
+
+            if ball.distance > triple_dist or (ball.distance > double_dist and ball.hit_type == BattedBallType.LINEDRIVE):
                 if random.random() < 0.1: return PlayResult.TRIPLE
                 return PlayResult.DOUBLE
             return PlayResult.SINGLE
@@ -534,10 +558,6 @@ class DefenseEngine:
         elif level == TeamLevel.THIRD: return team.third_lineup
         else: return team.current_lineup
 
-# ========================================
-# 統合エンジン
-# ========================================
-
 class LiveGameEngine:
     def __init__(self, home: Team, away: Team, team_level: TeamLevel = TeamLevel.FIRST):
         self.home_team = home
@@ -549,6 +569,11 @@ class LiveGameEngine:
         self.def_eng = DefenseEngine()
         self.ai = AIManager()
         self.game_stats = defaultdict(lambda: defaultdict(int))
+        
+        self.stadium = getattr(self.home_team, 'stadium', None)
+        if not self.stadium:
+             self.stadium = Stadium(name=f"{home.name} Stadium")
+
         self._init_starters()
 
         if self.team_level == TeamLevel.FIRST:
@@ -653,7 +678,7 @@ class LiveGameEngine:
             res = self._attempt_steal(catcher)
             if res: return PitchResult.BALL, None, None
 
-        pitch = self.pitch_gen.generate_pitch(pitcher, batter, catcher, self.state, pitch_strategy)
+        pitch = self.pitch_gen.generate_pitch(pitcher, batter, catcher, self.state, pitch_strategy, self.stadium)
         
         if self.state.is_top: self.state.away_pitch_count += 1
         else: self.state.home_pitch_count += 1
@@ -682,6 +707,10 @@ class LiveGameEngine:
         contact = get_effective_stat(batter, 'contact', opponent=pitcher)
         hit_prob = 0.78 + (contact - 50)*0.005
         if not pitch.location.is_strike: hit_prob -= 0.2
+        
+        if self.stadium:
+            hit_prob /= max(0.5, self.stadium.pf_so)
+
         if random.random() > hit_prob: return PitchResult.STRIKE_SWINGING, None
         if random.random() < 0.35: return PitchResult.FOUL, None
              
@@ -720,9 +749,9 @@ class LiveGameEngine:
             if self.state.strikes < 2: self.state.strikes += 1
         elif res == PitchResult.IN_PLAY:
             defense_team = self.home_team if self.state.is_top else self.away_team
-            play = self.def_eng.judge(ball, defense_team, self.team_level)
             
-            # --- 守備指標用データ収集 (打球種別カウント) ---
+            play = self.def_eng.judge(ball, defense_team, self.team_level, self.stadium)
+            
             if ball.hit_type == BattedBallType.GROUNDBALL:
                 self.game_stats[pitcher]['ground_balls'] += 1
                 batter, _ = self.get_current_batter()
@@ -751,8 +780,13 @@ class LiveGameEngine:
         
         if res == PitchResult.IN_PLAY:
             defense_team = self.home_team if self.state.is_top else self.away_team
-            return self.def_eng.judge(ball, defense_team, self.team_level)
+            return self.def_eng.judge(ball, defense_team, self.team_level, self.stadium)
         return res
+
+    def _record_pf(self, batter: Player, pitcher: Player):
+        pf = self.stadium.pf_runs if self.stadium else 1.0
+        self.game_stats[batter]['sum_pf_runs'] += pf
+        self.game_stats[pitcher]['sum_pf_runs'] += pf
 
     def _walk(self):
         batter, _ = self.get_current_batter()
@@ -760,6 +794,9 @@ class LiveGameEngine:
         self.game_stats[batter]['plate_appearances'] += 1
         self.game_stats[batter]['walks'] += 1
         self.game_stats[pitcher]['walks_allowed'] += 1
+        
+        self._record_pf(batter, pitcher)
+
         self._advance_runners(1, batter, is_walk=True)
         self._reset_count(); self._next_batter()
 
@@ -771,6 +808,9 @@ class LiveGameEngine:
         if kind == PlayResult.STRIKEOUT: self.game_stats[batter]['strikeouts'] += 1
         self.state.outs += 1
         self.game_stats[pitcher]['innings_pitched'] += 0.333
+        
+        self._record_pf(batter, pitcher)
+
         self._reset_count(); self._next_batter()
         if self.state.outs >= 3: self._change_inning()
 
@@ -788,6 +828,11 @@ class LiveGameEngine:
             if play == PlayResult.HOME_RUN: 
                 self.game_stats[batter]['home_runs'] += 1
                 self.game_stats[pitcher]['home_runs_allowed'] += 1
+        
+        if play == PlayResult.ERROR:
+            self.game_stats[batter]['reach_on_error'] += 1
+
+        self._record_pf(batter, pitcher)
 
         self._reset_count(); self._next_batter()
         scored = 0
@@ -904,6 +949,16 @@ class LiveGameEngine:
                     current = getattr(record, key)
                     setattr(record, key, current + val)
             record.games += 1
+
+        # この選手がホームチームに所属しているか確認
+        # (playerオブジェクトからはチームへ逆参照できないため、リストに含まれているかで判定)
+        is_home_player = player in self.home_team.players
+        
+        if is_home_player:
+            if player.position == Position.PITCHER:
+                record.home_games_pitched += 1
+            else:
+                record.home_games += 1
 
     def get_winner(self):
         if self.state.home_score > self.state.away_score: return self.home_team.name

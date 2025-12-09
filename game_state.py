@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-ゲーム状態管理 (拡張版: 全軍日程管理・AI運用・統括シミュレーション)
+ゲーム状態管理 (拡張版: 全軍日程管理・AI運用・統括シミュレーション・完全版)
 """
 from enum import Enum
 from typing import Optional, List
-from models import Team, Player, DraftProspect, TeamLevel
+from models import Team, Player, DraftProspect, TeamLevel, Position
 import traceback
 import random
 from PySide6.QtCore import QDate
@@ -113,6 +113,14 @@ class GameStateManager:
         self.farm_schedule = self.schedule_engine.generate_farm_schedule(north, south, TeamLevel.SECOND)
         self.third_schedule = self.schedule_engine.generate_farm_schedule(north, south, TeamLevel.THIRD)
 
+    def _update_daily_status(self):
+        """日付変更時の全選手ステータス更新"""
+        for team in self.all_teams:
+            for player in team.players:
+                if player.position == Position.PITCHER:
+                    # 休息日数を加算
+                    player.days_rest += 1
+
     def process_date(self, date_str: str):
         """
         指定された日付の全試合をシミュレート
@@ -122,6 +130,9 @@ class GameStateManager:
         from farm_game_simulator import simulate_farm_games_for_day
         
         try:
+            # 0. 全投手の休息日数更新 (1日経過)
+            self._update_daily_status()
+
             # 1. AIチーム運用（ロースター・オーダー調整）
             self._manage_ai_teams(date_str)
 
@@ -154,9 +165,13 @@ class GameStateManager:
                             game.home_score = engine.state.home_score
                             game.away_score = engine.state.away_score
                             
-                            # 先発ローテーションを進める
-                            home.rotation_index = (home.rotation_index + 1) % 6
-                            away.rotation_index = (away.rotation_index + 1) % 6
+                            # 登板した投手の休息日数をリセット
+                            if engine.state.home_pitchers_used:
+                                for p in engine.state.home_pitchers_used:
+                                    p.days_rest = 0
+                            if engine.state.away_pitchers_used:
+                                for p in engine.state.away_pitchers_used:
+                                    p.days_rest = 0
                             
                         except Exception as e:
                             print(f"Error simulating game {home.name} vs {away.name}: {e}")
@@ -197,23 +212,23 @@ class GameStateManager:
         for team in self.all_teams:
             if team != self.player_team:
                 self._ensure_valid_roster(team)
+                if not team.rotation or len(team.rotation) < 6:
+                    team.auto_assign_pitching_roles(TeamLevel.FIRST)
             
-            # 二軍三軍のオーダー・ローテ自動生成（不足時のみ、または定期的に更新）
-            # ここでは「毎回チェックして生成」するが、固定化を防ぐため毎回シャッフル要素を入れる
-            
-            # 毎回リフレッシュして出場機会を分散させる
+            # 二軍三軍のオーダー・ローテ自動生成
             team.farm_lineup = self._auto_generate_lineup(team, TeamLevel.SECOND)
             team.third_lineup = self._auto_generate_lineup(team, TeamLevel.THIRD)
             
             if not team.farm_rotation:
-                team.farm_rotation = self._auto_generate_rotation(team, TeamLevel.SECOND)
+                team.auto_assign_pitching_roles(TeamLevel.SECOND)
             if not team.third_rotation:
-                team.third_rotation = self._auto_generate_rotation(team, TeamLevel.THIRD)
+                team.auto_assign_pitching_roles(TeamLevel.THIRD)
 
     def _ensure_valid_roster(self, team: Team):
         valid_starters = len([x for x in team.current_lineup if x != -1])
-        valid_rotation = len([x for x in team.rotation if x != -1])
-        if valid_starters < 9 or valid_rotation == 0:
+        has_rotation = len([x for x in team.rotation if x != -1]) >= 1
+        
+        if valid_starters < 9 or not has_rotation:
             team.auto_assign_rosters()
             team.auto_set_bench()
 
@@ -245,30 +260,12 @@ class GameStateManager:
 
         return indices[:9]
 
+    # Team.auto_assign_pitching_roles に移行したため、このメソッドはラッパーとして残すか削除
     def _auto_generate_rotation(self, team: Team, level: TeamLevel) -> List[int]:
-        """
-        指定レベルの自動ローテ生成
-        一軍: 能力重視
-        二軍・三軍: 若手・育成優先
-        """
-        from models import Position
-        roster = team.get_players_by_level(level)
-        indices = [team.players.index(p) for p in roster if p.position == Position.PITCHER]
-        
-        if level == TeamLevel.FIRST:
-            indices.sort(key=lambda i: team.players[i].stats.overall_pitching(), reverse=True)
-        else:
-            def calc_farm_pitch_score(p_idx):
-                p = team.players[p_idx]
-                ovr = p.stats.overall_pitching()
-                age_bonus = max(0, 28 - p.age) * 3
-                rand = random.uniform(0, 10)
-                # 先発適性も考慮
-                return ovr * 0.4 + age_bonus + p.starter_aptitude * 0.2 + rand
-
-            indices.sort(key=calc_farm_pitch_score, reverse=True)
-            
-        return indices[:6]
+        team.auto_assign_pitching_roles(level)
+        if level == TeamLevel.FIRST: return team.rotation
+        elif level == TeamLevel.SECOND: return team.farm_rotation
+        return team.third_rotation
 
     def get_next_game(self):
         if not self.schedule_engine or not self.player_team: return None
@@ -333,3 +330,5 @@ class GameStateManager:
                 player.record.reset()
                 player.age += 1
                 player.years_pro += 1
+                if player.position == Position.PITCHER:
+                    player.days_rest = 6 # 開幕前は休息十分

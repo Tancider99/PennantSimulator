@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-データモデル定義 (修正版: セイバーメトリクス・守備指標・勝率対応・オーダー生成関数統合)
+データモデル定義 (修正版: 投手疲労管理・役割分担ロジック追加・全コード)
 """
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Tuple
@@ -313,6 +313,25 @@ class PlayerStats:
 
 
 @dataclass
+class Stadium:
+    """球場データとパークファクター"""
+    name: str
+    capacity: int = 30000
+    
+    # Park Factors (1.00 = League Average)
+    pf_runs: float = 1.00    # 得点
+    pf_hr: float = 1.00      # 本塁打
+    pf_1b: float = 1.00      # 単打
+    pf_2b: float = 1.00      # 二塁打
+    pf_3b: float = 1.00      # 三塁打
+    pf_so: float = 1.00      # 奪三振 (高いほど三振しやすい)
+    pf_bb: float = 1.00      # 与四球 (高いほど四球が出やすい)
+
+    def get_factor(self, item: str) -> float:
+        return getattr(self, f"pf_{item.lower()}", 1.0)
+
+
+@dataclass
 class PlayerRecord:
     """選手成績（基本統計 + 高度な守備指標 + 計算済み指標）"""
     # Basic
@@ -328,12 +347,18 @@ class PlayerRecord:
     walks: int = 0
     intentional_walks: int = 0
     hit_by_pitch: int = 0
+    reach_on_error: int = 0
     strikeouts: int = 0
     stolen_bases: int = 0
     caught_stealing: int = 0
     sacrifice_hits: int = 0
     sacrifice_flies: int = 0
     grounded_into_dp: int = 0
+    home_games: int = 0          # 本拠地での出場試合数 (野手)
+    home_games_pitched: int = 0  # 本拠地での登板試合数 (投手)
+
+    # 経験したパークファクターの累積値
+    sum_pf_runs: float = 0.0
 
     # Pitching Basic
     games_pitched: int = 0
@@ -635,6 +660,8 @@ class Player:
     career_stats: CareerStats = field(default_factory=CareerStats)
     
     condition: int = 5
+    
+    days_rest: int = 6  # 登板間隔 (中n日)
 
     def __post_init__(self):
         if self.team_level is None:
@@ -721,6 +748,7 @@ class Player:
 class Team:
     name: str
     league: League
+    stadium: Optional[Stadium] = None
     players: List[Player] = field(default_factory=list)
     wins: int = 0
     losses: int = 0
@@ -768,12 +796,81 @@ class Team:
 
     def get_today_starter(self) -> Optional[Player]:
         if not self.rotation: return None
-        valid_starters = [p for p in self.rotation if p != -1]
-        if not valid_starters: return None
         
-        idx = valid_starters[self.rotation_index % len(valid_starters)]
-        if 0 <= idx < len(self.players): return self.players[idx]
-        return None
+        candidates = []
+        for idx in self.rotation:
+            if 0 <= idx < len(self.players):
+                candidates.append(self.players[idx])
+        
+        if not candidates: return None
+
+        best_candidate = None
+        
+        for p in candidates:
+            if p.days_rest >= 5:
+                best_candidate = p
+                break
+        
+        if not best_candidate:
+            for p in candidates:
+                if p.days_rest >= 4:
+                    best_candidate = p
+                    break
+        
+        if not best_candidate:
+            best_candidate = max(candidates, key=lambda p: p.days_rest)
+
+        return best_candidate
+
+    def auto_assign_pitching_roles(self, level: TeamLevel = TeamLevel.FIRST):
+        """指定レベルの投手陣を先発・中継ぎ・抑えに最適配分する"""
+        roster_players = self.get_players_by_level(level)
+        pitchers = [p for p in roster_players if p.position == Position.PITCHER]
+        if not pitchers: return
+
+        pitcher_indices = [self.players.index(p) for p in pitchers]
+        
+        def starter_score(p: Player):
+            rating = p.stats.overall_pitching()
+            stamina = p.stats.stamina
+            aptitude = p.starter_aptitude
+            return rating * 0.4 + stamina * 0.3 + aptitude * 0.3
+
+        def reliever_score(p: Player):
+            rating = p.stats.overall_pitching()
+            velocity = p.stats.velocity
+            aptitude = max(p.middle_aptitude, p.closer_aptitude)
+            return rating * 0.4 + (velocity - 130) * 0.5 + aptitude * 0.3
+
+        pitchers.sort(key=starter_score, reverse=True)
+        starters = pitchers[:6]
+        starter_indices = [self.players.index(p) for p in starters]
+
+        remaining_pitchers = pitchers[6:]
+        
+        remaining_pitchers.sort(key=reliever_score, reverse=True)
+        closer = []
+        closer_idx = []
+        if remaining_pitchers:
+            closer = [remaining_pitchers[0]]
+            closer_idx = [self.players.index(remaining_pitchers[0])]
+            remaining_pitchers = remaining_pitchers[1:]
+
+        setups = remaining_pitchers[:2]
+        setup_indices = [self.players.index(p) for p in setups]
+        
+        others = remaining_pitchers[2:]
+        other_indices = [self.players.index(p) for p in others]
+
+        if level == TeamLevel.FIRST:
+            self.rotation = starter_indices
+            self.closers = closer_idx
+            self.setup_pitchers = setup_indices
+            self.bench_pitchers = other_indices
+        elif level == TeamLevel.SECOND:
+            self.farm_rotation = starter_indices
+        elif level == TeamLevel.THIRD:
+            self.third_rotation = starter_indices
 
     def get_roster_players(self) -> List[Player]:
         return [p for p in self.players if not p.is_developmental]
@@ -858,14 +955,16 @@ class Team:
         for idx in self.third_roster: self.players[idx].team_level = TeamLevel.THIRD
 
     def auto_set_bench(self):
-        assigned = set(self.current_lineup + self.rotation + self.setup_pitchers + self.closers)
+        self.auto_assign_pitching_roles(TeamLevel.FIRST)
+        
+        assigned = set(self.current_lineup)
         self.bench_batters = []
-        self.bench_pitchers = []
+        
         for idx in self.active_roster:
             if idx not in assigned and 0 <= idx < len(self.players):
                 p = self.players[idx]
-                if p.position.value == "投手": self.bench_pitchers.append(idx)
-                else: self.bench_batters.append(idx)
+                if p.position.value != "投手":
+                    self.bench_batters.append(idx)
 
     def get_closer(self) -> Optional[Player]:
         if self.closers and 0 <= self.closers[0] < len(self.players):
@@ -948,18 +1047,12 @@ TEAM_ABBRS = {
     "Kobe Buffaloes": "KB",
 }
 
-# =========================================================
-# 汎用オーダー自動生成ロジック (守備適正考慮)
-# =========================================================
-
 def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
     """
     指定された選手リストから、守備位置を考慮した最適オーダー(9人)を生成して返す。
     インデックスは team.players 内のインデックスを返す。
     """
     
-    # 1. 守備位置の優先順位とマッピング定義
-    # センターライン(捕手、二遊間、中堅)を優先的に埋める
     def_priority = [
         (Position.CATCHER, "捕手", 1.5),
         (Position.SHORTSTOP, "遊撃手", 1.4),
@@ -971,7 +1064,6 @@ def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
         (Position.FIRST, "一塁手", 0.8)
     ]
     
-    # 全選手のマッピング {player_index: Player}
     candidates = {}
     for p in roster_players:
         if p.position == Position.PITCHER: continue
@@ -984,28 +1076,22 @@ def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
     selected_starters = {} # position_name -> player_idx
     used_indices = set()
     
-    # ヘルパー: スコア計算
     def calculate_score(player, pos_name_long, weight):
-        # 守備適正 (20未満は守らせない)
         aptitude = player.stats.defense_ranges.get(pos_name_long, 0)
         if aptitude < 20: return -1
         
-        # 打撃スコア
         bat_score = (player.stats.contact * 1.0 + player.stats.power * 1.2 + 
                      player.stats.speed * 0.5 + player.stats.eye * 0.5)
         
-        # 守備スコア
         def_score = (aptitude * 1.5 + player.stats.error * 0.5 + player.stats.arm * 0.5)
         
         return bat_score + (def_score * weight)
 
-    # 2. 各ポジションに最適な選手を割り当て
     has_detailed_outfield = False
     if roster_players and "中堅手" in roster_players[0].stats.defense_ranges:
         has_detailed_outfield = True
 
     for pos_enum, pos_name, weight in def_priority:
-        # 外野手が統合されている場合の処理
         search_key = pos_name
         if not has_detailed_outfield and pos_enum == Position.OUTFIELD:
             search_key = "外野手"
@@ -1022,12 +1108,10 @@ def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
                 best_idx = idx
         
         if best_idx != -1:
-            # 既にそのポジションが埋まっている場合のガード
             if pos_name not in selected_starters:
                 selected_starters[pos_name] = best_idx
                 used_indices.add(best_idx)
     
-    # 3. DH (残りの打撃最強)
     dh_best_idx = -1
     dh_best_score = -1
     for idx, p in candidates.items():
@@ -1041,15 +1125,12 @@ def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
         selected_starters["DH"] = dh_best_idx
         used_indices.add(dh_best_idx)
 
-    # 4. 足りないポジションがあれば適当に埋める
-    # 打順決定ロジック (簡易版: 選択された選手を打撃能力順に並べる)
     lineup_candidates = []
     for pos, idx in selected_starters.items():
         lineup_candidates.append(idx)
         
     lineup_candidates.sort(key=lambda i: team.players[i].stats.overall_batting(), reverse=True)
     
-    # 9人揃わなかった場合のフォールバック（残りの選手から埋める）
     if len(lineup_candidates) < 9:
         remaining = [i for i in candidates.keys() if i not in used_indices]
         remaining.sort(key=lambda i: team.players[i].stats.overall_batting(), reverse=True)

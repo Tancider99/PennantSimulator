@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Baseball Team Architect 2027 - Schedule Page
-Calendar-based Schedule & Results with Visual Game Info (Fixed: Season Range Only)
+Calendar-based Schedule & Results with Visual Game Info (Fixed: Popup Double Issue)
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QCalendarWidget,
@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QGraphicsDropShadowEffect, QTableWidget, QTableWidgetItem, 
     QHeaderView, QAbstractItemView, QMessageBox
 )
-from PySide6.QtCore import Qt, QDate, Signal, QThread, QRect, QPoint
+from PySide6.QtCore import Qt, QDate, Signal, QThread, QRect, QPoint, QTimer
 from PySide6.QtGui import QColor, QFont, QPainter, QBrush, QTextOption
 
 import sys
@@ -85,8 +85,6 @@ class GameCalendarWidget(QCalendarWidget):
         self.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
         self.setNavigationBarVisible(True)
         
-        # 【修正】表示範囲をシーズン中（3月〜10月）に限定する
-        # シミュレーション年が2027年固定と仮定していますが、動的に設定する場合はset_data等で更新してください
         self.setMinimumDate(QDate(2027, 3, 1))
         self.setMaximumDate(QDate(2027, 10, 31))
         
@@ -106,7 +104,6 @@ class GameCalendarWidget(QCalendarWidget):
         self.games_map = {}
         self.player_team_name = player_team_name
         
-        # ゲームデータから日付範囲を自動調整する場合
         min_date = QDate(2027, 3, 1)
         max_date = QDate(2027, 10, 31)
         
@@ -116,12 +113,10 @@ class GameCalendarWidget(QCalendarWidget):
                 qdate = QDate(y, m, d)
                 self.games_map[qdate] = game
                 
-                # データ範囲に合わせて調整（必要なら）
                 if qdate < min_date: min_date = qdate
                 if qdate > max_date: max_date = qdate
             except: pass
             
-        # 範囲を更新（シーズン外を表示させない）
         self.setMinimumDate(QDate(min_date.year(), 3, 1))
         self.setMaximumDate(QDate(max_date.year(), 10, 31))
         
@@ -315,10 +310,18 @@ class SchedulePage(QWidget):
     def _cancel_simulation(self):
         if self.worker: self.worker.is_cancelled = True; self.worker.wait()
         self.progress_dialog.close()
+    
     def _on_simulation_finished(self):
-        self.progress_dialog.close(); self._refresh_calendar_data(); self._refresh_info_panel()
-        QMessageBox.information(self, "完了", "指定日までの日程消化が完了しました。")
-    def _on_simulation_error(self, message): self.progress_dialog.close(); QMessageBox.critical(self, "エラー", f"シミュレーション中にエラーが発生しました:\n{message}")
+        # 修正: ダイアログを閉じた後、タイマーでメッセージを表示して二重表示を防ぐ
+        self.progress_dialog.accept() # close() -> accept()
+        self._refresh_calendar_data()
+        self._refresh_info_panel()
+        QTimer.singleShot(100, lambda: QMessageBox.information(self, "完了", "指定日までの日程消化が完了しました。"))
+
+    def _on_simulation_error(self, message): 
+        self.progress_dialog.reject()
+        QMessageBox.critical(self, "エラー", f"シミュレーション中にエラーが発生しました:\n{message}")
+    
     def closeEvent(self, event):
         if self.worker and self.worker.isRunning(): self.worker.is_cancelled = True; self.worker.wait()
         super().closeEvent(event)

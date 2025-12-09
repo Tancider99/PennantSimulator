@@ -21,7 +21,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from UI.theme import get_theme
 from UI.widgets.panels import ToolbarPanel
-from UI.widgets.tables import SortableTableWidgetItem # Import for numeric sorting
+# RatingDelegate を追加インポート
+from UI.widgets.tables import SortableTableWidgetItem, RatingDelegate
 from models import PlayerStats
 
 # MIME Types
@@ -31,6 +32,7 @@ MIME_POS_SWAP = "application/x-pennant-pos-swap"
 # Custom Role for Drag & Drop Player Index (to avoid conflict with SortRole)
 ROLE_PLAYER_IDX = Qt.UserRole + 1
 
+# Note: get_rank_color is no longer used for stats but kept if needed for other things
 def get_rank_color(rank: str, theme) -> QColor:
     """Return color based on rank (S-G)"""
     if rank == "S": return QColor("#FFD700") # Gold
@@ -76,12 +78,9 @@ class DefenseDelegate(QStyledItemDelegate):
         rect = option.rect
         
         # 1. Main Position (Large)
-        # Use theme text color. Check selection state.
         if option.state & QStyle.StateFlag.State_Selected:
-             # Ensure high contrast on selection (usually white text on dark selection)
              painter.setPen(QColor(self.theme.text_primary)) 
         else:
-             # Use row specific color or default theme color
              fg_color = index.model().data(index, Qt.ForegroundRole)
              if isinstance(fg_color, QBrush): 
                  fg_color = fg_color.color()
@@ -109,15 +108,14 @@ class DefenseDelegate(QStyledItemDelegate):
             if option.state & QStyle.StateFlag.State_Selected:
                 painter.setPen(QColor(self.theme.text_secondary))
             else:
-                painter.setPen(QColor(self.theme.text_secondary)) # Muted color
+                painter.setPen(QColor(self.theme.text_secondary))
             
             # Draw to the right of Main
             sub_rect = rect.adjusted(main_width + 10, 0, 0, 0)
             painter.drawText(sub_rect, Qt.AlignLeft | Qt.AlignVCenter, sub_pos)
         
-        # 3. Draw Bottom Border manually because delegate overrides style sheet border
+        # 3. Draw Bottom Border manually
         painter.setPen(QPen(QColor(self.theme.border_muted), 1))
-        # Draw line at the bottom
         painter.drawLine(rect.bottomLeft(), rect.bottomRight())
             
         painter.restore()
@@ -130,7 +128,7 @@ class DraggableTableWidget(QTableWidget):
 
     def __init__(self, mode="batter", parent=None):
         super().__init__(parent)
-        self.mode = mode # 'lineup', 'bench', 'rotation', 'bullpen', 'farm_batter', 'farm_pitcher'
+        self.mode = mode 
         self.setDragEnabled(True)
         self.setAcceptDrops(True)
         self.setViewportMargins(0, 0, 0, 0)
@@ -145,11 +143,9 @@ class DraggableTableWidget(QTableWidget):
         self.setFocusPolicy(Qt.ClickFocus)
         self.theme = get_theme()
         
-        # 【修正】自動ソートを無効化し、ファームリストの場合のみ手動ソートを設定
         self.setSortingEnabled(False)
         
         if "farm" in mode:
-            # ヘッダーをクリック可能にし、ソートインジケータを表示
             header = self.horizontalHeader()
             header.setSectionsClickable(True)
             header.setSortIndicatorShown(True)
@@ -157,7 +153,6 @@ class DraggableTableWidget(QTableWidget):
 
     def _on_header_clicked(self, logicalIndex):
         """ヘッダークリック時のカスタムソート（最初は降順）"""
-        # ソート禁止列の判定: 選手名、適正、守備適正 はソート不可
         header_text = self.horizontalHeaderItem(logicalIndex).text()
         if header_text in ["選手名", "適正", "守備適正"]:
             return
@@ -167,10 +162,8 @@ class DraggableTableWidget(QTableWidget):
         current_order = header.sortIndicatorOrder()
         
         if current_column != logicalIndex:
-            # 新しい列をクリック -> 降順スタート
             new_order = Qt.DescendingOrder
         else:
-            # 同じ列をクリック -> 順序反転
             if current_order == Qt.DescendingOrder:
                 new_order = Qt.AscendingOrder
             else:
@@ -185,21 +178,18 @@ class DraggableTableWidget(QTableWidget):
 
         row = item.row()
         col = item.column()
-        # Retrieve Player ID from custom role (not UserRole, which is for sorting)
         player_idx = item.data(ROLE_PLAYER_IDX)
         
         mime = QMimeData()
         data = QByteArray()
         stream = QDataStream(data, QIODevice.WriteOnly)
         
-        # Lineup Position Swap (Column 1)
         is_pos_swap = (self.mode == "lineup" and col == 1)
         
         if is_pos_swap:
             stream.writeInt32(row)
             mime.setData(MIME_POS_SWAP, data)
             text = item.text()
-            # Change: Square, simple text
             pixmap = self._create_drag_pixmap(text, is_pos=True)
         else:
             if player_idx is None: return
@@ -207,7 +197,6 @@ class DraggableTableWidget(QTableWidget):
             stream.writeInt32(row)
             mime.setData(MIME_PLAYER_DATA, data)
             
-            # Determine Name Column based on mode
             if self.mode == "lineup":
                 name_col = 2
             elif self.mode == "bench":
@@ -228,7 +217,6 @@ class DraggableTableWidget(QTableWidget):
         drag.exec(Qt.MoveAction)
 
     def _create_drag_pixmap(self, text, is_pos=False):
-        # Square 40x40 if position swap
         width = 40 if is_pos else 200
         height = 40
         pixmap = QPixmap(width, height)
@@ -236,17 +224,14 @@ class DraggableTableWidget(QTableWidget):
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing)
         
-        # Drag visual background
         bg_color = QColor("#222222")
         if is_pos:
-            bg_color = QColor("#c0392b") # Dark Red for position
+            bg_color = QColor("#c0392b") 
 
-        # Draw box
         painter.setBrush(bg_color)
         painter.setPen(QPen(QColor("#555555"), 1))
         painter.drawRect(0, 0, width, height)
         
-        # Text
         painter.setPen(Qt.white)
         font = QFont("Yu Gothic UI", 11, QFont.Bold)
         painter.setFont(font)
@@ -287,7 +272,6 @@ class DraggableTableWidget(QTableWidget):
             stream = QDataStream(data, QIODevice.ReadOnly)
             player_idx = stream.readInt32()
             
-            # Pass data to parent via properties/signals
             self.dropped_player_idx = player_idx
             self.dropped_target_row = target_row
             
@@ -298,15 +282,16 @@ class OrderPage(QWidget):
     """Redesigned Order Page with DH, Color Coding, and Advanced Filters"""
     
     order_saved = Signal()
-    player_detail_requested = Signal(object) # Signal to request player detail view
+    player_detail_requested = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.theme = get_theme()
         self.game_state = None
         self.current_team = None
-        # Initialize Delegate with theme
+        # Initialize Delegates with theme
         self.defense_delegate = DefenseDelegate(self.theme)
+        self.rating_delegate = RatingDelegate(self) # インスタンス化
         
         self._setup_ui()
 
@@ -352,7 +337,6 @@ class OrderPage(QWidget):
 
         toolbar.add_stretch()
         
-        # Player Detail Button
         detail_btn = QPushButton("選手詳細")
         detail_btn.setCursor(Qt.PointingHandCursor)
         detail_btn.setStyleSheet(f"background: {self.theme.bg_card}; color: {self.theme.text_primary}; padding: 6px 12px; border: 1px solid {self.theme.border}; border-radius: 4px;")
@@ -369,7 +353,6 @@ class OrderPage(QWidget):
 
         save_btn = QPushButton("保存")
         save_btn.setCursor(Qt.PointingHandCursor)
-        # Black text for visibility
         save_btn.setStyleSheet(f"background: {self.theme.primary}; color: #222222; padding: 6px 20px; border: none; border-radius: 4px; font-weight: bold;")
         save_btn.clicked.connect(self._save_order)
         toolbar.add_widget(save_btn)
@@ -384,7 +367,7 @@ class OrderPage(QWidget):
         splitter = QSplitter(Qt.Horizontal)
         splitter.setStyleSheet(f"QSplitter::handle {{ background: {self.theme.border}; width: 1px; }}")
 
-        # LEFT: Order (Lineup + Bench)
+        # LEFT
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(8, 8, 8, 8)
@@ -395,24 +378,19 @@ class OrderPage(QWidget):
         
         self.lineup_table = self._create_table("lineup")
         self.lineup_table.setMinimumHeight(350)
-        # Apply delegate for Aptitude in Lineup
-        self.lineup_table.setItemDelegateForColumn(8, self.defense_delegate)
         left_layout.addWidget(self.lineup_table)
         
         left_layout.addSpacing(4)
         
         self.bench_table = self._create_table("bench")
-        # Apply delegate for Aptitude in Bench
-        self.bench_table.setItemDelegateForColumn(7, self.defense_delegate)
         left_layout.addWidget(self.bench_table)
         splitter.addWidget(left_widget)
 
-        # RIGHT: Player List (Filtered to non-developmental)
+        # RIGHT
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(8, 8, 8, 8)
         
-        # Filter Controls
         ctrl_layout = QHBoxLayout()
         r_header = QLabel("野手リスト (支配下)")
         r_header.setStyleSheet(f"font-weight: bold; color: {self.theme.text_secondary}; font-size: 13px;")
@@ -420,7 +398,6 @@ class OrderPage(QWidget):
         
         ctrl_layout.addStretch()
         
-        # Position Filter
         self.batter_pos_filter = QComboBox()
         self.batter_pos_filter.addItems(["全ポジション", "捕手", "一塁手", "二塁手", "三塁手", "遊撃手", "外野手"])
         self.batter_pos_filter.currentIndexChanged.connect(self._refresh_batter_farm_list)
@@ -430,12 +407,10 @@ class OrderPage(QWidget):
         right_layout.addLayout(ctrl_layout)
         
         self.farm_batter_table = self._create_table("farm_batter")
-        # Apply delegate for custom defense display
-        self.farm_batter_table.setItemDelegateForColumn(7, self.defense_delegate)
         right_layout.addWidget(self.farm_batter_table)
         
         splitter.addWidget(right_widget)
-        splitter.setSizes([500, 500]) # Give more space to list
+        splitter.setSizes([500, 500])
         layout.addWidget(splitter)
         return page
 
@@ -478,7 +453,6 @@ class OrderPage(QWidget):
         
         ctrl_layout.addStretch()
         
-        # Type Filter
         self.pitcher_type_filter = QComboBox()
         self.pitcher_type_filter.addItems(["全タイプ", "先発", "中継ぎ", "抑え"])
         self.pitcher_type_filter.currentIndexChanged.connect(self._refresh_pitcher_farm_list)
@@ -500,27 +474,47 @@ class OrderPage(QWidget):
         table.items_changed.connect(lambda: self._on_table_changed(table))
         
         if mode == "lineup":
-            # Added "適正" (Aptitude) column
             cols = ["順", "守", "選手名", "ミ", "パ", "走", "肩", "守", "適正", "総合"]
             widths = [30, 40, 130, 35, 35, 35, 35, 35, 80, 45]
             table.position_swapped.connect(self._on_pos_swapped)
             
+            # Set RatingDelegate for stats columns
+            for c in [3, 4, 5, 6, 7]:
+                table.setItemDelegateForColumn(c, self.rating_delegate)
+            # Set Aptitude Delegate
+            table.setItemDelegateForColumn(8, self.defense_delegate)
+            
         elif mode == "bench":
-            # Added "適正" (Aptitude) column
             cols = ["適性", "選手名", "ミ", "パ", "走", "肩", "守", "適正", "総合"]
             widths = [70, 130, 35, 35, 35, 35, 35, 80, 45]
+            
+            for c in [2, 3, 4, 5, 6]:
+                table.setItemDelegateForColumn(c, self.rating_delegate)
+            table.setItemDelegateForColumn(7, self.defense_delegate)
 
         elif mode == "farm_batter":
             cols = ["選手名", "年齢", "ミ", "パ", "走", "肩", "守", "守備適正", "総合"]
             widths = [130, 40, 35, 35, 35, 35, 35, 80, 45]
+            
+            for c in [2, 3, 4, 5, 6]:
+                table.setItemDelegateForColumn(c, self.rating_delegate)
+            table.setItemDelegateForColumn(7, self.defense_delegate)
 
         elif mode == "rotation" or mode == "bullpen":
+            # コ(3), ス(4), 変(5) のみランク表示（球速は数値テキスト）
             cols = ["役", "選手名", "球速", "コ", "ス", "変", "先", "中", "抑", "総合"]
             widths = [40, 130, 50, 35, 35, 35, 35, 35, 35, 45]
+            
+            for c in [3, 4, 5]:
+                table.setItemDelegateForColumn(c, self.rating_delegate)
 
         elif mode == "farm_pitcher":
+            # コ(4), ス(5), 変(6) のみランク表示
             cols = ["タイプ", "選手名", "年齢", "球速", "コ", "ス", "変", "先", "中", "抑", "総合"]
             widths = [45, 130, 40, 50, 35, 35, 35, 35, 35, 45]
+            
+            for c in [4, 5, 6]:
+                table.setItemDelegateForColumn(c, self.rating_delegate)
 
         table.setColumnCount(len(cols))
         table.setHorizontalHeaderLabels(cols)
@@ -531,7 +525,6 @@ class OrderPage(QWidget):
         return table
 
     def _get_table_style(self):
-        # Explicitly set color for selected items to prevent "black text on black background" issues
         return f"""
             QTableWidget {{
                 background-color: {self.theme.bg_card};
@@ -610,10 +603,6 @@ class OrderPage(QWidget):
         while len(team.current_lineup) < 9: team.current_lineup.append(-1)
         while len(team.rotation) < 8: team.rotation.append(-1)
         while len(team.setup_pitchers) < 8: team.setup_pitchers.append(-1)
-        # Ensure closers list exists and has slots if needed?
-        # Actually closer list is dynamic in size, but let's pad for table if needed
-        # We handle closers display dynamically based on fixed table rows (8 setup + 2 closers)
-        # So we ensure models are ready
         if not hasattr(team, 'closers'):
             team.closers = []
         while len(team.closers) < 2: team.closers.append(-1)
@@ -634,7 +623,6 @@ class OrderPage(QWidget):
         self._update_status_label()
 
     def _get_active_player_count(self) -> int:
-        """Calculate total players in active roster"""
         if not self.current_team: return 0
         team = self.current_team
         active_set = set()
@@ -648,8 +636,6 @@ class OrderPage(QWidget):
     def _update_status_label(self):
         if not self.current_team: return
         count = self._get_active_player_count()
-        
-        # Use models.Team.ACTIVE_ROSTER_LIMIT if available, else 31
         limit = 31
         if hasattr(self.current_team, 'ACTIVE_ROSTER_LIMIT'):
             limit = self.current_team.ACTIVE_ROSTER_LIMIT
@@ -662,13 +648,38 @@ class OrderPage(QWidget):
     
     def _create_item(self, value, align=Qt.AlignCenter, rank_color=False, pos_badge=None, is_star=False, sort_val=None):
         """Rich Table Item Factory using SortableTableWidgetItem for correct sorting"""
-        item = SortableTableWidgetItem(str(value))
+        item = SortableTableWidgetItem()
+        
+        if rank_color:
+            # RatingDelegate使用モード：数値データをUserRoleにセットし、表示テキストは空にする
+            # 呼び出し元からは、valueに数値が渡されていることを前提とする
+            if sort_val is None:
+                sort_val = value # ソート用データとしてそのまま使用
+            
+            item.setData(Qt.UserRole, value)
+            item.setData(Qt.DisplayRole, "") # Delegateが描画するため空
+        else:
+            item.setText(str(value))
+            
+            # 従来通りの色付け処理
+            if pos_badge:
+                item.setBackground(QColor(get_pos_color(pos_badge)))
+                item.setForeground(Qt.white)
+                font = QFont()
+                font.setBold(True)
+                item.setFont(font)
+            elif is_star:
+                item.setForeground(QColor("#FFD700"))
+                font = QFont()
+                font.setBold(True)
+                item.setFont(font)
+
         item.setTextAlignment(align)
         
         # Store raw value for sorting (Qt.UserRole)
         if sort_val is not None:
              item.setData(Qt.UserRole, sort_val)
-        else:
+        elif not rank_color:
             try:
                 if isinstance(value, str) and "★" in value:
                     num = int(value.replace("★", ""))
@@ -677,40 +688,17 @@ class OrderPage(QWidget):
                     item.setData(Qt.UserRole, value)
             except:
                 pass
-        
-        if pos_badge:
-            item.setBackground(QColor(get_pos_color(pos_badge)))
-            item.setForeground(Qt.white)
-            font = QFont()
-            font.setBold(True)
-            item.setFont(font)
-        elif rank_color:
-            color = get_rank_color(value, self.theme)
-            item.setForeground(color)
-            font = QFont()
-            font.setBold(True)
-            item.setFont(font)
-        elif is_star:
-            item.setForeground(QColor("#FFD700"))
-            font = QFont()
-            font.setBold(True)
-            item.setFont(font)
             
         return item
 
     def _format_aptitude_delegate(self, p):
-        """Format string for DefenseDelegate: 'Main|Sub1 Sub2'"""
         main_pos = self._short_pos_name(p.position.value)
-        
         subs = []
         if hasattr(p.stats, 'defense_ranges'):
-            # Sort by value
             sorted_ranges = sorted(p.stats.defense_ranges.items(), key=lambda x: x[1], reverse=True)
             for pos_name, val in sorted_ranges:
-                # Filter out main pos and low values (assuming >= 1 means some aptitude)
                 if pos_name != p.position.value and val > 10: 
                     subs.append(self._short_pos_name(pos_name))
-        
         sub_str = " ".join(subs)
         return f"{main_pos}|{sub_str}"
 
@@ -719,7 +707,7 @@ class OrderPage(QWidget):
                    "遊撃手":"遊","左翼手":"左","中堅手":"中","右翼手":"右"}
         return mapping.get(long_name, long_name[0])
 
-    # === Table Fillers ===
+    # === Table Fillers (Modified to pass raw stats) ===
 
     def _refresh_lineup_table(self):
         team = self.current_team
@@ -745,13 +733,13 @@ class OrderPage(QWidget):
                 table.setItem(i, 2, self._create_item(p.name, Qt.AlignLeft))
                 
                 s = p.stats
-                table.setItem(i, 3, self._create_item(s.get_rank(s.contact), rank_color=True))
-                table.setItem(i, 4, self._create_item(s.get_rank(s.power), rank_color=True))
-                table.setItem(i, 5, self._create_item(s.get_rank(s.speed), rank_color=True))
-                table.setItem(i, 6, self._create_item(s.get_rank(s.arm), rank_color=True))
-                table.setItem(i, 7, self._create_item(s.get_rank(s.error), rank_color=True))
+                # Pass raw numeric stats with rank_color=True for RatingDelegate
+                table.setItem(i, 3, self._create_item(s.contact, rank_color=True))
+                table.setItem(i, 4, self._create_item(s.power, rank_color=True))
+                table.setItem(i, 5, self._create_item(s.speed, rank_color=True))
+                table.setItem(i, 6, self._create_item(s.arm, rank_color=True))
+                table.setItem(i, 7, self._create_item(s.error, rank_color=True))
                 
-                # Aptitude column
                 apt_data = self._format_aptitude_delegate(p)
                 p_pos_char = self._short_pos_name(p.position.value)
                 sort_val = pos_order.get(p_pos_char, 99)
@@ -778,13 +766,12 @@ class OrderPage(QWidget):
                 table.setItem(i, 1, self._create_item(p.name, Qt.AlignLeft))
                 
                 s = p.stats
-                table.setItem(i, 2, self._create_item(s.get_rank(s.contact), rank_color=True))
-                table.setItem(i, 3, self._create_item(s.get_rank(s.power), rank_color=True))
-                table.setItem(i, 4, self._create_item(s.get_rank(s.speed), rank_color=True))
-                table.setItem(i, 5, self._create_item(s.get_rank(s.arm), rank_color=True))
-                table.setItem(i, 6, self._create_item(s.get_rank(s.error), rank_color=True))
+                table.setItem(i, 2, self._create_item(s.contact, rank_color=True))
+                table.setItem(i, 3, self._create_item(s.power, rank_color=True))
+                table.setItem(i, 4, self._create_item(s.speed, rank_color=True))
+                table.setItem(i, 5, self._create_item(s.arm, rank_color=True))
+                table.setItem(i, 6, self._create_item(s.error, rank_color=True))
                 
-                # Aptitude column
                 apt_data = self._format_aptitude_delegate(p)
                 p_pos_char = main_pos
                 sort_val = pos_order.get(p_pos_char, 99)
@@ -803,7 +790,6 @@ class OrderPage(QWidget):
     def _refresh_batter_farm_list(self):
         team = self.current_team
         table = self.farm_batter_table
-        # 【修正】手動ソートのため setSortingEnabled は操作しない
         
         active_ids = set(team.current_lineup + team.bench_batters)
         
@@ -823,22 +809,17 @@ class OrderPage(QWidget):
 
         table.setRowCount(len(candidates))
         for i, (p_idx, p) in enumerate(candidates):
-            # ["選手名", "年齢", "ミ", "パ", "走", "肩", "守", "守備適正", "総合"]
             table.setItem(i, 0, self._create_item(p.name, Qt.AlignLeft))
             table.setItem(i, 1, self._create_item(p.age)) 
             
             s = p.stats
-            # Pass raw stat value as sort_val
-            table.setItem(i, 2, self._create_item(s.get_rank(s.contact), rank_color=True, sort_val=s.contact))
-            table.setItem(i, 3, self._create_item(s.get_rank(s.power), rank_color=True, sort_val=s.power))
-            table.setItem(i, 4, self._create_item(s.get_rank(s.speed), rank_color=True, sort_val=s.speed))
-            table.setItem(i, 5, self._create_item(s.get_rank(s.arm), rank_color=True, sort_val=s.arm))
-            table.setItem(i, 6, self._create_item(s.get_rank(s.error), rank_color=True, sort_val=s.error))
+            table.setItem(i, 2, self._create_item(s.contact, rank_color=True))
+            table.setItem(i, 3, self._create_item(s.power, rank_color=True))
+            table.setItem(i, 4, self._create_item(s.speed, rank_color=True))
+            table.setItem(i, 5, self._create_item(s.arm, rank_color=True))
+            table.setItem(i, 6, self._create_item(s.error, rank_color=True))
             
-            # Aptitude (Delegate format)
             apt_data = self._format_aptitude_delegate(p)
-            
-            # FIX: Use numeric sort val for aptitude column to prevent errors/weird sorting
             p_pos_char = self._short_pos_name(p.position.value)
             sort_val = pos_order.get(p_pos_char, 99)
             
@@ -847,18 +828,16 @@ class OrderPage(QWidget):
             
             table.setItem(i, 8, self._create_item(f"★{p.overall_rating}", is_star=True))
             
-            # Set Custom Role for Drag (Player Index)
             for c in range(table.columnCount()):
                 if table.item(i, c): table.item(i, c).setData(ROLE_PLAYER_IDX, p_idx)
 
-        # 【修正】手動で現在のソート設定に従ってソートを実行
         header = table.horizontalHeader()
         table.sortItems(header.sortIndicatorSection(), header.sortIndicatorOrder())
 
     def _refresh_rotation_table(self):
         team = self.current_team
         table = self.rotation_table
-        table.setRowCount(8) # Changed from 6 to 8
+        table.setRowCount(8)
         for i in range(8):
             p_idx = -1
             if i < len(team.rotation):
@@ -868,16 +847,14 @@ class OrderPage(QWidget):
     def _refresh_bullpen_table(self):
         team = self.current_team
         table = self.bullpen_table
-        table.setRowCount(10) # 8 Setup + 2 Closer = 10
+        table.setRowCount(10)
         
-        # 0-7: Middle
         for i in range(8):
             p_idx = -1
             if i < len(team.setup_pitchers):
                 p_idx = team.setup_pitchers[i]
             self._fill_pitcher_row_role(table, i, "中継", p_idx)
             
-        # 8-9: Closer
         for i in range(2):
             p_idx = -1
             if i < len(team.closers):
@@ -895,7 +872,6 @@ class OrderPage(QWidget):
     def _refresh_pitcher_farm_list(self):
         team = self.current_team
         table = self.farm_pitcher_table
-        # 【修正】手動ソートのため setSortingEnabled は操作しない
         
         active_ids = set([x for x in team.rotation if x >= 0])
         active_ids.update([x for x in team.setup_pitchers if x >= 0])
@@ -924,14 +900,14 @@ class OrderPage(QWidget):
             kmh = p.stats.speed_to_kmh()
             table.setItem(i, 3, self._create_item(f"{kmh}km", sort_val=kmh))
             
-            table.setItem(i, 4, self._create_item(p.stats.get_rank(p.stats.control), rank_color=True, sort_val=p.stats.control))
-            table.setItem(i, 5, self._create_item(p.stats.get_rank(p.stats.stamina), rank_color=True, sort_val=p.stats.stamina))
-            table.setItem(i, 6, self._create_item(p.stats.get_rank(p.stats.stuff), rank_color=True, sort_val=p.stats.stuff))
+            # Pass raw stats for RatingDelegate
+            table.setItem(i, 4, self._create_item(p.stats.control, rank_color=True))
+            table.setItem(i, 5, self._create_item(p.stats.stamina, rank_color=True))
+            table.setItem(i, 6, self._create_item(p.stats.stuff, rank_color=True))
             
             st = "◎" if p.pitch_type.value == "先発" else "△"
             rl = "◎" if p.pitch_type.value == "中継ぎ" else "△"
             cl = "◎" if p.pitch_type.value == "抑え" else "△"
-            # Sort indicators by simple value (2 for ◎, 1 for △)
             table.setItem(i, 7, self._create_item(st, sort_val=2 if st=="◎" else 1))
             table.setItem(i, 8, self._create_item(rl, sort_val=2 if rl=="◎" else 1))
             table.setItem(i, 9, self._create_item(cl, sort_val=2 if cl=="◎" else 1))
@@ -941,18 +917,18 @@ class OrderPage(QWidget):
             for c in range(table.columnCount()):
                 if table.item(i, c): table.item(i, c).setData(ROLE_PLAYER_IDX, p_idx)
                 
-        # 【修正】手動で現在のソート設定に従ってソートを実行
         header = table.horizontalHeader()
         table.sortItems(header.sortIndicatorSection(), header.sortIndicatorOrder())
 
     def _fill_pitcher_data(self, table, row, p, p_idx, start_col):
-        # Helper for fixed lists (Rotation/Bullpen) - Sorting not needed here, so UserRole can be whatever or unused for sort
         table.setItem(row, start_col, self._create_item(p.name, Qt.AlignLeft))
         kmh = p.stats.speed_to_kmh()
         table.setItem(row, start_col+1, self._create_item(f"{kmh}km"))
-        table.setItem(row, start_col+2, self._create_item(p.stats.get_rank(p.stats.control), rank_color=True))
-        table.setItem(row, start_col+3, self._create_item(p.stats.get_rank(p.stats.stamina), rank_color=True))
-        table.setItem(row, start_col+4, self._create_item(p.stats.get_rank(p.stats.stuff), rank_color=True))
+        
+        # Pass raw stats for RatingDelegate
+        table.setItem(row, start_col+2, self._create_item(p.stats.control, rank_color=True))
+        table.setItem(row, start_col+3, self._create_item(p.stats.stamina, rank_color=True))
+        table.setItem(row, start_col+4, self._create_item(p.stats.stuff, rank_color=True))
         
         st = "◎" if p.pitch_type.value == "先発" else "△"
         rl = "◎" if p.pitch_type.value == "中継ぎ" else "△"
@@ -974,13 +950,11 @@ class OrderPage(QWidget):
     # === Event Handlers ===
     
     def _on_table_changed(self, table):
-        """Handle Drops with Swap Logic"""
         if not hasattr(table, 'dropped_player_idx'): return
         p_idx = table.dropped_player_idx
         row = table.dropped_target_row
         team = self.current_team
         
-        # 1. Determine Source Location
         source_list = None
         source_idx = -1
         
@@ -1000,7 +974,6 @@ class OrderPage(QWidget):
             source_list = team.closers
             source_idx = team.closers.index(p_idx)
             
-        # 2. Determine Target List & Current Occupant
         target_list = None
         target_p_idx = -1
         
@@ -1011,7 +984,6 @@ class OrderPage(QWidget):
             
         elif table == self.bench_table:
             target_list = team.bench_batters
-            # Resize if needed
             while len(target_list) <= row: target_list.append(-1)
             target_p_idx = target_list[row]
             
@@ -1021,21 +993,17 @@ class OrderPage(QWidget):
             target_p_idx = target_list[row]
             
         elif table == self.bullpen_table:
-            if row >= 8: # Closer (Rows 8-9)
+            if row >= 8: # Closer
                 target_list = team.closers
                 c_row = row - 8
                 while len(target_list) <= c_row: target_list.append(-1)
                 target_p_idx = target_list[c_row]
-                # Adjust 'row' index for list access logic below
                 row = c_row 
             else:
                 target_list = team.setup_pitchers
                 while len(target_list) <= row: target_list.append(-1)
                 target_p_idx = target_list[row]
 
-        # --- CHECK ROSTER LIMIT (Added) ---
-        # If adding from outside (source is None) to an empty slot (-1),
-        # check if we exceed 31 players.
         if source_list is None and target_p_idx == -1:
             active_count = self._get_active_player_count()
             limit = 31
@@ -1047,32 +1015,18 @@ class OrderPage(QWidget):
                 self._refresh_all()
                 del table.dropped_player_idx
                 return
-        # ----------------------------------
-        
-        # 3. Perform Swap or Move
-        # If source is active (found in lists), we swap.
-        # If source is inactive (farm), we overwrite (target player goes to farm).
         
         if source_list is not None:
-            # Swap Logic
             target_list[row] = p_idx
-            
-            # Place displaced player (target_p_idx) back to source
-            # If target was empty (-1), source becomes empty (-1)
             if source_idx < len(source_list):
                 source_list[source_idx] = target_p_idx
         else:
-            # Overwrite Logic (Farm -> Active)
             target_list[row] = p_idx
-        
-        # Clean up -1s from dynamic lists (Bench / Setup) if preferred
-        # but maintaining slots is often better for UI stability. 
         
         self._refresh_all()
         del table.dropped_player_idx
 
     def _on_pos_swapped(self, r1, r2):
-        """Swap position assignments in lineup"""
         team = self.current_team
         pos_list = team.lineup_positions
         if r1 < 9 and r2 < 9:
@@ -1080,7 +1034,6 @@ class OrderPage(QWidget):
             self._refresh_lineup_table()
 
     def _remove_player_from_active(self, idx):
-        # Deprecated / Unused in new Swap logic, but kept for safety
         t = self.current_team
         if idx in t.current_lineup: t.current_lineup[t.current_lineup.index(idx)] = -1
         if idx in t.bench_batters: t.bench_batters.remove(idx)
@@ -1092,73 +1045,57 @@ class OrderPage(QWidget):
         if not self.current_team: return
         t = self.current_team
         
-        # Reset lists
         t.current_lineup = [-1] * 9
-        t.lineup_positions = [""] * 9  # Will be filled dynamically
+        t.lineup_positions = [""] * 9
         t.bench_batters = []
-        t.rotation = [-1] * 8  # Ensure padded to 8 for table
+        t.rotation = [-1] * 8
         t.setup_pitchers = [-1] * 8 
         t.closers = [-1] * 2
 
-        # Define limits
         TOTAL_LIMIT = 31
         if hasattr(t, 'ACTIVE_ROSTER_LIMIT'):
             TOTAL_LIMIT = t.ACTIVE_ROSTER_LIMIT
             
-        # Target breakdown: ~13 Pitchers, ~18 Fielders (adjust if limit changes)
-        PITCHER_TARGET = int(TOTAL_LIMIT * (13/31)) # approx 13 if 31
+        PITCHER_TARGET = int(TOTAL_LIMIT * (13/31))
         BATTER_TARGET = TOTAL_LIMIT - PITCHER_TARGET
 
-        # --- Helper: Score Calculators ---
         def get_condition_mult(p):
-            # Condition 1-9, 5 is neutral. Range 0.8 to 1.2
             return 1.0 + (p.condition - 5) * 0.05
 
         def get_batting_score(p):
-            # Simple weighted batting score
             s = p.stats
-            # Contact, Power, Speed, Eye
             val = (s.contact * 1.0 + s.power * 1.2 + s.speed * 0.5 + s.eye * 0.5)
             return val * get_condition_mult(p)
 
         def get_defense_score(p, pos_name_long):
-            # Check aptitude
             apt = p.stats.defense_ranges.get(pos_name_long, 0)
-            if apt < 20: return 0 # Threshold for auto-assignment
+            if apt < 20: return 0
             
             s = p.stats
-            # Defense score: Range + Error + Arm (weighted by position importance?)
-            # Simplified:
             def_val = (apt * 1.5 + s.error * 0.5 + s.arm * 0.5)
             return def_val
 
         def get_pitcher_score(p, role):
-            # role: 'starter', 'relief', 'closer'
             s = p.stats
-            base = s.overall_pitching() * 99 # scale up
+            base = s.overall_pitching() * 99
             
             apt_mult = 1.0
             if role == 'starter':
                 apt_mult = p.starter_aptitude / 50.0
-                # Stamina bonus
                 base += s.stamina * 0.5
             elif role == 'closer':
                 apt_mult = p.closer_aptitude / 50.0
-                # Velocity/Stuff bonus
                 base += (s.velocity - 130) * 2 + s.stuff * 0.5
-            else: # relief
+            else:
                 apt_mult = p.middle_aptitude / 50.0
             
             return base * apt_mult * get_condition_mult(p)
 
-        # --- 1. Pitcher Assignment ---
         pitchers = [i for i, p in enumerate(t.players) 
                    if p.position.value == "投手" and not p.is_developmental]
         
-        # Sort for Rotation
         pitchers.sort(key=lambda i: get_pitcher_score(t.players[i], 'starter'), reverse=True)
         
-        # Assign Rotation (Top 6)
         rotation_count = 6
         rotation_candidates = pitchers[:rotation_count]
         remaining_pitchers = pitchers[rotation_count:]
@@ -1166,35 +1103,28 @@ class OrderPage(QWidget):
         for i in range(min(rotation_count, len(rotation_candidates))):
             t.rotation[i] = rotation_candidates[i]
             
-        # Assign Closer (Top 1 from remaining)
         if remaining_pitchers:
             remaining_pitchers.sort(key=lambda i: get_pitcher_score(t.players[i], 'closer'), reverse=True)
             t.closers[0] = remaining_pitchers.pop(0)
             
-        # Assign Setup/Relief (Rest, sorted by relief score, until PITCHER_TARGET reached)
         remaining_pitchers.sort(key=lambda i: get_pitcher_score(t.players[i], 'relief'), reverse=True)
         
-        # How many setup pitchers allowed?
-        # Used: rotation_len + 1 (closer)
         used_p = len([x for x in t.rotation if x != -1]) + len([x for x in t.closers if x != -1])
         setup_limit = max(0, PITCHER_TARGET - used_p)
         
         for i in range(min(8, setup_limit, len(remaining_pitchers))):
             t.setup_pitchers[i] = remaining_pitchers[i]
             
-        # --- 2. Fielder Assignment (Greedy by Defensive Priority) ---
         batters = [i for i, p in enumerate(t.players) 
                   if p.position.value != "投手" and not p.is_developmental]
         
-        # Defensive Positions Priority: C -> SS -> 2B -> CF -> 3B -> RF -> LF -> 1B
-        # Map: Short Name -> Long Name
         pos_map = {
             "捕": "捕手", "遊": "遊撃手", "二": "二塁手", "中": "中堅手", 
             "三": "三塁手", "右": "右翼手", "左": "左翼手", "一": "一塁手"
         }
         def_priority = ["捕", "遊", "二", "中", "三", "右", "左", "一"]
         
-        selected_starters = {} # pos_short -> player_idx
+        selected_starters = {}
         used_indices = set()
         
         for short_pos in def_priority:
@@ -1206,12 +1136,9 @@ class OrderPage(QWidget):
                 if idx in used_indices: continue
                 p = t.players[idx]
                 
-                # Check absolute minimum aptitude
                 apt = p.stats.defense_ranges.get(long_pos, 0)
                 if apt < 20: continue 
                 
-                # Score = Batting * 0.6 + Defense * 0.4 (roughly)
-                # Adjust weight based on position (C/SS/2B need more defense)
                 def_weight = 1.0
                 if short_pos in ["捕", "遊", "二"]: def_weight = 1.5
                 
@@ -1225,34 +1152,20 @@ class OrderPage(QWidget):
                 selected_starters[short_pos] = best_idx
                 used_indices.add(best_idx)
         
-        # DH Assignment
         dh_candidates = [i for i in batters if i not in used_indices]
         dh_candidates.sort(key=lambda i: get_batting_score(t.players[i]), reverse=True)
         if dh_candidates:
             selected_starters["DH"] = dh_candidates[0]
             used_indices.add(dh_candidates[0])
             
-        # Fill gaps if any position missing (pick best overall available, even if low aptitude, or use sub)
-        # For simplicity, if missing, just pick best hitting remaining player
         missing_positions = [p for p in def_priority + ["DH"] if p not in selected_starters]
         for p in missing_positions:
             remaining = [i for i in batters if i not in used_indices]
             if remaining:
-                # Just pick best hitter
                 remaining.sort(key=lambda i: get_batting_score(t.players[i]), reverse=True)
                 selected_starters[p] = remaining[0]
                 used_indices.add(remaining[0])
 
-        # --- 3. Batting Order Construction ---
-        # We have 9 players in `selected_starters`. Now order them 1-9.
-        # Strategy:
-        # 1. Lead-off: High Speed + OBP (Eye)
-        # 2. #2: High Contact + Bunt
-        # 3. #3: Best Hitter (OPS)
-        # 4. #4: High Power + RBI
-        # 5. #5: Power
-        # 6-9: Remaining sorted by batting score descending
-        
         lineup_candidates = []
         for pos, idx in selected_starters.items():
             if idx == -1: continue
@@ -1260,35 +1173,21 @@ class OrderPage(QWidget):
             
         final_order = [None] * 9
         
-        # Only proceed if we have enough players
         if len(lineup_candidates) >= 1:
-            # Helper to safely pick and remove
             def pick_best(candidates, sort_key):
                 if not candidates: return None
                 best = max(candidates, key=sort_key)
                 candidates.remove(best)
                 return best
 
-            # 4. Cleanup (#4) - Highest Power
             final_order[3] = pick_best(lineup_candidates, lambda x: x['p'].stats.power)
-            
-            # 3. Best (#3) - Highest Batting Score remaining
             final_order[2] = pick_best(lineup_candidates, lambda x: get_batting_score(x['p']))
-            
-            # 1. Lead (#1) - Speed
             final_order[0] = pick_best(lineup_candidates, lambda x: x['p'].stats.speed)
-            
-            # 5. #5 - Power remaining
             final_order[4] = pick_best(lineup_candidates, lambda x: x['p'].stats.power)
-            
-            # 2. #2 - Contact/Bunt
             final_order[1] = pick_best(lineup_candidates, lambda x: x['p'].stats.contact + x['p'].stats.bunt_sac)
             
-            # 6-9: Sort by batting score
             lineup_candidates.sort(key=lambda x: get_batting_score(x['p']), reverse=True)
             for i in range(len(lineup_candidates)):
-                # Fill empty slots starting from 6th (index 5)
-                # Note: Some slots 0-4 might be None if we ran out of players, handled below
                 found_slot = False
                 for slot in range(5, 9):
                     if final_order[slot] is None:
@@ -1296,35 +1195,27 @@ class OrderPage(QWidget):
                         found_slot = True
                         break
                 if not found_slot:
-                    # Fill any empty slots 0-4
                      for slot in range(5):
                         if final_order[slot] is None:
                             final_order[slot] = lineup_candidates[i]
                             break
 
-            # Apply to Team
             for i in range(9):
                 if final_order[i]:
                     t.current_lineup[i] = final_order[i]['idx']
                     t.lineup_positions[i] = final_order[i]['pos']
 
-        # --- 4. Bench Assignment (Limit based on BATTER_TARGET) ---
-        # Remaining batters to bench
         remaining_bench = [i for i in batters if i not in used_indices]
-        # Sort by utility (maybe subs with good defense or high speed for pinch run)
         remaining_bench.sort(key=lambda i: t.players[i].overall_rating, reverse=True)
         
-        # Bench Limit: BATTER_TARGET - 9 (Starters)
         bench_limit = max(0, BATTER_TARGET - 9)
         t.bench_batters = remaining_bench[:bench_limit]
         
         self._refresh_all()
         
     def _on_player_detail_clicked(self):
-        """Handle player detail button click"""
         if not self.current_team: return
         
-        # Find active player selection across all tables
         selected_player_idx = None
         
         tables = [
@@ -1335,7 +1226,6 @@ class OrderPage(QWidget):
         for table in tables:
             items = table.selectedItems()
             if items:
-                # Get the first selected item to retrieve ID
                 item = items[0]
                 idx = item.data(ROLE_PLAYER_IDX)
                 if idx is not None and idx >= 0:
@@ -1349,7 +1239,6 @@ class OrderPage(QWidget):
             QMessageBox.information(self, "情報", "詳細を表示する選手を選択してください。")
 
     def _save_order(self):
-        # Validation
         if not self.current_team: return
         t = self.current_team
         

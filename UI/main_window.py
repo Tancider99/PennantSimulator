@@ -200,6 +200,8 @@ class MainWindow(QMainWindow):
             
         elif section == "stats":
             self.stats_page = StatsPage(self)
+            # 修正: スタッツページからの選手詳細リクエストを接続
+            self.stats_page.player_detail_requested.connect(self._show_player_detail)
             page = self.stats_page
             
         elif section == "schedule":

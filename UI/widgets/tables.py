@@ -85,7 +85,8 @@ class RatingDelegate(QStyledItemDelegate):
                            QColor(color))
 
             # Draw text
-            painter.setPen(QColor("white"))
+            # 修正: 文字色を白から黒系(#222222)に変更
+            painter.setPen(QColor("#222222"))
             font = painter.font()
             font.setBold(True)
             painter.setFont(font)

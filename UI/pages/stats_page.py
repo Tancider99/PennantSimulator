@@ -26,12 +26,15 @@ class StatsTable(QTableWidget):
     """
     Custom Table for displaying statistics with sorting & horizontal scrolling
     """
+    player_double_clicked = Signal(object)  # 追加: 選手ダブルクリック時のシグナル
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.theme = get_theme()
         self._setup_ui()
 
     def _setup_ui(self):
+        # 修正: 選択時の文字色を黒系に変更して視認性を向上
         self.setStyleSheet(f"""
             QTableWidget {{
                 background-color: transparent;
@@ -45,7 +48,7 @@ class StatsTable(QTableWidget):
             }}
             QTableWidget::item:selected {{
                 background-color: {self.theme.primary};
-                color: white;
+                color: #111111; /* 白背景で見にくい問題を修正: 黒文字に変更 */
             }}
             QTableWidget::item:hover {{
                 background-color: {self.theme.bg_hover};
@@ -84,6 +87,9 @@ class StatsTable(QTableWidget):
         self.horizontalHeader().setStretchLastSection(False) # 最後の列を伸ばさない
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
+        # 追加: ダブルクリックシグナルの接続
+        self.cellDoubleClicked.connect(self._on_double_click)
+
     def _on_header_clicked(self, logicalIndex):
         header = self.horizontalHeader()
         current_column = header.sortIndicatorSection()
@@ -96,6 +102,15 @@ class StatsTable(QTableWidget):
 
         self.sortItems(logicalIndex, new_order)
         header.setSortIndicator(logicalIndex, new_order)
+
+    # 追加: ダブルクリックハンドラ
+    def _on_double_click(self, row, col):
+        item = self.item(row, 0)
+        if item:
+            # UserRole + 1 から選手オブジェクトを取得
+            player = item.data(Qt.UserRole + 1)
+            if player:
+                self.player_double_clicked.emit(player)
 
     def set_data(self, data_list: list, mode: str = "batter"):
         self.clear()
@@ -223,6 +238,10 @@ class StatsTable(QTableWidget):
             for col, (v, s) in enumerate(zip(vals, sort_vals)):
                 item = SortableTableWidgetItem(str(v))
                 item.setData(Qt.UserRole, s)
+                # 修正: 選手オブジェクトをUserRole + 1に格納 (ダブルクリック用)
+                if col == 0:
+                    item.setData(Qt.UserRole + 1, player)
+                
                 if col < 3: item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
                 else: item.setTextAlignment(Qt.AlignCenter)
                 self.setItem(row, col, item)
@@ -232,6 +251,7 @@ class StatsPage(QWidget):
     """
     Redesigned Stats Page with Sabermetrics and Horizontal Scrolling
     """
+    player_detail_requested = Signal(object)  # 追加: 詳細リクエストシグナル
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -260,10 +280,14 @@ class StatsPage(QWidget):
         """)
 
         self.batter_table = StatsTable()
-        self.tabs.addTab(self.batter_table, "野手成績") # Wrapper不要（スクロールはTable自体が持つ）
+        self.tabs.addTab(self.batter_table, "野手成績") 
+        # 追加: シグナル接続
+        self.batter_table.player_double_clicked.connect(self.player_detail_requested.emit)
 
         self.pitcher_table = StatsTable()
         self.tabs.addTab(self.pitcher_table, "投手成績")
+        # 追加: シグナル接続
+        self.pitcher_table.player_double_clicked.connect(self.player_detail_requested.emit)
 
         layout.addWidget(self.tabs)
 
