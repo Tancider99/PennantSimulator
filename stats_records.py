@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-セイバーメトリクス計算・統計処理エンジン (修正版: team_pf引数追加・wRC+計算式変更・PF補正適正化)
+セイバーメトリクス計算・統計処理エンジン (修正版: wRC+完全整合化・環境補正制限撤廃・ROE修正)
 """
 from models import Team, Player, Position, TeamLevel, PlayerRecord
 from typing import List, Dict
@@ -10,7 +10,6 @@ class LeagueStatsCalculator:
 
     def __init__(self, teams: List[Team]):
         self.teams = teams
-        # レベルごとの集計データを保持
         self.league_totals = {
             TeamLevel.FIRST: self._create_empty_totals(),
             TeamLevel.SECOND: self._create_empty_totals(),
@@ -21,25 +20,21 @@ class LeagueStatsCalculator:
             TeamLevel.SECOND: {},
             TeamLevel.THIRD: {}
         }
-        self.park_factor = 1.0 # 簡易的に1.0
+        self.park_factor = 1.0 
 
     def _create_empty_totals(self):
         return {
             "PA": 0, "AB": 0, "H": 0, "1B": 0, "2B": 0, "3B": 0, "HR": 0,
             "BB": 0, "IBB": 0, "HBP": 0, "SF": 0, "SH": 0, 
             "R": 0,   # 打者の得点合計
-            "RA": 0,  # 投手の失点合計 (リーグ総得点の算出に使用)
+            "RA": 0,  # 投手の失点合計
             "IP": 0.0, "K": 0,
-            "TB": 0, "FB": 0, # Fly Balls
-            "ROE": 0 # Reach On Error (失策出塁)
+            "TB": 0, "FB": 0, "ROE": 0
         }
 
     def calculate_all(self):
         """全レベルの計算を実行"""
-        # 1. 集計
         self._aggregate_league_totals()
-        
-        # 2. 係数計算 & 適用
         for level in [TeamLevel.FIRST, TeamLevel.SECOND, TeamLevel.THIRD]:
             self._calculate_coefficients(level)
             self._calculate_player_advanced_stats(level)
@@ -48,13 +43,11 @@ class LeagueStatsCalculator:
         """全チーム・全レベルの合計値を集計"""
         for team in self.teams:
             for player in team.players:
-                # 各レベルのレコードを集計
                 self._add_to_totals(player.record, TeamLevel.FIRST)
                 self._add_to_totals(player.record_farm, TeamLevel.SECOND)
                 self._add_to_totals(player.record_third, TeamLevel.THIRD)
 
     def _add_to_totals(self, r: PlayerRecord, level: TeamLevel):
-        """レコードを該当レベルの合計に加算"""
         t = self.league_totals[level]
         if r.plate_appearances == 0 and r.innings_pitched == 0:
             return
@@ -72,7 +65,7 @@ class LeagueStatsCalculator:
         t["SF"] += r.sacrifice_flies
         t["SH"] += r.sacrifice_hits
         t["R"] += r.runs
-        t["RA"] += r.runs_allowed # 失点を集計（リーグ総得点用）
+        t["RA"] += r.runs_allowed
         t["IP"] += r.innings_pitched
         t["K"] += r.strikeouts
         t["TB"] += r.total_bases
@@ -80,94 +73,88 @@ class LeagueStatsCalculator:
         t["ROE"] += r.reach_on_error
 
     def _calculate_coefficients(self, level: TeamLevel):
-        """リーグ成績から係数を算出 (レベル別 - 新計算式対応)"""
+        """リーグ成績から係数を算出 (環境連動型Linear Weights・制限撤廃)"""
         t = self.league_totals[level]
         c = {}
         
-        # --- 基礎データの準備 ---
-        # リーグ総得点として、打者の得点合計(R)ではなく投手の失点合計(RA)を使用
-        league_runs = t["RA"] if t["RA"] > 0 else t["R"]
-        
-        # リーグ打席数
+        # --- 1. 基礎データの準備 ---
+        # リーグ総得点: 打者の得点(R)と投手の失点(RA)のうち、値が大きい方（信頼できる方）を採用
+        # 通常、RAの方がエラー失点なども含み正確である場合が多い
+        league_runs = max(t["R"], t["RA"])
         league_pa = t["PA"] if t["PA"] > 0 else 1
+        
+        # リーグR/PA (得点環境)
+        lg_r_pa = league_runs / league_pa if league_pa > 0 else 0.12
+        c["league_r_pa"] = lg_r_pa
 
-        # リーグR/PA (Runs per Plate Appearance)
-        c["league_r_pa"] = league_runs / league_pa if league_pa > 0 else 0.12
+        # --- 2. Run Values (得点価値) の算出 ---
+        # 基準値 (MLB平均 R/PA=0.116 付近でのLinear Weights)
+        base_r_pa = 0.116
+        
+        # 環境補正倍率
+        # 【重要】人為的なクリッピング（0.7〜1.5等）を撤廃。
+        # 環境が極端（例えばR/PA=0.05）なら、係数も素直に0.43倍にする。
+        # これによりwRAAのインフレを防ぐ。
+        env_factor = lg_r_pa / base_r_pa if base_r_pa > 0 else 1.0
+        
+        # ゼロ除算等のエラー防止のための最低限のガードのみ残す
+        if env_factor < 0.01: env_factor = 0.01
 
-        # ゼロ除算防止のための安全策
+        # Linear Weights (線形得点係数) を環境に合わせてスケーリング
+        # 基準: BB=0.33, 1B=0.48, 2B=0.79, 3B=1.08, HR=1.42
+        run_values = {
+            "uBB": 0.33 * env_factor,
+            "HBP": 0.36 * env_factor,
+            "1B": 0.48 * env_factor,
+            "2B": 0.79 * env_factor,
+            "3B": 1.08 * env_factor,
+            "HR": 1.42 * env_factor,
+            "ROE": 0.48 * env_factor # 失策出塁は単打相当とする
+        }
+        
+        # R/Out (1アウトあたりのマイナス価値の絶対値)
+        # これも環境に比例する (league_runsベースで計算)
         if t["IP"] > 0:
             r_per_out = league_runs / (t["IP"] * 3)
         else:
-            # IPが0の場合は簡易的な推計
-            outs = max(1, t["AB"] - t["H"])
-            r_per_out = league_runs / outs if outs > 0 else 0.15
+            outs = max(1, t["AB"] - t["H"] + t["SF"])
+            r_per_out = league_runs / outs if outs > 0 else 0.157
 
-        # uBB = 四球 - 故意四球
-        uBB_total = max(0, t["BB"] - t["IBB"])
-
-        # --- Run Values の計算 ---
-        # runBB = RperOut + 0.14
-        run_bb = r_per_out + 0.14
-        
-        # runHBP = runBB + 0.025
-        run_hbp = run_bb + 0.025
-        
-        # run1B = runBB + 0.13
-        run_1b = run_bb + 0.13
-        
-        # run2B = run1B + 0.3
-        run_2b = run_1b + 0.3
-        
-        # run3B = run2B + 0.27
-        run_3b = run_2b + 0.27
-        
-        # runHR = 1.4
-        run_hr = 1.4
-
-        # --- runPLUS / runMINUS の計算 ---
-        # 分子: (runBB*(BB-IBB) + runHBP*HBP + run1B*1B + run2B*2B + run3B*3B + runHR*HR)
-        numerator = (
-            run_bb * uBB_total +
-            run_hbp * t["HBP"] +
-            run_1b * t["1B"] +
-            run_2b * t["2B"] +
-            run_3b * t["3B"] +
-            run_hr * t["HR"]
-        )
-
-        # runPLUS = 分子 / (H + BB - IBB + HBP)
-        denom_plus = t["H"] + uBB_total + t["HBP"]
-        run_plus = numerator / denom_plus if denom_plus > 0 else 0.0
-
-        # runMINUS = 分子 / (AB - H + SF)
-        denom_minus = t["AB"] - t["H"] + t["SF"]
-        run_minus = numerator / denom_minus if denom_minus > 0 else 0.0
-
-        # --- wOBA Scale の計算 (動的計算) ---
-        # リーグwOBAをリーグOBPに合わせるためのスケール
-        raw_diff = run_plus - run_minus
-        temp_scale = 1 / raw_diff if raw_diff != 0 else 1.0
+        # --- 3. wOBA係数 (Raw) の算出 ---
+        # Raw Weight = Run Value + R/Out
+        value_not_out = r_per_out
 
         raw_weights = {
-            "uBB": (run_bb + run_minus) * temp_scale,
-            "HBP": (run_hbp + run_minus) * temp_scale,
-            "1B": (run_1b + run_minus) * temp_scale,
-            "2B": (run_2b + run_minus) * temp_scale,
-            "3B": (run_3b + run_minus) * temp_scale,
-            "HR": (run_hr + run_minus) * temp_scale,
-            "ROE": 0.966
+            "uBB": run_values["uBB"] + value_not_out,
+            "HBP": run_values["HBP"] + value_not_out,
+            "1B": run_values["1B"] + value_not_out,
+            "2B": run_values["2B"] + value_not_out,
+            "3B": run_values["3B"] + value_not_out,
+            "HR": run_values["HR"] + value_not_out,
+            "ROE": run_values["ROE"] + value_not_out
         }
-        
+
+        # --- 4. wOBA Scale の算出 ---
+        # リーグwOBA(Raw)を計算
         lg_woba_raw = self._calc_league_woba_val(t, raw_weights)
-        denom_oba = t["AB"] + t["BB"] + t["HBP"] + t["SF"]
-        lg_oba = (t["H"] + t["BB"] + t["HBP"]) / denom_oba if denom_oba > 0 else 0.320
+
+        # リーグOBPを計算 (分母はwOBA定義に準拠: AB + BB - IBB + SF + HBP)
+        denom_woba = t["AB"] + t["BB"] - t["IBB"] + t["SF"] + t["HBP"]
+        lg_oba = (t["H"] + t["BB"] + t["HBP"]) / denom_woba if denom_woba > 0 else 0.320
+
+        # スケール係数 = OBP / Raw_wOBA
+        # ここでもクリッピングを撤廃し、計算値を信頼する。
+        if lg_woba_raw > 0:
+            woba_scale = lg_oba / lg_woba_raw
+        else:
+            woba_scale = 1.25
+
+        # --- 5. 最終的な係数の決定 ---
+        final_woba_weights = {k: v * woba_scale for k, v in raw_weights.items()}
         
-        woba_scale = lg_oba / lg_woba_raw if lg_woba_raw > 0 else 1.20
-        
-        c["woba_weights"] = {k: v * woba_scale for k, v in raw_weights.items()}
-        c["woba_weights"]["ROE"] = 0.966 * woba_scale
+        c["woba_weights"] = final_woba_weights
         c["woba_scale"] = woba_scale
-        c["league_woba"] = self._calc_league_woba_val(t, c["woba_weights"])
+        c["league_woba"] = lg_oba # wRAA計算の基準値
 
         # --- FIP Constant ---
         if t["IP"] > 0:
@@ -179,23 +166,20 @@ class LeagueStatsCalculator:
             c["fip_constant"] = 3.10
             c["league_fip"] = 4.00
             
-        # --- League HR/FB ---
         if t["FB"] > 0:
             c["league_hr_fb"] = t["HR"] / t["FB"]
         else:
             c["league_hr_fb"] = 0.10 
 
-        c["runs_per_win"] = 10.0 # 簡易値
+        c["runs_per_win"] = 10.0
         
         self.coefficients[level] = c
 
     def _calc_league_woba_val(self, t, w):
-        # リーグ全体のwOBA計算
         denom = t["AB"] + t["BB"] - t["IBB"] + t["HBP"] + t["SF"]
         if denom <= 0: return 0.0
         
         uBB = max(0, t["BB"] - t["IBB"])
-        
         val = (w["uBB"] * uBB + 
                w["HBP"] * t["HBP"] + 
                w["ROE"] * t["ROE"] +
@@ -203,28 +187,19 @@ class LeagueStatsCalculator:
                w["2B"] * t["2B"] + 
                w["3B"] * t["3B"] + 
                w["HR"] * t["HR"])
-        
         return val / denom
 
     def _calculate_player_advanced_stats(self, level: TeamLevel):
         """指定レベルの全選手の指標を更新"""
         c = self.coefficients[level]
-        
         for team in self.teams:
-            # チームの本拠地PFを取得
-            # ここで team_pf を取得し、_update_single_record に渡す必要があります
             team_pf = team.stadium.pf_runs if team.stadium else 1.0
-            
             for player in team.players:
-                # 該当レベルのレコードを取得
                 record = player.get_record_by_level(level)
                 self._update_single_record(player, record, c, team_pf)
 
     def _update_single_record(self, player: Player, r: PlayerRecord, c: dict, team_pf: float):
-        """
-        個人の成績を更新する
-        :param team_pf: 所属チームの本拠地パークファクター(得点)
-        """
+        """個人の成績を更新する"""
         if r.plate_appearances == 0 and r.innings_pitched == 0:
             return
 
@@ -235,7 +210,7 @@ class LeagueStatsCalculator:
         fip_const = c["fip_constant"]
         rpw = c["runs_per_win"]
 
-        # ▼▼▼ PF算出 (経験PF累積値から計算) ▼▼▼
+        # PF算出
         if r.plate_appearances > 0:
             personal_pf_batter = r.sum_pf_runs / r.plate_appearances
         else:
@@ -249,7 +224,6 @@ class LeagueStatsCalculator:
             
         if personal_pf_batter == 0: personal_pf_batter = 1.0
         if personal_pf_pitcher == 0: personal_pf_pitcher = 1.0
-        # ▲▲▲ PF算出終了 ▲▲▲
 
         # --- Batting Stats ---
         if r.plate_appearances > 0:
@@ -269,45 +243,42 @@ class LeagueStatsCalculator:
                 r.woba_val = 0.0
 
             # --- wRAA Calculation ---
-            if woba_scale > 0:
-                wraa = ((r.woba_val - lg_woba) / woba_scale) * r.plate_appearances
-            else:
-                wraa = 0
+            # wRAA = (wOBA - lg_wOBA) / Scale * PA
+            divisor = woba_scale if woba_scale > 0 else 1.25
+            wraa = ((r.woba_val - lg_woba) / divisor) * r.plate_appearances
 
-            # ▼▼▼ パークファクター補正 ▼▼▼
+            # --- PF補正 (指定式) ---
             # 補正係数＝（本拠地試合／総試合）×PF＋（1－本拠地試合／総試合）×（6－PF）／5
-            # ※リーグ球団数6を前提とした他球場平均PF近似式: (6 - PF) / 5
-            
             games_ratio = r.home_games / r.games if r.games > 0 else 0.5
-            pf_factor = games_ratio * team_pf + (1.0 - games_ratio) * ((6.0 - team_pf) / 5.0)
+            pf_correction_coefficient = games_ratio * team_pf + (1.0 - games_ratio) * ((6.0 - team_pf) / 5.0)
             
             # 補正値＝（1－補正係数）×リーグの平均打席あたり得点×打席
-            pf_adjustment_value = (1.0 - pf_factor) * lg_r_pa * r.plate_appearances
+            pf_correction_value = (1.0 - pf_correction_coefficient) * lg_r_pa * r.plate_appearances
             
             # 補正wRAA
-            adjusted_wraa = wraa + pf_adjustment_value
+            adjusted_wraa = wraa + pf_correction_value
             
-            # wRC Calculation (補正wRAAベース)
+            # wRC Calculation (wRC = Adjusted wRAA + League Runs)
             adjusted_wrc = adjusted_wraa + (lg_r_pa * r.plate_appearances)
-            
             r.wrc_val = adjusted_wrc 
 
-            # wRC+ Calculation
-            # wRC+＝（パークファクターを考慮して計算したwRC÷打席）÷（リーグ総得点÷リーグ総打席）×100
-            
+            # --- wRC+ Calculation ---
+            # wRC+ = 100 * {補正wRAA + (R/PA) * PA} / {(R/PA) * PA}
             if lg_r_pa > 0:
-                wrc_per_pa = adjusted_wrc / r.plate_appearances
-                r.wrc_plus_val = (wrc_per_pa / lg_r_pa) * 100
+                league_expected_runs = lg_r_pa * r.plate_appearances
+                if league_expected_runs > 0.0001:
+                    # 分子の wRC (補正wRAA + 期待得点) を使用
+                    r.wrc_plus_val = 100 * adjusted_wrc / league_expected_runs
+                else:
+                    r.wrc_plus_val = 100.0
             else:
                 r.wrc_plus_val = 100.0
             
         # --- Pitching Stats ---
         if r.innings_pitched > 0:
-            # FIP
             fip_val = (13 * r.home_runs_allowed + 3 * (r.walks_allowed + r.hit_batters) - 2 * r.strikeouts_pitched) / r.innings_pitched
             r.fip_val = fip_val + fip_const
             
-            # xFIP
             lg_hr_fb = c.get("league_hr_fb", 0.10)
             expected_hr = r.fly_balls * lg_hr_fb
             xfip_val = (13 * expected_hr + 3 * (r.walks_allowed + r.hit_batters) - 2 * r.strikeouts_pitched) / r.innings_pitched
@@ -317,12 +288,9 @@ class LeagueStatsCalculator:
         r.drs_val = r.def_drs_raw
         r.uzr_val = r.def_drs_raw * 0.9
 
-        # --- WAR Calculation (PF Adjusted) ---
+        # --- WAR Calculation ---
         if player.position.value != "投手":
-            # 野手WAR
-            # Batting Runs: 補正wRAAを使用
             batting_runs = adjusted_wraa if r.plate_appearances > 0 else 0
-            
             bsr = (r.stolen_bases * 0.2) - (r.caught_stealing * 0.4)
             fielding_runs = r.uzr_val
             
@@ -334,20 +302,16 @@ class LeagueStatsCalculator:
             pos_adj = pos_base * (r.plate_appearances / 600.0)
             rep_runs = 20.0 * (r.plate_appearances / 600.0)
             
-            # batting_runs には既にPF補正が含まれているため、そのまま足す
             total_runs = batting_runs + bsr + fielding_runs + pos_adj + rep_runs
             r.war_val = total_runs / rpw
             
         else:
-            # 投手WAR (FIP Base with PF Adjustment)
             if r.innings_pitched > 0:
                 lg_fip = c.get("league_fip", 4.00)
                 
-                # 投手用PF補正係数
                 games_ratio_p = r.home_games_pitched / r.games_pitched if r.games_pitched > 0 else 0.5
                 pf_factor_p = games_ratio_p * team_pf + (1.0 - games_ratio_p) * ((6.0 - team_pf) / 5.0)
                 
-                # FIPをPF係数で割って補正 (FIP / PF_Factor)
                 if pf_factor_p > 0:
                     adjusted_fip = r.fip_val / pf_factor_p
                 else:
