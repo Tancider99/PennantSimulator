@@ -116,31 +116,34 @@ class StatsTable(QTableWidget):
         self.clear()
         
         if mode == "batter":
-            # 超詳細指標 (30カラム以上)
+            # 詳細指標 (新指標を追加)
             headers = [
-                "名前", "チーム", "Pos", "試合", "打席", "打数", "打率", "安打", "二塁", "三塁", "本塁", 
-                "打点", "得点", "三振", "四球", "死球", "犠打", "犠飛", "盗塁", "盗塁死", "併殺",
-                "出塁率", "長打率", "OPS", "ISO", "IsoD", "BABIP", "BB/K", "PA/K",
-                "wOBA", "wRC", "wRC+", "RC", "RC27", "XR", "XR27", "WAR", "UZR"
+                "名前", "チーム", "Pos", "打席", "打率", "本塁", "打点", "盗塁", 
+                "OPS", "wOBA", "wRC+", "WAR",
+                "K%", "BB%", "ISO", "BABIP", 
+                "Hard%", "Mid%", "Soft%", "GB%", "FB%", "LD%", "IFFB%", "HR/FB",
+                "Pull%", "Cent%", "Oppo%", "wSB", "UBR", "UZR"
             ]
-            # 幅設定 (固定幅)
             widths = [
-                140, 60, 40, 45, 45, 45, 60, 45, 40, 40, 40, 
-                45, 45, 45, 45, 40, 40, 40, 40, 40, 40, 
-                60, 60, 60, 50, 50, 60, 50, 50,
-                60, 50, 55, 50, 50, 50, 50, 55, 55
+                140, 60, 40, 45, 55, 40, 45, 40, 
+                55, 55, 50, 50,
+                50, 50, 50, 55, 
+                50, 50, 50, 50, 50, 50, 50, 50,
+                50, 50, 50, 50, 50, 50
             ]
         else:
             # 投手詳細指標
             headers = [
-                "名前", "チーム", "Pos", "登板", "先発", "完投", "完封", "無四球", "勝利", "敗戦", "S", "H", "勝率",
-                "防御率", "投球回", "打者", "被安", "被本", "四球", "死球", "奪三振", "暴投", "ボーク", "失点", "自責",
-                "K/9", "BB/9", "HR/9", "K/BB", "WHIP", "被打率", "LOB%", "FIP", "xFIP", "QS率", "WAR"
+                "名前", "チーム", "Pos", "登板", "投球回", "防御率", "勝利", "敗戦", "S", "H", 
+                "奪三振", "WHIP", "FIP", "xFIP", "WAR",
+                "K%", "BB%", "K-BB%", "HR/9", "LOB%", 
+                "Hard%", "Mid%", "Soft%", "GB%", "FB%", "LD%", "IFFB%", "HR/FB"
             ]
             widths = [
-                140, 60, 40, 45, 45, 40, 40, 45, 40, 40, 35, 35, 50,
-                60, 60, 45, 45, 40, 40, 40, 50, 40, 40, 40, 40,
-                50, 50, 50, 50, 55, 55, 50, 55, 55, 50, 55
+                140, 60, 40, 40, 55, 55, 40, 40, 35, 35, 
+                50, 50, 50, 50, 50,
+                50, 50, 50, 50, 50, 
+                50, 50, 50, 50, 50, 50, 50, 50
             ]
 
         self.setColumnCount(len(headers))
@@ -155,90 +158,58 @@ class StatsTable(QTableWidget):
         for row, (player, team_name, record) in enumerate(data_list):
             if mode == "batter":
                 avg = record.batting_average
-                obp = record.obp
-                slg = record.slg
                 ops = record.ops
-                iso = record.iso
-                isod = obp - avg
-                bb_k = record.walks / record.strikeouts if record.strikeouts > 0 else 0
-                pa_k = record.plate_appearances / record.strikeouts if record.strikeouts > 0 else 0
                 
-                # RC Calculation (Basic)
-                a = record.hits + record.walks + record.hit_by_pitch - record.caught_stealing - record.grounded_into_dp
-                b = record.total_bases + (0.26 * (record.walks + record.hit_by_pitch)) + (0.52 * (record.sacrifice_hits + record.sacrifice_flies)) + (0.2 * record.stolen_bases)
-                c = record.plate_appearances + record.walks + record.hit_by_pitch + record.sacrifice_hits + record.sacrifice_flies
-                rc = ((a + 2.4 * c) * (b + 3 * c)) / (9 * c) - 0.9 * c if c > 0 else 0
-                
-                outs = record.at_bats - record.hits + record.caught_stealing + record.sacrifice_hits + record.sacrifice_flies + record.grounded_into_dp
-                rc27 = (rc * 27) / outs if outs > 0 else 0
-                
-                # XR Calculation
-                single = record.hits - record.doubles - record.triples - record.home_runs
-                xr = (0.5 * single + 0.72 * record.doubles + 1.04 * record.triples + 1.44 * record.home_runs + 
-                      0.34 * (record.walks + record.hit_by_pitch) + 0.18 * record.stolen_bases - 0.32 * record.caught_stealing - 
-                      0.09 * (record.at_bats - record.hits - record.strikeouts) - 0.098 * record.strikeouts - 0.37 * record.grounded_into_dp + 
-                      0.37 * record.sacrifice_flies + 0.04 * record.sacrifice_hits)
-                xr27 = (xr * 27) / outs if outs > 0 else 0
-
                 vals = [
                     player.name, team_name[:2], player.position.value[:2],
-                    record.games, record.plate_appearances, record.at_bats,
-                    f".{int(avg * 1000):03d}", record.hits, record.doubles, record.triples, record.home_runs,
-                    record.rbis, record.runs, record.strikeouts, record.walks, record.hit_by_pitch,
-                    record.sacrifice_hits, record.sacrifice_flies, record.stolen_bases, record.caught_stealing, record.grounded_into_dp,
-                    f".{int(obp * 1000):03d}", f".{int(slg * 1000):03d}", f".{int(ops * 1000):03d}",
-                    f".{int(iso * 1000):03d}", f".{int(isod * 1000):03d}", f".{int(record.babip * 1000):03d}",
-                    f"{bb_k:.2f}", f"{pa_k:.1f}",
-                    f".{int(record.woba * 1000):03d}", f"{record.wrc:.1f}", f"{int(record.wrc_plus)}",
-                    f"{rc:.1f}", f"{rc27:.2f}", f"{xr:.1f}", f"{xr27:.2f}",
-                    f"{record.war:.1f}", f"{record.uzr:.1f}"
+                    record.plate_appearances, f".{int(avg * 1000):03d}", record.home_runs, record.rbis, record.stolen_bases,
+                    f".{int(ops * 1000):03d}", f".{int(record.woba * 1000):03d}", int(record.wrc_plus), f"{record.war:.1f}",
+                    f"{record.k_pct*100:.1f}%", f"{record.bb_pct*100:.1f}%", f"{record.iso:.3f}", f"{record.babip:.3f}",
+                    f"{record.hard_pct*100:.1f}%", f"{record.mid_pct*100:.1f}%", f"{record.soft_pct*100:.1f}%",
+                    f"{record.gb_pct*100:.1f}%", f"{record.fb_pct*100:.1f}%", f"{record.ld_pct*100:.1f}%", f"{record.iffb_pct*100:.1f}%", f"{record.hr_fb*100:.1f}%",
+                    f"{record.pull_pct*100:.1f}%", f"{record.cent_pct*100:.1f}%", f"{record.oppo_pct*100:.1f}%",
+                    f"{record.wsb:.1f}", f"{record.ubr:.1f}", f"{record.uzr:.1f}"
                 ]
                 
                 sort_vals = [
                     player.name, team_name, player.position.value,
-                    record.games, record.plate_appearances, record.at_bats,
-                    avg, record.hits, record.doubles, record.triples, record.home_runs,
-                    record.rbis, record.runs, record.strikeouts, record.walks, record.hit_by_pitch,
-                    record.sacrifice_hits, record.sacrifice_flies, record.stolen_bases, record.caught_stealing, record.grounded_into_dp,
-                    obp, slg, ops, iso, isod, record.babip, bb_k, pa_k,
-                    record.woba, record.wrc, record.wrc_plus, rc, rc27, xr, xr27,
-                    record.war, record.uzr
+                    record.plate_appearances, avg, record.home_runs, record.rbis, record.stolen_bases,
+                    ops, record.woba, record.wrc_plus, record.war,
+                    record.k_pct, record.bb_pct, record.iso, record.babip,
+                    record.hard_pct, record.mid_pct, record.soft_pct,
+                    record.gb_pct, record.fb_pct, record.ld_pct, record.iffb_pct, record.hr_fb,
+                    record.pull_pct, record.cent_pct, record.oppo_pct,
+                    record.wsb, record.ubr, record.uzr
                 ]
             else:
-                qs_rate = (record.quality_starts / record.games_started * 100) if record.games_started > 0 else 0
-                avg_against = record.hits_allowed / (record.hits_allowed + record.balls_in_play + record.strikeouts_pitched) if (record.hits_allowed + record.balls_in_play + record.strikeouts_pitched) > 0 else 0 # Approx
+                k_pct = record.k_rate_pitched
+                bb_pct = record.bb_rate_pitched
+                k_bb_diff = k_pct - bb_pct
                 
                 vals = [
                     player.name, team_name[:2], player.pitch_type.value[:2] if player.pitch_type else "投",
-                    record.games_pitched, record.games_started, record.complete_games, record.shutouts, 0, # 無四球はデータなし
+                    record.games_pitched, f"{record.innings_pitched:.1f}", f"{record.era:.2f}",
                     record.wins, record.losses, record.saves, record.holds,
-                    f".{int(record.winning_percentage * 1000):03d}",
-                    f"{record.era:.2f}", f"{record.innings_pitched:.1f}", 
-                    int(record.hits_allowed + record.walks_allowed + record.hit_batters + record.strikeouts_pitched + record.balls_in_play), # TBF Approx
-                    record.hits_allowed, record.home_runs_allowed, record.walks_allowed, record.hit_batters,
-                    record.strikeouts_pitched, record.wild_pitches, record.balks, record.runs_allowed, record.earned_runs,
-                    f"{record.k_per_9:.2f}", f"{record.bb_per_9:.2f}", f"{record.hr_per_9:.2f}", f"{record.k_bb_ratio:.2f}",
-                    f"{record.whip:.2f}", f".{int(avg_against * 1000):03d}", f"{record.lob_rate * 100:.1f}%",
-                    f"{record.fip:.2f}", f"{record.xfip:.2f}", f"{qs_rate:.1f}%", f"{record.war:.1f}"
+                    record.strikeouts_pitched, f"{record.whip:.2f}", f"{record.fip:.2f}", f"{record.xfip:.2f}", f"{record.war:.1f}",
+                    f"{k_pct*100:.1f}%", f"{bb_pct*100:.1f}%", f"{k_bb_diff*100:.1f}%", f"{record.hr_per_9:.2f}", f"{record.lob_rate*100:.1f}%",
+                    f"{record.hard_pct*100:.1f}%", f"{record.mid_pct*100:.1f}%", f"{record.soft_pct*100:.1f}%",
+                    f"{record.gb_pct*100:.1f}%", f"{record.fb_pct*100:.1f}%", f"{record.ld_pct*100:.1f}%", f"{record.iffb_pct*100:.1f}%", f"{record.hr_fb*100:.1f}%"
                 ]
                 
                 sort_vals = [
                     player.name, team_name, "P",
-                    record.games_pitched, record.games_started, record.complete_games, record.shutouts, 0,
-                    record.wins, record.losses, record.saves, record.holds, record.winning_percentage,
-                    record.era if record.innings_pitched > 0 else 99, record.innings_pitched, 
-                    record.hits_allowed, # TBF placeholder
-                    record.hits_allowed, record.home_runs_allowed, record.walks_allowed, record.hit_batters,
-                    record.strikeouts_pitched, record.wild_pitches, record.balks, record.runs_allowed, record.earned_runs,
-                    record.k_per_9, record.bb_per_9, record.hr_per_9, record.k_bb_ratio,
-                    record.whip if record.innings_pitched > 0 else 99, avg_against, record.lob_rate,
-                    record.fip, record.xfip, qs_rate, record.war
+                    record.games_pitched, record.innings_pitched, record.era if record.innings_pitched > 0 else 99,
+                    record.wins, record.losses, record.saves, record.holds,
+                    record.strikeouts_pitched, record.whip if record.innings_pitched > 0 else 99, 
+                    record.fip, record.xfip, record.war,
+                    k_pct, bb_pct, k_bb_diff, record.hr_per_9, record.lob_rate,
+                    record.hard_pct, record.mid_pct, record.soft_pct,
+                    record.gb_pct, record.fb_pct, record.ld_pct, record.iffb_pct, record.hr_fb
                 ]
 
             for col, (v, s) in enumerate(zip(vals, sort_vals)):
                 item = SortableTableWidgetItem(str(v))
                 item.setData(Qt.UserRole, s)
-                # 修正: 選手オブジェクトをUserRole + 1に格納 (ダブルクリック用)
                 if col == 0:
                     item.setData(Qt.UserRole + 1, player)
                 

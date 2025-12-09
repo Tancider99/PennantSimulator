@@ -72,6 +72,7 @@ class SimulationWorker(QThread):
         except:
             return QDate.currentDate()
 
+# ... (GameCalendarWidget クラスは変更なしのため省略) ...
 class GameCalendarWidget(QCalendarWidget):
     """Custom Calendar Widget that paints game info in cells"""
     
@@ -298,27 +299,37 @@ class SchedulePage(QWidget):
         self.p_label = QLabel("準備中..."); self.p_label.setAlignment(Qt.AlignCenter); p_layout.addWidget(self.p_label)
         self.p_bar = QProgressBar(); self.p_bar.setStyleSheet(f"QProgressBar {{ border: 1px solid {self.theme.border}; border-radius: 4px; text-align: center; color: {self.theme.text_primary}; }} QProgressBar::chunk {{ background-color: {self.theme.primary}; }}")
         p_layout.addWidget(self.p_bar)
+        
+        # キャンセルボタン追加
         cancel_btn = QPushButton("キャンセル"); cancel_btn.clicked.connect(self._cancel_simulation); p_layout.addWidget(cancel_btn)
 
         self.worker = SimulationWorker(self.game_state, self.selected_date, parent=self)
         self.worker.progress_updated.connect(self._update_progress)
         self.worker.finished.connect(self._on_simulation_finished)
         self.worker.error_occurred.connect(self._on_simulation_error)
-        self.worker.start(); self.progress_dialog.exec()
+        self.worker.start()
+        
+        # ▼▼▼ 修正: exec()の戻り値で処理を分岐し、二重表示を防ぐ ▼▼▼
+        # ダイアログが閉じられるまでここでブロックされる
+        if self.progress_dialog.exec() == QDialog.Accepted:
+            self._refresh_calendar_data()
+            self._refresh_info_panel()
+            QMessageBox.information(self, "完了", "指定日までの日程消化が完了しました。")
+        # ▲▲▲ 修正終了 ▲▲▲
 
-    def _update_progress(self, current, total, message): self.p_bar.setMaximum(total); self.p_bar.setValue(current); self.p_label.setText(message)
+    def _update_progress(self, current, total, message): 
+        self.p_bar.setMaximum(total); self.p_bar.setValue(current); self.p_label.setText(message)
+        
     def _cancel_simulation(self):
         if self.worker: self.worker.is_cancelled = True; self.worker.wait()
-        self.progress_dialog.close()
+        self.progress_dialog.reject() # rejectで閉じる
     
     def _on_simulation_finished(self):
-        # 修正: ダイアログを閉じた後、タイマーでメッセージを表示して二重表示を防ぐ
-        self.progress_dialog.accept() # close() -> accept()
-        self._refresh_calendar_data()
-        self._refresh_info_panel()
-        QTimer.singleShot(100, lambda: QMessageBox.information(self, "完了", "指定日までの日程消化が完了しました。"))
+        # 修正: accept()を呼ぶだけで、メッセージボックスはexec()の後で処理する
+        self.progress_dialog.accept()
 
     def _on_simulation_error(self, message): 
+        # エラー時はrejectで閉じる
         self.progress_dialog.reject()
         QMessageBox.critical(self, "エラー", f"シミュレーション中にエラーが発生しました:\n{message}")
     

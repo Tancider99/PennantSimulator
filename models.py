@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-データモデル定義 (修正版: 投手疲労管理・役割分担ロジック追加・全コード)
+データモデル定義 (修正版: 外野3ポジション化・利き腕・詳細指標対応)
 """
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Tuple
@@ -16,7 +16,10 @@ class Position(Enum):
     SECOND = "二塁手"
     THIRD = "三塁手"
     SHORTSTOP = "遊撃手"
-    OUTFIELD = "外野手"
+    # 外野手を3ポジションに分割
+    LEFT = "左翼手"
+    CENTER = "中堅手"
+    RIGHT = "右翼手"
 
 
 class PitchType(Enum):
@@ -46,6 +49,10 @@ class GameStatus(Enum):
     IN_PROGRESS = "試合中"
     COMPLETED = "終了"
 
+class Hand(Enum):
+    RIGHT = "右"
+    LEFT = "左"
+    BOTH = "両"
 
 @dataclass
 class GameResult:
@@ -144,6 +151,8 @@ class PlayerStats:
     error: int = 50            # 捕球/エラー回避 (全ポジション共通)
     
     # 守備範囲 (Defense Range)
+    # キー: "捕手", "一塁手", "二塁手", "三塁手", "遊撃手", "左翼手", "中堅手", "右翼手"
+    # 以前の "外野手" キーも互換性のため維持推奨だが、基本は新キーを使用
     defense_ranges: Dict[str, int] = field(default_factory=dict)
     
     catcher_lead: int = 50     # 捕手リード
@@ -176,7 +185,11 @@ class PlayerStats:
 
     # ===== ヘルパーメソッド =====
     def get_defense_range(self, position: 'Position') -> int:
-        return self.defense_ranges.get(position.value, 1)
+        val = self.defense_ranges.get(position.value, 0)
+        # 互換性: 具体的な外野ポジションがない場合、汎用"外野手"の値を使う
+        if val == 0 and position in [Position.LEFT, Position.CENTER, Position.RIGHT]:
+            val = self.defense_ranges.get("外野手", 1)
+        return max(1, val)
 
     def set_defense_range(self, position: 'Position', value: int):
         self.defense_ranges[position.value] = max(1, min(99, value))
@@ -387,6 +400,15 @@ class PlayerRecord:
     line_drives: int = 0
     popups: int = 0
     hard_hit_balls: int = 0
+    
+    # 打球質・方向詳細カウンター
+    medium_hit_balls: int = 0
+    soft_hit_balls: int = 0
+    
+    pull_balls: int = 0
+    center_balls: int = 0
+    oppo_balls: int = 0
+
     balls_in_play: int = 0
 
     pitches_thrown: int = 0
@@ -400,10 +422,10 @@ class PlayerRecord:
     shutouts: int = 0
 
     # --- Defensive Metrics (Source Data) ---
-    def_opportunities: int = 0 # 守備機会（刺殺＋補殺＋失策＋野選ではないが、ここでは「処理すべき打球数」）
-    def_plays_made: int = 0    # 実際にアウトにした数
-    def_difficulty_sum: float = 0.0 # 処理した打球の難易度合計 (Hit Probabilityの逆数的な)
-    def_drs_raw: float = 0.0 # 簡易DRS蓄積値 (Plus/Minusシステム)
+    def_opportunities: int = 0 
+    def_plays_made: int = 0    
+    def_difficulty_sum: float = 0.0 
+    def_drs_raw: float = 0.0 
 
     # --- Computed Advanced Stats (Cached/Calculated by Stats Engine) ---
     woba_val: float = 0.0
@@ -412,8 +434,11 @@ class PlayerRecord:
     war_val: float = 0.0
     fip_val: float = 0.0
     xfip_val: float = 0.0
-    uzr_val: float = 0.0 # UZR/150 or Raw UZR
+    uzr_val: float = 0.0
     drs_val: float = 0.0
+    
+    wsb_val: float = 0.0
+    ubr_val: float = 0.0
     
     # --- Basic Properties ---
     @property
@@ -449,7 +474,77 @@ class PlayerRecord:
     def ops(self) -> float:
         return self.obp + self.slg
 
-    # --- Sabermetrics Properties (Accessors to stored values or simple calcs) ---
+    # --- Sabermetrics Properties ---
+    @property
+    def k_pct(self) -> float:
+        return self.strikeouts / self.plate_appearances if self.plate_appearances > 0 else 0.0
+
+    @property
+    def bb_pct(self) -> float:
+        return self.walks / self.plate_appearances if self.plate_appearances > 0 else 0.0
+
+    @property
+    def hard_pct(self) -> float:
+        bip = self.balls_in_play
+        return self.hard_hit_balls / bip if bip > 0 else 0.0
+
+    @property
+    def mid_pct(self) -> float:
+        bip = self.balls_in_play
+        return self.medium_hit_balls / bip if bip > 0 else 0.0
+
+    @property
+    def soft_pct(self) -> float:
+        bip = self.balls_in_play
+        return self.soft_hit_balls / bip if bip > 0 else 0.0
+
+    @property
+    def gb_pct(self) -> float:
+        bip = self.balls_in_play
+        return self.ground_balls / bip if bip > 0 else 0.0
+
+    @property
+    def fb_pct(self) -> float:
+        bip = self.balls_in_play
+        return self.fly_balls / bip if bip > 0 else 0.0
+
+    @property
+    def ld_pct(self) -> float:
+        bip = self.balls_in_play
+        return self.line_drives / bip if bip > 0 else 0.0
+
+    @property
+    def iffb_pct(self) -> float:
+        total_fb = self.fly_balls + self.popups
+        return self.popups / total_fb if total_fb > 0 else 0.0
+
+    @property
+    def hr_fb(self) -> float:
+        return self.home_runs / self.fly_balls if self.fly_balls > 0 else 0.0
+
+    @property
+    def pull_pct(self) -> float:
+        total = self.pull_balls + self.center_balls + self.oppo_balls
+        return self.pull_balls / total if total > 0 else 0.0
+
+    @property
+    def cent_pct(self) -> float:
+        total = self.pull_balls + self.center_balls + self.oppo_balls
+        return self.center_balls / total if total > 0 else 0.0
+
+    @property
+    def oppo_pct(self) -> float:
+        total = self.pull_balls + self.center_balls + self.oppo_balls
+        return self.oppo_balls / total if total > 0 else 0.0
+    
+    @property
+    def wsb(self) -> float:
+        return self.wsb_val
+    
+    @property
+    def ubr(self) -> float:
+        return self.ubr_val
+
     @property
     def iso(self) -> float:
         return self.slg - self.batting_average
@@ -478,16 +573,14 @@ class PlayerRecord:
         
     @property
     def fip(self) -> float:
-        # Fallback if not calculated
         if self.fip_val == 0.0 and self.innings_pitched > 0:
              return (13 * self.home_runs_allowed + 3 * (self.walks_allowed + self.hit_batters) - 2 * self.strikeouts_pitched) / self.innings_pitched + 3.10
         return self.fip_val
 
     @property
     def xfip(self) -> float:
-        # Fallback if not calculated
         if self.xfip_val == 0.0:
-             return self.fip # Default to FIP if no xFIP available
+             return self.fip 
         return self.xfip_val
 
     @property
@@ -522,7 +615,6 @@ class PlayerRecord:
 
     @property
     def k_rate_pitched(self) -> float:
-        # TBF approx
         total_batters = self.hits_allowed + self.walks_allowed + self.hit_batters + self.strikeouts_pitched + self.ground_outs + self.fly_outs 
         if total_batters == 0: return 0.0
         return self.strikeouts_pitched / total_batters
@@ -551,7 +643,6 @@ class PlayerRecord:
 
     @property
     def lob_rate(self) -> float:
-        # LOB% = (H+BB+HBP - R) / (H+BB+HBP - (1.4*HR))
         num = (self.hits_allowed + self.walks_allowed + self.hit_batters) - self.runs_allowed
         denom = (self.hits_allowed + self.walks_allowed + self.hit_batters) - (1.4 * self.home_runs_allowed)
         if denom <= 0: return 0.72
@@ -662,6 +753,9 @@ class Player:
     condition: int = 5
     
     days_rest: int = 6  # 登板間隔 (中n日)
+    
+    bats: str = "右"
+    throws: str = "右"
 
     def __post_init__(self):
         if self.team_level is None:
@@ -1050,17 +1144,18 @@ TEAM_ABBRS = {
 def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
     """
     指定された選手リストから、守備位置を考慮した最適オーダー(9人)を生成して返す。
-    インデックスは team.players 内のインデックスを返す。
+    外野手をLeft/Center/Rightに最適配分する。
     """
     
+    # 優先順位: 捕手 -> 遊撃 -> 二塁 -> 中堅 -> 三塁 -> 右翼 -> 左翼 -> 一塁
     def_priority = [
         (Position.CATCHER, "捕手", 1.5),
         (Position.SHORTSTOP, "遊撃手", 1.4),
         (Position.SECOND, "二塁手", 1.3),
-        (Position.OUTFIELD, "中堅手", 1.2), 
+        (Position.CENTER, "中堅手", 1.3), 
         (Position.THIRD, "三塁手", 1.0),
-        (Position.OUTFIELD, "右翼手", 1.0),
-        (Position.OUTFIELD, "左翼手", 1.0),
+        (Position.RIGHT, "右翼手", 1.1),
+        (Position.LEFT, "左翼手", 0.9),
         (Position.FIRST, "一塁手", 0.8)
     ]
     
@@ -1076,41 +1171,42 @@ def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
     selected_starters = {} # position_name -> player_idx
     used_indices = set()
     
-    def calculate_score(player, pos_name_long, weight):
-        aptitude = player.stats.defense_ranges.get(pos_name_long, 0)
+    def calculate_score(player, pos_name, weight):
+        # defense_ranges から適正を取得
+        # 外野ポジションの場合は、個別の適正がなければ汎用"外野手"の値を見る
+        aptitude = player.stats.get_defense_range(getattr(Position, pos_name_enum_key))
         if aptitude < 20: return -1
         
         bat_score = (player.stats.contact * 1.0 + player.stats.power * 1.2 + 
                      player.stats.speed * 0.5 + player.stats.eye * 0.5)
         
-        def_score = (aptitude * 1.5 + player.stats.error * 0.5 + player.stats.arm * 0.5)
+        # 守備スコア補正: 中堅は走力、右翼は肩力を重視
+        def_bonus = 0
+        if pos_name == "中堅手": def_bonus = player.stats.speed * 0.5
+        if pos_name == "右翼手": def_bonus = player.stats.arm * 0.5
+        
+        def_score = (aptitude * 1.5 + player.stats.error * 0.5 + player.stats.arm * 0.5 + def_bonus)
         
         return bat_score + (def_score * weight)
 
-    has_detailed_outfield = False
-    if roster_players and "中堅手" in roster_players[0].stats.defense_ranges:
-        has_detailed_outfield = True
-
     for pos_enum, pos_name, weight in def_priority:
-        search_key = pos_name
-        if not has_detailed_outfield and pos_enum == Position.OUTFIELD:
-            search_key = "外野手"
-            
+        # pos_enumに対応するキー名を取得 (例: CENTER -> "CENTER")
+        pos_name_enum_key = pos_enum.name
+        
         best_idx = -1
         best_score = -1.0
         
         for idx, p in candidates.items():
             if idx in used_indices: continue
             
-            score = calculate_score(p, search_key, weight)
+            score = calculate_score(p, pos_name, weight)
             if score > best_score:
                 best_score = score
                 best_idx = idx
         
         if best_idx != -1:
-            if pos_name not in selected_starters:
-                selected_starters[pos_name] = best_idx
-                used_indices.add(best_idx)
+            selected_starters[pos_name] = best_idx
+            used_indices.add(best_idx)
     
     dh_best_idx = -1
     dh_best_score = -1
@@ -1126,11 +1222,14 @@ def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
         used_indices.add(dh_best_idx)
 
     lineup_candidates = []
+    # 辞書順ではなく、一般的な打順構成のためのスタメンリストを作成
+    # ポジションマップからリストへ
     for pos, idx in selected_starters.items():
         lineup_candidates.append(idx)
         
     lineup_candidates.sort(key=lambda i: team.players[i].stats.overall_batting(), reverse=True)
     
+    # 人数が足りない場合の補充
     if len(lineup_candidates) < 9:
         remaining = [i for i in candidates.keys() if i not in used_indices]
         remaining.sort(key=lambda i: team.players[i].stats.overall_batting(), reverse=True)

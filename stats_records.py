@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-セイバーメトリクス計算・統計処理エンジン (修正版: wRC+完全整合化・環境補正制限撤廃・ROE修正)
+セイバーメトリクス計算・統計処理エンジン (修正版: wRC+完全整合化・環境補正制限撤廃・ROE修正・リーグwOBA基準値修正)
 """
 from models import Team, Player, Position, TeamLevel, PlayerRecord
 from typing import List, Dict
@@ -78,8 +78,6 @@ class LeagueStatsCalculator:
         c = {}
         
         # --- 1. 基礎データの準備 ---
-        # リーグ総得点: 打者の得点(R)と投手の失点(RA)のうち、値が大きい方（信頼できる方）を採用
-        # 通常、RAの方がエラー失点なども含み正確である場合が多い
         league_runs = max(t["R"], t["RA"])
         league_pa = t["PA"] if t["PA"] > 0 else 1
         
@@ -88,20 +86,10 @@ class LeagueStatsCalculator:
         c["league_r_pa"] = lg_r_pa
 
         # --- 2. Run Values (得点価値) の算出 ---
-        # 基準値 (MLB平均 R/PA=0.116 付近でのLinear Weights)
         base_r_pa = 0.116
-        
-        # 環境補正倍率
-        # 【重要】人為的なクリッピング（0.7〜1.5等）を撤廃。
-        # 環境が極端（例えばR/PA=0.05）なら、係数も素直に0.43倍にする。
-        # これによりwRAAのインフレを防ぐ。
         env_factor = lg_r_pa / base_r_pa if base_r_pa > 0 else 1.0
-        
-        # ゼロ除算等のエラー防止のための最低限のガードのみ残す
         if env_factor < 0.01: env_factor = 0.01
 
-        # Linear Weights (線形得点係数) を環境に合わせてスケーリング
-        # 基準: BB=0.33, 1B=0.48, 2B=0.79, 3B=1.08, HR=1.42
         run_values = {
             "uBB": 0.33 * env_factor,
             "HBP": 0.36 * env_factor,
@@ -109,11 +97,9 @@ class LeagueStatsCalculator:
             "2B": 0.79 * env_factor,
             "3B": 1.08 * env_factor,
             "HR": 1.42 * env_factor,
-            "ROE": 0.48 * env_factor # 失策出塁は単打相当とする
+            "ROE": 0.48 * env_factor
         }
         
-        # R/Out (1アウトあたりのマイナス価値の絶対値)
-        # これも環境に比例する (league_runsベースで計算)
         if t["IP"] > 0:
             r_per_out = league_runs / (t["IP"] * 3)
         else:
@@ -121,7 +107,6 @@ class LeagueStatsCalculator:
             r_per_out = league_runs / outs if outs > 0 else 0.157
 
         # --- 3. wOBA係数 (Raw) の算出 ---
-        # Raw Weight = Run Value + R/Out
         value_not_out = r_per_out
 
         raw_weights = {
@@ -138,12 +123,11 @@ class LeagueStatsCalculator:
         # リーグwOBA(Raw)を計算
         lg_woba_raw = self._calc_league_woba_val(t, raw_weights)
 
-        # リーグOBPを計算 (分母はwOBA定義に準拠: AB + BB - IBB + SF + HBP)
+        # リーグOBPを計算
         denom_woba = t["AB"] + t["BB"] - t["IBB"] + t["SF"] + t["HBP"]
         lg_oba = (t["H"] + t["BB"] + t["HBP"]) / denom_woba if denom_woba > 0 else 0.320
 
-        # スケール係数 = OBP / Raw_wOBA
-        # ここでもクリッピングを撤廃し、計算値を信頼する。
+        # スケール係数
         if lg_woba_raw > 0:
             woba_scale = lg_oba / lg_woba_raw
         else:
@@ -154,7 +138,12 @@ class LeagueStatsCalculator:
         
         c["woba_weights"] = final_woba_weights
         c["woba_scale"] = woba_scale
-        c["league_woba"] = lg_oba # wRAA計算の基準値
+        
+        # ▼▼▼ 修正: wRC+基準値を「リーグの加重平均wOBA」に設定 ▼▼▼
+        # 個人のwOBAと同じスケール(final_woba_weights)でリーグ全体を計算し直す
+        # これにより、リーグwOBAが個人のwOBAの平均と完全に一致する
+        c["league_woba"] = lg_woba_raw * woba_scale 
+        # ▲▲▲ 修正終了 ▲▲▲
 
         # --- FIP Constant ---
         if t["IP"] > 0:
@@ -247,12 +236,10 @@ class LeagueStatsCalculator:
             divisor = woba_scale if woba_scale > 0 else 1.25
             wraa = ((r.woba_val - lg_woba) / divisor) * r.plate_appearances
 
-            # --- PF補正 (指定式) ---
-            # 補正係数＝（本拠地試合／総試合）×PF＋（1－本拠地試合／総試合）×（6－PF）／5
+            # --- PF補正 ---
             games_ratio = r.home_games / r.games if r.games > 0 else 0.5
             pf_correction_coefficient = games_ratio * team_pf + (1.0 - games_ratio) * ((6.0 - team_pf) / 5.0)
             
-            # 補正値＝（1－補正係数）×リーグの平均打席あたり得点×打席
             pf_correction_value = (1.0 - pf_correction_coefficient) * lg_r_pa * r.plate_appearances
             
             # 補正wRAA
@@ -267,7 +254,6 @@ class LeagueStatsCalculator:
             if lg_r_pa > 0:
                 league_expected_runs = lg_r_pa * r.plate_appearances
                 if league_expected_runs > 0.0001:
-                    # 分子の wRC (補正wRAA + 期待得点) を使用
                     r.wrc_plus_val = 100 * adjusted_wrc / league_expected_runs
                 else:
                     r.wrc_plus_val = 100.0
@@ -291,12 +277,23 @@ class LeagueStatsCalculator:
         # --- WAR Calculation ---
         if player.position.value != "投手":
             batting_runs = adjusted_wraa if r.plate_appearances > 0 else 0
-            bsr = (r.stolen_bases * 0.2) - (r.caught_stealing * 0.4)
+            
+            # wSB (Weighted Stolen Base Runs)
+            # wSB = (SB * run_sb) + (CS * run_cs) 
+            # linear weights approximation: SB +0.2, CS -0.4
+            wsb = (r.stolen_bases * 0.2) - (r.caught_stealing * 0.4)
+            r.wsb_val = wsb # Store it
+            
+            # UBR (Ultimate Base Running) - Placeholder
+            # Current engine does not track base running advancements explicitly enough for full UBR
+            r.ubr_val = 0.0 
+            
+            bsr = wsb + r.ubr_val
             fielding_runs = r.uzr_val
             
             pos_val_map = {
-                "捕手": 12.5, "遊撃手": 7.5, "二塁手": 2.5, "三塁手": 2.5, "外野手": -2.5,
-                "一塁手": -12.5, "DH": -17.5
+                "捕手": 18.1, "遊撃手": 10.3, "二塁手": 3.4, "三塁手": -4.8, "中堅手": 4.2,
+                "左翼手": -12.0, "右翼手": -5.0,"一塁手": -14.1, "DH": -15.1
             }
             pos_base = pos_val_map.get(player.position.value, 0)
             pos_adj = pos_base * (r.plate_appearances / 600.0)

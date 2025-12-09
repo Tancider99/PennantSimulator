@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-選手生成ユーティリティ（OOTPスタイル対応版）
+選手生成ユーティリティ（OOTPスタイル対応・外野3ポジション版）
 """
 import random
 from typing import Optional, List
@@ -25,28 +25,22 @@ def create_random_player(position: Position,
                         number: int = 0,
                         is_foreign: bool = False,
                         age: int = None) -> Player:
-    """ランダムな選手を生成（OOTPスタイル対応版）
-
-    能力値は1-99スケール（平均50）
-    """
+    """ランダムな選手を生成（OOTPスタイル対応版）"""
     name = generate_foreign_name() if is_foreign else generate_japanese_name()
     if age is None:
         age = random.randint(18, 38) if not is_foreign else random.randint(22, 35)
 
     stats = PlayerStats()
 
-    # 能力値生成ヘルパー (正規分布、1-99スケール)
     def get_stat(mu=50, sigma=15, min_val=1, max_val=99):
         val = int(random.gauss(mu, sigma))
         return max(min_val, min(max_val, val))
 
     if position == Position.PITCHER:
           # --- 投手能力 ---
-          # 球速: 平均145km/h, 標準偏差7km/h, 範囲120-170
                 stats.velocity = int(random.gauss(145, 7))
                 stats.velocity = max(120, min(170, stats.velocity))
 
-                # 基本能力
                 stats.stuff = get_stat(50)
                 stats.movement = get_stat(50)
                 stats.control = get_stat(50)
@@ -54,31 +48,26 @@ def create_random_player(position: Position,
                 stats.hold_runners = get_stat(50)
                 stats.gb_tendency = get_stat(50, 20, 1, 99)
                 
-                # 新規追加能力
                 stats.vs_left_pitcher = get_stat(50)
                 stats.vs_pinch = get_stat(50)
                 stats.stability = get_stat(50)
 
-                # 守備 (投手)
                 stats.set_defense_range(Position.PITCHER, get_stat(50))
                 stats.arm = get_stat(50)
                 stats.error = get_stat(50)
                 stats.turn_dp = get_stat(50)
 
-                # 打撃 (投手は低い)
                 stats.contact = get_stat(15, 7, 1, 40)
                 stats.gap = get_stat(15, 7, 1, 40)
                 stats.power = get_stat(15, 7, 1, 40)
                 stats.eye = get_stat(15, 7, 1, 40)
                 stats.avoid_k = get_stat(15, 7, 1, 40)
-                stats.trajectory = random.randint(1, 2) # 投手は低弾道
+                stats.trajectory = random.randint(1, 2)
 
-                # 走塁 (投手は低い)
                 stats.speed = get_stat(20, 7, 1, 60)
                 stats.steal = get_stat(10, 5, 1, 40)
                 stats.baserunning = get_stat(15, 7, 1, 60)
 
-                # 変化球
                 balls = ["ストレート", "スライダー", "カーブ", "フォーク", "チェンジアップ", "カットボール", "シンカー", "ツーシーム"]
                 num_pitches = random.randint(3, 6)
                 selected_balls = random.sample(balls, num_pitches)
@@ -94,12 +83,10 @@ def create_random_player(position: Position,
         stats.eye = get_stat(50)
         stats.avoid_k = get_stat(50)
         
-        # 弾道 (パワーがあるほど高くなりやすい)
         if stats.power > 70: stats.trajectory = random.choice([3, 4, 4])
         elif stats.power > 50: stats.trajectory = random.choice([2, 3, 3])
         else: stats.trajectory = random.choice([1, 2, 2])
         
-        # 新規追加能力
         stats.vs_left_batter = get_stat(50)
         stats.chance = get_stat(50)
 
@@ -107,16 +94,14 @@ def create_random_player(position: Position,
         stats.steal = get_stat(50)
         stats.baserunning = get_stat(50)
 
-        # バント
         stats.bunt_sac = get_stat(50)
         stats.bunt_hit = get_stat(50)
 
-        # 守備 (共通)
         stats.arm = get_stat(50)
         stats.error = get_stat(50)
         stats.turn_dp = get_stat(50)
 
-        # 守備 (ポジション別範囲 & 固有)
+        # 守備範囲設定 (修正)
         if position == Position.CATCHER:
             stats.catcher_lead = get_stat(50)
             stats.set_defense_range(Position.CATCHER, get_stat(50))
@@ -128,8 +113,9 @@ def create_random_player(position: Position,
             stats.set_defense_range(Position.THIRD, get_stat(50))
         elif position == Position.SHORTSTOP:
             stats.set_defense_range(Position.SHORTSTOP, get_stat(50))
-        elif position == Position.OUTFIELD:
-            stats.set_defense_range(Position.OUTFIELD, get_stat(50))
+        # 外野3ポジション対応
+        elif position in [Position.LEFT, Position.CENTER, Position.RIGHT]:
+            stats.set_defense_range(position, get_stat(50))
 
         # 投手能力 (野手)
         stats.velocity = 130
@@ -138,18 +124,24 @@ def create_random_player(position: Position,
         stats.movement = 50
         stats.stamina = 50
 
-    # 共通能力
     stats.durability = get_stat(50)
-    stats.recovery = get_stat(50) # 新規
+    stats.recovery = get_stat(50)
     stats.work_ethic = get_stat(50)
     stats.intelligence = get_stat(50)
-    stats.mental = get_stat(50) # 新規
+    stats.mental = get_stat(50)
 
+    # 利き腕のランダム設定 (右投げ右打ちが多め)
+    if random.random() < 0.7: player_throws = "右"
+    else: player_throws = "左"
+    
+    if random.random() < 0.6: player_bats = "右"
+    elif random.random() < 0.85: player_bats = "左"
+    else: player_bats = "両"
+    
     # 年俸計算
     if position == Position.PITCHER:
         rating = stats.overall_pitching()
     else:
-        # ポジションを渡して正確な評価を計算
         rating = stats.overall_batting(position)
 
     base = 500
@@ -157,7 +149,8 @@ def create_random_player(position: Position,
 
     player = Player(
         name=name, position=position, pitch_type=pitch_type, stats=stats,
-        age=age, status=status, uniform_number=number, is_foreign=is_foreign, salary=salary
+        age=age, status=status, uniform_number=number, is_foreign=is_foreign, salary=salary,
+        bats=player_bats, throws=player_throws
     )
 
     return player
