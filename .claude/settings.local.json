@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python run_ui.py:*)",
+      "Bash(python PennantSimulator.py:*)",
       "Bash(dir:*)",
       "Bash(find:*)",
       "Bash(timeout 15 python:*)",
