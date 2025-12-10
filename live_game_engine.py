@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-ライブ試合エンジン (修正版: UBR均衡化・パラメータ影響増大・表示修正対応)
+ライブ試合エンジン (修正版: BABIP調整・二塁打抑制・NPB式本格継投システム実装)
 """
 import random
 import math
@@ -82,7 +82,13 @@ def get_effective_stat(player: Player, stat_name: str, opponent: Optional[Player
     if player.position != Position.PITCHER:
         if stat_name in ['contact', 'power'] and opponent and opponent.position == Position.PITCHER:
             vs_left = getattr(player.stats, 'vs_left_batter', 50)
-            value += (vs_left - 50) * 0.2
+            throws = getattr(opponent, 'throws', '右')
+            if throws == '左':
+                value += (vs_left - 50) * 0.4  # 左投手対戦時の補正を強化
+            else:
+                # 対右の場合、対左が高い選手は逆に少し下がる（バランス）
+                value -= (vs_left - 50) * 0.1
+
         if is_risp and stat_name in ['contact', 'power']:
             chance = getattr(player.stats, 'chance', 50)
             value += (chance - 50) * 0.5
@@ -92,7 +98,12 @@ def get_effective_stat(player: Player, stat_name: str, opponent: Optional[Player
     else:
         if opponent and opponent.position != Position.PITCHER:
             vs_left = getattr(player.stats, 'vs_left_pitcher', 50)
-            value += (vs_left - 50) * 0.2
+            bats = getattr(opponent, 'bats', '右')
+            if bats == '左' or bats == '両': # 両打ちは左打席と仮定（簡易）
+                value += (vs_left - 50) * 0.4
+            else:
+                value -= (vs_left - 50) * 0.1
+
         if is_risp:
             pinch = getattr(player.stats, 'vs_pinch', 50)
             if stat_name in ['stuff', 'movement', 'control']:
@@ -158,15 +169,179 @@ class GameState:
     home_pitchers_used: List[Player] = field(default_factory=list)
     away_pitchers_used: List[Player] = field(default_factory=list)
 
+    # 継投用の一時データ
+    home_current_pitcher_runs: int = 0  # 現投手の失点
+    away_current_pitcher_runs: int = 0
+    
     def is_runner_on(self) -> bool: return any([self.runner_1b, self.runner_2b, self.runner_3b])
     def is_risp(self) -> bool: return (self.runner_2b is not None) or (self.runner_3b is not None)
     def current_pitcher_stamina(self) -> float: return self.home_pitcher_stamina if self.is_top else self.away_pitcher_stamina
+    
+    def get_score_diff(self) -> int:
+        # 攻撃側から見た点差（プラスなら勝ってる）
+        if self.is_top: return self.away_score - self.home_score
+        else: return self.home_score - self.away_score
 
 # ========================================
 # エンジンクラス群
 # ========================================
 
+class NPBPitcherManager:
+    """
+    NPB準拠の継投ロジックを管理するクラス
+    """
+    def check_pitcher_change(self, state: GameState, team: Team, opponent: Team, next_batter: Player, current_pitcher: Player) -> Optional[Player]:
+        """
+        投手交代が必要か判断し、交代する場合は新投手を返す。交代不要ならNoneを返す。
+        """
+        is_starter = current_pitcher in [team.players[i] for i in team.rotation if 0 <= i < len(team.players)]
+        current_stamina = state.home_pitcher_stamina if not state.is_top else state.away_pitcher_stamina
+        current_runs = state.home_current_pitcher_runs if not state.is_top else state.away_current_pitcher_runs
+        pitch_count = state.home_pitch_count if not state.is_top else state.away_pitch_count
+        
+        score_diff = state.home_score - state.away_score
+        if state.is_top: score_diff *= -1 # 守備側（自チーム）から見た点差
+        
+        # 1. スタミナ・限界による強制交代判定
+        if current_stamina <= 0 or pitch_count > 130:
+            return self._select_reliever(team, state, score_diff, next_batter)
+            
+        # 2. 先発投手の交代判断
+        if is_starter:
+            # 炎上時 (5失点以上)
+            if current_runs >= 5 and state.inning <= 5:
+                return self._select_reliever(team, state, score_diff, next_batter)
+            
+            # 球数目処 (100球)
+            if pitch_count > 100:
+                # 接戦で勝ち越し中、かつあと1アウトで回が終わるなら続投も
+                if score_diff > 0 and state.outs == 2 and pitch_count < 115:
+                    pass
+                else:
+                    return self._select_reliever(team, state, score_diff, next_batter)
+            
+            # 勝利投手の権利 (5回)
+            if state.inning == 5 and score_diff > 0 and current_stamina > 10 and current_runs < 4:
+                return None # 勝ち投手の権利までは引っ張る傾向
+
+            # 7回以降の継投 (リード時、僅差ビハインド時)
+            if state.inning >= 7:
+                if pitch_count > 90 or current_stamina < 30:
+                     if score_diff >= -2: # 接戦
+                         return self._select_reliever(team, state, score_diff, next_batter)
+
+            # 打順巡り合わせ（3巡目以降かつピンチ）
+            if state.inning >= 6 and state.is_risp() and score_diff in range(-1, 3):
+                return self._select_reliever(team, state, score_diff, next_batter)
+
+        # 3. リリーフ投手の交代判断
+        else:
+            # ワンポイントリリーフ完了判断
+            # リリーフは基本1イニングだが、ピンチを招いたら代える、イニング跨ぎの制限など
+            
+            # 回またぎ判定 (イニングが変わった時)
+            if state.outs == 0 and pitch_count > 20: # 既に20球投げて次の回
+                # クローザーは回またぎあり（9回同点→10回など）
+                is_closer = team.closer_idx != -1 and team.players[team.closer_idx] == current_pitcher
+                if not is_closer:
+                    return self._select_reliever(team, state, score_diff, next_batter)
+            
+            # 打たれた場合
+            if current_runs >= 2: # リリーフが2点取られたら交代
+                return self._select_reliever(team, state, score_diff, next_batter)
+                
+            # スタミナ切れ
+            if current_stamina < 10:
+                return self._select_reliever(team, state, score_diff, next_batter)
+        
+        # 4. 勝利の方程式 (Winning Formula)
+        # 8回・9回のリード時
+        if score_diff > 0 and score_diff <= 3:
+            if state.inning == 9: # クローザー
+                closer = team.get_closer()
+                if closer and closer != current_pitcher:
+                    # まだ登板していないなら投入
+                    # リストでチェックが必要（簡易的に）
+                    return closer
+            elif state.inning == 8: # セットアッパー
+                setup = team.get_setup_pitcher()
+                if setup and setup != current_pitcher:
+                    # 現在の投手が先発で余力がある場合は続投もありだが、基本はセットアッパー
+                    if is_starter and current_stamina > 40 and pitch_count < 90:
+                        pass
+                    else:
+                        return setup
+
+        # 5. ワンポイントリリーフ (対左強打者)
+        # 僅差、ピンチ、相手が左の強打者
+        if abs(score_diff) <= 2 and state.is_risp() and next_batter.bats == "左":
+             # 現在の投手が右で、左に弱い場合
+             eff_vs_left = getattr(current_pitcher.stats, 'vs_left_batter', 50)
+             if current_pitcher.throws == "右" and eff_vs_left < 45:
+                 # 左キラーを探す
+                 lefty_specialist = self._find_lefty_specialist(team, current_pitcher)
+                 if lefty_specialist:
+                     return lefty_specialist
+
+        return None
+
+    def _select_reliever(self, team: Team, state: GameState, score_diff: int, next_batter: Player) -> Optional[Player]:
+        """状況に応じた最適なリリーフを選択"""
+        # 使用済み投手を除外するロジックはGameState側で管理されているリストを使用する必要がある
+        used_pitchers = state.home_pitchers_used if not state.is_top else state.away_pitchers_used
+        
+        available_pitchers = []
+        # ベンチ入り投手（ローテ以外）を取得
+        # Teamクラスの構造に依存。ここでは簡易的に全投手から使用済みとローテを除外
+        rotation_players = [team.players[i] for i in team.rotation if 0 <= i < len(team.players)]
+        
+        for p_idx in team.active_roster:
+            if 0 <= p_idx < len(team.players):
+                p = team.players[p_idx]
+                if p.position == Position.PITCHER and p not in used_pitchers and p not in rotation_players:
+                    available_pitchers.append(p)
+        
+        if not available_pitchers: return None
+
+        # --- 状況別選択 ---
+        
+        # 1. クローザー (9回以降、リード3点以内 or 同点ホーム)
+        if state.inning >= 9 and (0 < score_diff <= 3 or (score_diff == 0 and not state.is_top)):
+            closer = team.get_closer()
+            if closer and closer in available_pitchers: return closer
+
+        # 2. セットアッパー (8回、リード3点以内 or 同点)
+        if state.inning >= 8 and (0 <= score_diff <= 3):
+            setup = team.get_setup_pitcher()
+            if setup and setup in available_pitchers: return setup
+
+        # 3. 接戦時の勝ちパターンB / 左殺し (6-7回, 僅差)
+        if abs(score_diff) <= 3:
+            # 左打者には左投手を優先
+            if next_batter.bats == "左":
+                lefties = [p for p in available_pitchers if p.throws == "左"]
+                lefties.sort(key=lambda x: x.stats.overall_pitching(), reverse=True)
+                if lefties: return lefties[0]
+            
+            # 以前は勝ちパターンの投手を選ぶ
+            best_reliever = max(available_pitchers, key=lambda p: p.stats.overall_pitching())
+            return best_reliever
+
+        # 4. 敗戦処理 / 大量リード時 (点差4以上)
+        # 能力が低めの投手から選ぶ
+        available_pitchers.sort(key=lambda p: p.stats.overall_pitching())
+        return available_pitchers[0]
+
+    def _find_lefty_specialist(self, team: Team, current_pitcher: Player) -> Optional[Player]:
+        # 未使用の投手から探すロジックが必要（ここでは簡易実装）
+        # 実際には _select_reliever と同様に使用済みチェックが必要
+        return None 
+
+
 class AIManager:
+    def __init__(self):
+        self.pitcher_manager = NPBPitcherManager()
+
     def decide_strategy(self, state: GameState, offense_team, defense_team, batter: Player) -> str:
         score_diff = state.away_score - state.home_score if state.is_top else state.home_score - state.away_score
         is_late = state.inning >= 7
@@ -175,26 +350,25 @@ class AIManager:
         bunt_skill = get_effective_stat(batter, 'bunt_sac')
         if state.outs == 0 and (state.runner_1b) and not state.runner_3b:
             batting_ab = batter.stats.overall_batting()
+            # 投手のバントはほぼ確実
+            if batter.position == Position.PITCHER:
+                return "BUNT"
+            # 接戦終盤、または打撃が弱い選手、またはバントが得意な選手
             if (is_close and is_late) or (bunt_skill > 70 and batting_ab < 45) or (state.runner_2b and is_close):
                 return "BUNT"
         
-        # 盗塁判断 (全選手にチャンスあり)
+        # 盗塁判断
         if state.runner_1b and not state.runner_2b and not state.runner_3b and state.outs < 2:
             runner_spd = get_effective_stat(state.runner_1b, 'speed')
             runner_stl = get_effective_stat(state.runner_1b, 'steal')
             
-            # 基礎確率 (2% + 走力補正)
             attempt_prob = 0.02 + (runner_spd - 50) * 0.003
-            
-            # 技術補正
             attempt_prob *= (0.7 + (runner_stl / 50.0) * 0.5)
             
-            # 状況補正
-            if is_close and is_late: attempt_prob *= 0.5
-            elif abs(score_diff) >= 4: attempt_prob *= 1.2
+            if is_close and is_late: attempt_prob *= 0.5 # 終盤接戦は慎重に
+            elif abs(score_diff) >= 4: attempt_prob *= 1.2 # 点差があれば自由に
             
             attempt_prob = max(0.005, attempt_prob)
-            
             if random.random() < attempt_prob: return "STEAL"
         
         eff_power = get_effective_stat(batter, 'power', is_risp=state.is_risp())
@@ -211,8 +385,10 @@ class AIManager:
         if state.balls >= 3: return "STRIKE" 
         if state.strikes == 2:
             has_breaking = len(pitcher.stats.pitches) > 0
-            if has_breaking and eff_control > 40: return "BALL"
+            if has_breaking and eff_control > 40: return "BALL" # 誘い球
         eff_power = get_effective_stat(batter, 'power', is_risp=state.is_risp())
+        
+        # 敬遠判断: 8回以降、僅差、1塁空き、強打者
         if state.is_risp() and not state.runner_1b and eff_power > 85 and state.inning >= 8 and abs(state.home_score - state.away_score) <= 1:
             return "WALK"
         return "NORMAL"
@@ -290,7 +466,7 @@ class PitchGenerator:
 
     def _calc_location(self, control, state, strategy):
         if strategy == "WALK": return PitchLocation(1.0, 1.5, False)
-        zone_target_prob = 0.54 + (control - 50) * 0.003
+        zone_target_prob = 0.49 + (control - 50) * 0.003
         if strategy == "STRIKE": zone_target_prob += 0.3
         elif strategy == "BALL": zone_target_prob -= 0.3
         if state.balls == 3: zone_target_prob += 0.25
@@ -338,9 +514,9 @@ class BattedBallGenerator:
         
         meet_bonus = 15 if strategy == "MEET" else (-20 if strategy == "POWER" else 0)
         ball_penalty = 0 if pitch.location.is_strike else 20
-        con_eff = contact + meet_bonus - (p_movement - 50) * 0.4 - ball_penalty
+        con_eff = contact + meet_bonus - (p_movement - 50) * 0.25 - ball_penalty
         
-        power_bonus_factor = (power - 50) * 0.4
+        power_bonus_factor = (power - 50) * 0.1
         hard_chance = max(1.0, (con_eff * 0.5) + power_bonus_factor)
         medium_limit = max(hard_chance + 10, con_eff * 0.85)
         
@@ -348,9 +524,9 @@ class BattedBallGenerator:
         quality = "hard" if quality_roll < hard_chance else ("medium" if quality_roll < medium_limit else "soft")
         
         # 打球速度
-        base_v = 142.5 + (power - 50) * 0.12
+        base_v = 148 + (power - 50) * 0.2
         if strategy == "POWER": base_v += 9
-        if quality == "hard": base_v += 10 + (power / 5.0) 
+        if quality == "hard": base_v += 20 + (power / 10) 
         if quality == "soft": base_v -= 35 
         
         traj_bias = 5 + (trajectory * 5)
@@ -414,7 +590,7 @@ class BattedBallGenerator:
 
 class AdvancedDefenseEngine:
     """
-    超本格守備エンジン: 空間座標・時間・UZR計算
+    超本格守備エンジン: 空間座標・時間・UZR計算 (修正済み)
     """
     def judge(self, ball: BattedBallData, defense_team: Team, team_level: TeamLevel = TeamLevel.FIRST, stadium: Stadium = None):
         abs_spray = abs(ball.spray_angle)
@@ -439,44 +615,44 @@ class AdvancedDefenseEngine:
         range_stat = range_stat * (1.0 + (best_fielder.condition - 5) * 0.02)
         speed_stat = get_effective_stat(best_fielder, 'speed')
         
-        # ★修正: 野手の移動速度と反応を向上させてヒットを減らす
-        # max_speed を上方修正 (守備範囲拡大)
-        max_speed = 5.0 + (speed_stat / 100.0) * 4.0  # 元: 5.0 + ... * 4.0
+        # ★修正: BABIP向上のため、守備範囲・移動速度を少し落とす
+        max_speed = 6.0 + (speed_stat / 100.0) * 2.0  # 下方修正
         
-        # 反応時間を短縮 (守備反応向上)
-        reaction_delay = 0.4 - (range_stat / 250.0) # 元: 0.4 - ...
+        # 反応時間 (少し遅くする)
+        reaction_delay = 0.45 - (range_stat / 500.0) 
         
         time_needed = reaction_delay + (dist_to_ball / max_speed)
         
         if ball.hit_type in [BattedBallType.FLYBALL, BattedBallType.POPUP, BattedBallType.LINEDRIVE]:
             time_available = ball.hang_time
             if ball.hit_type == BattedBallType.LINEDRIVE:
-                 if dist_to_ball < 3.0: time_needed = 0 
+                 if dist_to_ball < 2.0: time_needed = 0  # 正面
         else:
-            # ゴロの到達時間計算
+            # ゴロ
             ball_speed_ms = (ball.exit_velocity / 3.6) * 0.6 
             time_available = dist_to_ball / max(1.0, ball_speed_ms)
             if ball.hit_type == BattedBallType.GROUNDBALL and ball.distance < 30:
-                 time_available = 10.0 
+                 time_available = 10.0 # 内野安打系は別途判定
 
         time_diff = time_available - time_needed
         catch_prob = 0.0
         
-        # ★修正: 捕球確率の計算式を調整し、アウトを取りやすくする
-        if time_diff >= 0.4: # 元: 0.5
-             catch_prob = 0.95 # 元: 0.90
+        # ★修正: 捕球確率のカーブを調整し、ヒットを増やす
+        if time_diff >= 0.4:
+             catch_prob = 0.95 # イージーでもエラーやポテンヒットの可能性を残す
         elif time_diff >= 0.0:
-             # 時間ギリギリでも捕れる確率を上げる
-             catch_prob = 0.60 + (time_diff / 0.4) * 0.25 # 元: 0.60 + ...
+             # ギリギリのプレーは5分5分〜
+             catch_prob = 0.50 + (time_diff / 0.4) * 0.40
         elif time_diff > -0.3:
+             # ダイビング等
              ratio = (time_diff + 0.3) / 0.3
-             catch_prob = ratio * 0.50 # 元: 0.50 
+             catch_prob = ratio * 0.30 
         else:
              catch_prob = 0.0
         
-        # 強い打球の補正を緩和 (ヒットになりすぎないように)
-        if ball.contact_quality == "hard": catch_prob *= 0.85 # 元: 0.80
-        if ball.hit_type == BattedBallType.LINEDRIVE: catch_prob *= 0.92 # 元: 0.90
+        # 強い打球の補正 (BABIP向上)
+        if ball.contact_quality == "hard": catch_prob *= 0.90 # 強烈な打球は捕りにくい
+        if ball.hit_type == BattedBallType.LINEDRIVE: catch_prob *= 0.85 # ライナーはヒットになりやすい
         
         if stadium: catch_prob /= stadium.pf_1b
         catch_prob = max(0.0, min(0.99, catch_prob))
@@ -532,6 +708,7 @@ class AdvancedDefenseEngine:
                 p = team.players[idx]
                 if p.position != Position.DH and p.position != Position.PITCHER: pos_map[p.position] = p
         
+        # 投手も守備に参加
         pitcher = team.players[team.starting_pitcher_idx]; pos_map[Position.PITCHER] = pitcher
 
         for pos_enum, coords in FIELD_COORDS.items():
@@ -562,6 +739,7 @@ class AdvancedDefenseEngine:
                  rec.def_drs_raw += val; rec.uzr_arm += val
             return PlayResult.GROUNDOUT
         else:
+            # 内野安打
             if -0.3 < time_margin < 0:
                  val = -0.1 * UZR_SCALE["ARM"]
                  rec.def_drs_raw += val; rec.uzr_arm += val
@@ -571,16 +749,35 @@ class AdvancedDefenseEngine:
         dist = ball.distance
         pf_2b = stadium.pf_2b if stadium else 1.0
         pf_3b = stadium.pf_3b if stadium else 1.0
-        double_threshold = 65.0 / math.sqrt(pf_2b)
-        triple_threshold = 105.0 / math.sqrt(pf_3b)
-        is_behind_fielder = ball_pos[1] > 80 
         
+        # ★修正: 二塁打の閾値を上げて、容易な二塁打を減らす
+        # 標準的な球場サイズを考慮し、フェンス到達や深い位置のみを二塁打とする
+        base_double_threshold = 78.0 # 元: 65.0
+        
+        double_threshold = base_double_threshold / math.sqrt(pf_2b)
+        triple_threshold = 105.0 / math.sqrt(pf_3b)
+        
+        is_behind_fielder = ball_pos[1] > 80 
+        abs_spray = abs(ball.spray_angle)
+        
+        # 三塁打判定
         if dist > triple_threshold and is_behind_fielder:
              if random.random() < 0.3: return PlayResult.TRIPLE
              return PlayResult.DOUBLE
+        
+        # 二塁打判定の厳格化 & リアル化
         if dist > double_threshold:
-            if ball.hit_type == BattedBallType.LINEDRIVE: return PlayResult.DOUBLE
-            if is_behind_fielder: return PlayResult.DOUBLE
+            # ライン際（引っ張り・流し）や、右中間・左中間の深い打球は二塁打になりやすい
+            is_down_the_line = abs_spray > 25
+            is_gap = 15 < abs_spray < 35
+            
+            if ball.hit_type == BattedBallType.LINEDRIVE:
+                if is_down_the_line or is_gap: return PlayResult.DOUBLE
+                if dist > 85: return PlayResult.DOUBLE # センターオーバーなど
+                
+            if is_behind_fielder:
+                 return PlayResult.DOUBLE
+        
         return PlayResult.SINGLE
 
     def _update_defensive_metrics(self, fielder, team_level, catch_prob, is_caught, play_value):
@@ -636,87 +833,43 @@ class LiveGameEngine:
         self.stadium = getattr(self.home_team, 'stadium', None)
         if not self.stadium: self.stadium = Stadium(name=f"{home.name} Stadium")
         self._init_starters()
-        
-        # 修正: レベルに関わらずラインナップの有効性をチェックする
         self._ensure_valid_lineup(self.home_team)
         self._ensure_valid_lineup(self.away_team)
 
     def _ensure_valid_lineup(self, team: Team):
-        """
-        指定されたチームレベルのラインナップを検証し、不備があれば再生成する。
-        自チームの二軍・三軍設定が空の場合でも自動で埋めるように修正。
-        """
-        # レベルに応じたラインナップとロースターの取得メソッドを決定
         if self.team_level == TeamLevel.SECOND:
-            get_lineup = lambda: team.farm_lineup
-            set_lineup = lambda l: setattr(team, 'farm_lineup', l)
-            get_roster = team.get_farm_roster_players
+            get_lineup = lambda: team.farm_lineup; set_lineup = lambda l: setattr(team, 'farm_lineup', l); get_roster = team.get_farm_roster_players
         elif self.team_level == TeamLevel.THIRD:
-            get_lineup = lambda: team.third_lineup
-            set_lineup = lambda l: setattr(team, 'third_lineup', l)
-            get_roster = team.get_third_roster_players
+            get_lineup = lambda: team.third_lineup; set_lineup = lambda l: setattr(team, 'third_lineup', l); get_roster = team.get_third_roster_players
         else:
-            get_lineup = lambda: team.current_lineup
-            set_lineup = lambda l: setattr(team, 'current_lineup', l)
-            get_roster = team.get_active_roster_players
+            get_lineup = lambda: team.current_lineup; set_lineup = lambda l: setattr(team, 'current_lineup', l); get_roster = team.get_active_roster_players
 
         current_lineup = get_lineup()
-
-        # ラインナップが存在しない、または9人未満の場合
         if not current_lineup or len(current_lineup) < 9:
             players = get_roster()
-            
-            # 救済措置: ロースター人数が不足している場合、チーム内の一軍以外全選手を候補にする
-            # (自チームの二軍三軍設定が放置されている場合などの対策)
             if len(players) < 9 and self.team_level != TeamLevel.FIRST:
                 players = [p for p in team.players if p.team_level != TeamLevel.FIRST]
-            
-            # それでも足りなければ全員（一軍含む）から（緊急回避）
-            if len(players) < 9:
-                players = team.players
-
+            if len(players) < 9: players = team.players
             new_lineup = generate_best_lineup(team, players)
-            set_lineup(new_lineup)
-            current_lineup = new_lineup
+            set_lineup(new_lineup); current_lineup = new_lineup
 
-        # 捕手チェック
         has_valid_catcher = False
-        catcher_idx = -1
-        
-        # 一軍かつ lineup_positions がある場合のみポジション文字列チェック
         if self.team_level == TeamLevel.FIRST and hasattr(team, 'lineup_positions') and len(team.lineup_positions) == 9:
             for i, pos_str in enumerate(team.lineup_positions):
-                if pos_str in ["捕", "捕手"] and i < len(current_lineup):
-                     catcher_idx = current_lineup[i]
-                     has_valid_catcher = True
-                     break
-        
-        # 上記で見つからない、または二軍三軍の場合は実際のポジション属性をチェック
+                if pos_str in ["捕", "捕手"] and i < len(current_lineup): has_valid_catcher = True; break
         if not has_valid_catcher:
             for idx in current_lineup:
                 if 0 <= idx < len(team.players):
                     p = team.players[idx]
-                    if p.position == Position.CATCHER: 
-                        has_valid_catcher = True
-                        break
-                    # 本職でなくても捕手適正があればOK
-                    if p.stats.get_defense_range(Position.CATCHER) >= 20:
-                        has_valid_catcher = True
-                        break
-
-        # 捕手不在なら再生成
+                    if p.position == Position.CATCHER or p.stats.get_defense_range(Position.CATCHER) >= 20: has_valid_catcher = True; break
         if not has_valid_catcher:
             players = get_roster()
             if len(players) < 9 and self.team_level != TeamLevel.FIRST:
                 players = [p for p in team.players if p.team_level != TeamLevel.FIRST]
-            
-            # 捕手適正のある選手を優先して含める必要があるが、
-            # generate_best_lineup はそれを考慮して作られるはずなので再実行
             new_lineup = generate_best_lineup(team, players)
             set_lineup(new_lineup)
 
     def _init_starters(self):
-        # ... (変更なし) ...
         hp = self.home_team.get_today_starter() or self.home_team.players[0]
         ap = self.away_team.get_today_starter() or self.away_team.players[0]
         try: self.state.home_pitcher_idx = self.home_team.players.index(hp)
@@ -730,40 +883,63 @@ class LiveGameEngine:
     def get_current_batter(self) -> Tuple[Player, int]:
         team = self.away_team if self.state.is_top else self.home_team
         order_idx = self.state.away_batter_order if self.state.is_top else self.state.home_batter_order
-        
-        # 修正: チームレベルに応じたラインナップを取得
         if self.team_level == TeamLevel.SECOND: lineup = team.farm_lineup
         elif self.team_level == TeamLevel.THIRD: lineup = team.third_lineup
         else: lineup = team.current_lineup
-        
         if not lineup: return team.players[0], 0
         return team.players[lineup[order_idx % len(lineup)]], order_idx
 
     def get_current_pitcher(self) -> Tuple[Player, int]:
-        # ... (変更なし) ...
         team = self.home_team if self.state.is_top else self.away_team
         idx = self.state.home_pitcher_idx if self.state.is_top else self.state.away_pitcher_idx
         return team.players[idx], idx
 
+    def change_pitcher(self, new_pitcher: Player):
+        """投手交代を実行し、状態を更新する"""
+        team = self.home_team if self.state.is_top else self.away_team
+        try:
+            new_idx = team.players.index(new_pitcher)
+            if self.state.is_top:
+                self.state.home_pitcher_idx = new_idx
+                self.state.home_pitchers_used.append(new_pitcher)
+                self.state.home_pitcher_stamina = new_pitcher.stats.stamina
+                self.state.home_pitch_count = 0
+                self.state.home_current_pitcher_runs = 0
+            else:
+                self.state.away_pitcher_idx = new_idx
+                self.state.away_pitchers_used.append(new_pitcher)
+                self.state.away_pitcher_stamina = new_pitcher.stats.stamina
+                self.state.away_pitch_count = 0
+                self.state.away_current_pitcher_runs = 0
+            
+            self.game_stats[new_pitcher]['games_pitched'] = 1
+            # ホールド等の記録は試合終了時に判定
+        except ValueError:
+            print(f"Error: Pitcher {new_pitcher.name} not found in team {team.name}")
+
     def get_current_catcher(self) -> Optional[Player]:
         team = self.home_team if self.state.is_top else self.away_team
-        
-        # 修正: チームレベルに応じたラインナップを取得
         if self.team_level == TeamLevel.SECOND: lineup = team.farm_lineup
         elif self.team_level == TeamLevel.THIRD: lineup = team.third_lineup
         else: lineup = team.current_lineup
-
         if not lineup: return None
         for p_idx in lineup:
             if team.players[p_idx].position == Position.CATCHER: return team.players[p_idx]
         return None
 
     def simulate_pitch(self, manual_strategy=None):
+        # 0. 投手交代判定 (打者と対戦する前)
         batter, _ = self.get_current_batter()
         pitcher, _ = self.get_current_pitcher()
-        catcher = self.get_current_catcher()
-        
         defense_team = self.home_team if self.state.is_top else self.away_team
+        
+        # NPB式継投ロジックの呼び出し
+        new_pitcher = self.ai.pitcher_manager.check_pitcher_change(self.state, defense_team, self.away_team if self.state.is_top else self.home_team, batter, pitcher)
+        if new_pitcher:
+            self.change_pitcher(new_pitcher)
+            pitcher = new_pitcher # 更新
+            
+        catcher = self.get_current_catcher()
         offense_team = self.away_team if self.state.is_top else self.home_team
         
         strategy = manual_strategy or self.ai.decide_strategy(self.state, offense_team, defense_team, batter)
@@ -774,8 +950,8 @@ class LiveGameEngine:
             if res: return PitchResult.BALL, None, None
 
         pitch = self.pitch_gen.generate_pitch(pitcher, batter, catcher, self.state, pitch_strategy, self.stadium)
-        if self.state.is_top: self.state.away_pitch_count += 1
-        else: self.state.home_pitch_count += 1
+        if self.state.is_top: self.state.home_pitch_count += 1
+        else: self.state.away_pitch_count += 1
         
         if not pitch.location.is_strike and pitch.location.z < 0.15 and catcher:
             catch_err = get_effective_stat(catcher, 'error')
@@ -809,7 +985,7 @@ class LiveGameEngine:
                 return PitchResult.IN_PLAY, ball
 
         eye = get_effective_stat(batter, 'eye')
-        swing_prob = (0.75 + (eye-50)*0.002) if pitch.location.is_strike else (0.32 - (eye-50)*0.005)
+        swing_prob = (0.75 + (eye-50)*0.001) if pitch.location.is_strike else (0.30 - (eye-50)*0.003)
         if self.state.strikes == 2: swing_prob += 0.15
         if strategy == "POWER": swing_prob += 0.1 
         if strategy == "MEET": swing_prob -= 0.1
@@ -818,8 +994,8 @@ class LiveGameEngine:
         if random.random() >= swing_prob: return PitchResult.STRIKE_CALLED if pitch.location.is_strike else PitchResult.BALL, None
             
         contact = get_effective_stat(batter, 'contact', opponent=pitcher)
-        hit_prob = 0.78 + (contact - 50)*0.005
-        if not pitch.location.is_strike: hit_prob -= 0.2
+        hit_prob = 0.80 + (contact - 50)*0.001
+        if not pitch.location.is_strike: hit_prob -= 0.50 + (contact - 50)*0.001
         if self.stadium: hit_prob /= max(0.5, self.stadium.pf_so)
 
         if random.random() > hit_prob: return PitchResult.STRIKE_SWINGING, None
@@ -994,6 +1170,8 @@ class LiveGameEngine:
             if scored > 0:
                 self.game_stats[batter]['rbis'] += scored
                 self.game_stats[pitcher]['runs_allowed'] += scored; self.game_stats[pitcher]['earned_runs'] += scored
+                if self.state.is_top: self.state.home_current_pitcher_runs += scored
+                else: self.state.away_current_pitcher_runs += scored
                 self._score(scored)
             return play
 
@@ -1008,7 +1186,9 @@ class LiveGameEngine:
             
             if scored > 0:
                 self.game_stats[batter]['rbis'] += scored
-                self.game_stats[pitcher]['runs_allowed'] += scored
+                self.game_stats[pitcher]['runs_allowed'] += scored # 自責点はつかない
+                if self.state.is_top: self.state.home_current_pitcher_runs += scored
+                else: self.state.away_current_pitcher_runs += scored
                 self._score(scored)
             return play
 
@@ -1062,6 +1242,8 @@ class LiveGameEngine:
         if is_sac_fly:
             self.game_stats[batter]['sacrifice_flies'] += 1; self.game_stats[batter]['rbis'] += scored
             self.game_stats[pitcher]['runs_allowed'] += scored; self.game_stats[pitcher]['earned_runs'] += scored
+            if self.state.is_top: self.state.home_current_pitcher_runs += scored
+            else: self.state.away_current_pitcher_runs += scored
             if sac_scored_runner: self.game_stats[sac_scored_runner]['runs'] += 1
             self._score(scored)
         elif is_sac_bunt:
@@ -1069,6 +1251,8 @@ class LiveGameEngine:
             if scored > 0:
                 self.game_stats[batter]['rbis'] += scored
                 self.game_stats[pitcher]['runs_allowed'] += scored; self.game_stats[pitcher]['earned_runs'] += scored
+                if self.state.is_top: self.state.home_current_pitcher_runs += scored
+                else: self.state.away_current_pitcher_runs += scored
                 self._score(scored)
         elif is_double_play:
             self.game_stats[batter]['at_bats'] += 1; self.game_stats[batter]['grounded_into_dp'] += 1
@@ -1082,6 +1266,8 @@ class LiveGameEngine:
             if scored > 0: 
                 self.game_stats[batter]['rbis'] += scored
                 self.game_stats[pitcher]['runs_allowed'] += scored; self.game_stats[pitcher]['earned_runs'] += scored
+                if self.state.is_top: self.state.home_current_pitcher_runs += scored
+                else: self.state.away_current_pitcher_runs += scored
                 self._score(scored)
 
         self._reset_count(); self._next_batter()
@@ -1217,7 +1403,6 @@ class LiveGameEngine:
                 
         return scored_players
     
-    # ... (score, reset_count, next_batter, change_inning, is_game_over, finalize_game_stats, get_winner) ...
     def _score(self, pts):
         if self.state.is_top: self.state.away_score += pts
         else: self.state.home_score += pts
@@ -1242,6 +1427,9 @@ class LiveGameEngine:
         self.state.runner_1b = self.state.runner_2b = self.state.runner_3b = None
         if not self.state.is_top: self.state.inning += 1
         self.state.is_top = not self.state.is_top
+        
+        # 攻守交代時に、守備側（これから投げる側）の情報をリセット
+        # 継投判定は simulate_pitch の先頭で行われる
 
     def is_game_over(self):
         if self.state.inning > 9:
@@ -1252,22 +1440,60 @@ class LiveGameEngine:
         return False
 
     def finalize_game_stats(self):
-        win_p, loss_p = None, None
+        win_p, loss_p, save_p, hold_ps = None, None, None, []
         if not self.state.home_pitchers_used or not self.state.away_pitchers_used: return
 
-        if self.state.home_score > self.state.away_score:
-            starter = self.state.home_pitchers_used[0]
-            if self.game_stats[starter]['innings_pitched'] >= 5: win_p = starter
-            else: win_p = self.state.home_pitchers_used[-1]
-            loss_p = self.state.away_pitchers_used[0]
-        elif self.state.away_score > self.state.home_score:
-            starter = self.state.away_pitchers_used[0]
-            if self.game_stats[starter]['innings_pitched'] >= 5: win_p = starter
-            else: win_p = self.state.away_pitchers_used[-1]
-            loss_p = self.state.home_pitchers_used[0]
+        home_win = self.state.home_score > self.state.away_score
+        away_win = self.state.away_score > self.state.home_score
+        
+        # 勝利・敗戦投手の判定
+        if home_win:
+            win_team_pitchers = self.state.home_pitchers_used
+            loss_team_pitchers = self.state.away_pitchers_used
+            
+            # 先発が5回以上投げてリードを保ったまま終了
+            starter = win_team_pitchers[0]
+            if self.game_stats[starter]['innings_pitched'] >= 5:
+                # 簡易判定: 本来は「リードした状態で降板し、一度も同点・逆転されずに終了」が必要
+                # ここでは最終的に勝ったチームの先発が5回投げていれば勝ちとする（簡易）
+                win_p = starter
+            else:
+                # リリーフの中で最も貢献した投手（簡易的に最後から2番目か、先発の次）
+                # NPBルール: 先発が要件満たさない場合、リリーフで「勝利を決定づけた投球」をした者
+                if len(win_team_pitchers) > 1:
+                    win_p = win_team_pitchers[1] # 2番手
+                else:
+                    win_p = starter
+            
+            loss_p = loss_team_pitchers[0] # 簡易的に先発敗戦
+        
+        elif away_win:
+            win_team_pitchers = self.state.away_pitchers_used
+            loss_team_pitchers = self.state.home_pitchers_used
+            starter = win_team_pitchers[0]
+            if self.game_stats[starter]['innings_pitched'] >= 5:
+                win_p = starter
+            else:
+                if len(win_team_pitchers) > 1: win_p = win_team_pitchers[1]
+                else: win_p = starter
+            loss_p = loss_team_pitchers[0]
 
+        # セーブ判定 (3点差以内で1イニング以上 or ...)
+        if win_p:
+            win_team = self.home_team if home_win else self.away_team
+            last_pitcher = self.state.home_pitchers_used[-1] if home_win else self.state.away_pitchers_used[-1]
+            
+            if last_pitcher != win_p:
+                score_diff = abs(self.state.home_score - self.state.away_score)
+                if score_diff <= 3 and self.game_stats[last_pitcher]['innings_pitched'] >= 1.0:
+                    save_p = last_pitcher
+                elif score_diff > 3 and self.game_stats[last_pitcher]['innings_pitched'] >= 3.0:
+                    save_p = last_pitcher
+
+        # 記録反映
         if win_p: self.game_stats[win_p]['wins'] = 1
         if loss_p: self.game_stats[loss_p]['losses'] = 1
+        if save_p: self.game_stats[save_p]['saves'] = 1
 
         for player, stats in self.game_stats.items():
             record = player.get_record_by_level(self.team_level)
