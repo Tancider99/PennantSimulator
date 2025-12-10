@@ -60,6 +60,7 @@ class FarmLeagueManager:
 
     def _simulate_level_games(self, level: TeamLevel, date: str, exclude_team: str) -> List[FarmGameResult]:
         results = []
+        # 全チーム対象 (exclude_teamがNoneなら自チームも含まれる)
         target_teams = [t for t in self.teams if t.name != exclude_team]
         random.shuffle(target_teams)
 
@@ -68,8 +69,13 @@ class FarmLeagueManager:
             away = target_teams[i+1]
             
             # オーダー自動生成 (守備適正考慮)
+            # 自チームかどうかにかかわらず、ラインナップが不備なら再生成する
             self._check_and_fix_lineup(home, level)
             self._check_and_fix_lineup(away, level)
+            
+            # 投手ローテの確認（簡易的に先発がいない場合は設定）
+            self._check_and_fix_rotation(home, level)
+            self._check_and_fix_rotation(away, level)
             
             sim = FarmGameSimulator(home, away, level)
             res = sim.simulate_game(date)
@@ -81,18 +87,27 @@ class FarmLeagueManager:
         """指定レベルのラインナップが存在しない、または不完全な場合に再生成"""
         current_lineup = team.farm_lineup if level == TeamLevel.SECOND else team.third_lineup
         
-        # 簡易チェック: 人数が足りない場合のみ再生成
+        # 簡易チェック: 人数が9人未満なら再生成
         if not current_lineup or len(current_lineup) < 9:
-            # 該当レベルの野手リストを取得
-            roster = [p for p in team.get_players_by_level(level) if p.position != Position.PITCHER]
+            # 該当レベルの選手リストを全取得（投手含む）
+            roster = team.get_players_by_level(level)
             
-            # 【修正】models.pyの共通関数を使用
+            # models.pyの共通関数を使用（修正済みのgenerate_best_lineupは野手不足時に投手も使用する）
             new_lineup = generate_best_lineup(team, roster)
             
             if level == TeamLevel.SECOND: team.farm_lineup = new_lineup
             else: team.third_lineup = new_lineup
 
+    def _check_and_fix_rotation(self, team: Team, level: TeamLevel):
+        """指定レベルのローテーションが不備なら自動設定"""
+        current_rotation = team.farm_rotation if level == TeamLevel.SECOND else team.third_rotation
+        
+        if not current_rotation:
+            team.auto_assign_pitching_roles(level)
+
 def simulate_farm_games_for_day(teams: List[Team], date: str, player_team_name: str = None):
     """その日の二軍・三軍戦をまとめてシミュレート"""
+    # player_team_name は現在使用していないが、除外したい場合に備えて引数に残す
     manager = FarmLeagueManager(teams)
+    # exclude_team=None とすることで全チーム（自チーム含む）の試合を行う
     manager.simulate_farm_games(date, exclude_team=None)

@@ -106,27 +106,41 @@ class SortableTableWidgetItem(QTableWidgetItem):
         v1 = self.data(Qt.UserRole)
         v2 = other.data(Qt.UserRole)
         
-        # 両方が数値型(int/float)なら数値比較
-        if isinstance(v1, (int, float)) and isinstance(v2, (int, float)):
-            return v1 < v2
-            
+        # v1, v2 がともに数値として有効な場合
+        if v1 is not None and v2 is not None:
+             try:
+                 f1 = float(v1)
+                 f2 = float(v2)
+                 return f1 < f2
+             except (ValueError, TypeError):
+                 pass # 数値変換できない場合は後続の処理へ
+
         # 2. テキストを数値変換して比較 (背番号、成績など)
+        t1 = self.text().replace(',', '').replace('★ ', '').strip()
+        t2 = other.text().replace(',', '').replace('★ ', '').strip()
+
+        # プレースホルダーの処理: "---" や "-.--" は最小値（または最大値）として扱う
+        # ここでは最小値として扱い、常に下に来るようにする（降順ソート時に下、昇順時に上に来る）
+        # ただし、空データ同士の比較も考慮
+        is_empty1 = (t1 in ["---", "-.--", "", "-"])
+        is_empty2 = (t2 in ["---", "-.--", "", "-"])
+
+        if is_empty1 and is_empty2:
+            return False
+        if is_empty1:
+            return True # t1 is "smaller" (empty), so t1 < t2
+        if is_empty2:
+            return False # t2 is empty, so t1 > t2
+
         try:
-            # カンマ除去、---などのプレースホルダー対応
-            t1 = self.text().replace(',', '').replace('★ ', '')
-            if t1 == "---" or t1 == "-.--": t1 = "-1"
-            
-            t2 = other.text().replace(',', '').replace('★ ', '')
-            if t2 == "---" or t2 == "-.--": t2 = "-1"
-            
             d1 = float(t1)
             d2 = float(t2)
             return d1 < d2
         except ValueError:
             pass
             
-        # 3. フォールバック: 通常の文字列比較
-        return super().__lt__(other)
+        # 3. フォールバック: 通常の文字列比較（大文字小文字区別なし推奨）
+        return t1.lower() < t2.lower()
 
 
 class PlayerTable(QWidget):
@@ -323,19 +337,17 @@ class PlayerTable(QWidget):
         """
         ヘッダー列クリック時のカスタムソートハンドラ
         """
-        # ソート禁止列の判定: 名前(1)と守備位置/Pos(2)はソート不可
         if logicalIndex in [1, 2]:
             return
 
         header = self.table.horizontalHeader()
+        # ★修正: 現在のソート状態を正しく取得してトグル
         current_column = header.sortIndicatorSection()
         current_order = header.sortIndicatorOrder()
         
         if current_column != logicalIndex:
-            # 別の列をクリック -> 降順スタート
             new_order = Qt.DescendingOrder
         else:
-            # 同じ列をクリック -> トグル
             if current_order == Qt.DescendingOrder:
                 new_order = Qt.AscendingOrder
             else:

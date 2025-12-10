@@ -159,6 +159,9 @@ class MainWindow(QMainWindow):
         self.player_detail_page = PlayerDetailPage(self)
         # Connect back signal to dynamic handler
         self.player_detail_page.back_requested.connect(self._on_player_detail_back)
+        # ★追加: 詳細統計ボタンのシグナル接続
+        self.player_detail_page.detail_stats_requested.connect(self._show_player_stats_detail)
+        
         self.pages.add_page("player_detail", self.player_detail_page)
         self.persistent_pages["player_detail"] = self.player_detail_page
 
@@ -306,8 +309,15 @@ class MainWindow(QMainWindow):
             else:
                 QMessageBox.warning(self, "エラー", "対戦チームデータが見つかりませんでした。")
         else:
-            # 試合がない場合 -> 日付を進める
+            # 試合がない場合 -> 二軍戦などを消化して日付を進める
+            # ★追加: 二軍・三軍試合のシミュレーション
+            try:
+                simulate_farm_games_for_day(self.game_state.teams, self.game_state.current_date)
+            except Exception as e:
+                print(f"Farm Simulation Error: {e}")
+
             self.game_state.finish_day_and_advance()
+            
             # 画面更新 (Refresh current page)
             current_page = self.pages.currentWidget()
             if current_page and hasattr(current_page, 'set_game_state'):
@@ -351,7 +361,13 @@ class MainWindow(QMainWindow):
                     away_team.rotation_index = (away_team.rotation_index + 1) % 6
                     break
             
-            # 【重要】他球場試合と二軍三軍の試合を消化し、日付を進める
+            # ★追加: 二軍・三軍試合のシミュレーション
+            try:
+                simulate_farm_games_for_day(self.game_state.teams, self.game_state.current_date)
+            except Exception as e:
+                print(f"Farm Simulation Error: {e}")
+
+            # 【重要】他球場試合を消化し、日付を進める
             self.game_state.finish_day_and_advance()
         
         msg = f"Game Finished\n\n{away_team.name} {away_score} - {home_score} {home_team.name}\n\nWinner: {winner_name}"
@@ -514,6 +530,25 @@ class MainWindow(QMainWindow):
         # Return to the previous section
         target = self.previous_section if self.previous_section else "home"
         self._navigate_to(target)
+
+    def _show_player_stats_detail(self, player):
+        """詳細統計画面を表示"""
+        # まだ作成されていない場合は作成して登録
+        if "player_stats_detail" not in self.persistent_pages:
+            from UI.pages.player_stats_detail_page import PlayerStatsDetailPage
+            self.player_stats_detail_page = PlayerStatsDetailPage(self)
+            self.player_stats_detail_page.back_requested.connect(self._on_player_stats_detail_back)
+            self.pages.add_page("player_stats_detail", self.player_stats_detail_page)
+            self.persistent_pages["player_stats_detail"] = self.player_stats_detail_page
+        else:
+            self.player_stats_detail_page = self.persistent_pages["player_stats_detail"]
+
+        self.player_stats_detail_page.set_player(player, self.game_state.current_year)
+        self._navigate_to("player_stats_detail")
+
+    def _on_player_stats_detail_back(self):
+        """詳細統計画面から戻る"""
+        self._navigate_to("player_detail")
 
     def _on_order_saved(self):
         """Handle order saved"""

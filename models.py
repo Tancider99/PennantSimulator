@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-データモデル定義 (修正版: 総合力計算をWAR準拠に変更・平均250化)
+データモデル定義 (修正版: 総合力計算をWAR準拠に変更・平均250化・不足プロパティ追加)
 """
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Tuple
@@ -471,6 +471,11 @@ class PlayerRecord:
     wsb_val: float = 0.0
     ubr_val: float = 0.0
     
+    # ★追加: 新しい指標用フィールド
+    wraa_val: float = 0.0
+    rc_val: float = 0.0
+    rc27_val: float = 0.0
+    
     # Properties
     @property
     def batting_average(self) -> float:
@@ -617,6 +622,8 @@ class PlayerRecord:
 
     @property
     def babip(self) -> float:
+        if self.balls_in_play > 0:
+            return (self.hits - self.home_runs) / self.balls_in_play
         denominator = self.at_bats - self.strikeouts - self.home_runs + self.sacrifice_flies
         if denominator <= 0: return 0.0
         return (self.hits - self.home_runs) / denominator
@@ -730,6 +737,65 @@ class PlayerRecord:
     def uzr_1200(self) -> float:
         if self.defensive_innings <= 0: return 0.0
         return (self.uzr / self.defensive_innings) * 1200
+
+    # ★追加: 不足していたプロパティの実装
+    @property
+    def wraa(self) -> float:
+        return self.wraa_val
+
+    @property
+    def rc(self) -> float:
+        return self.rc_val
+
+    @property
+    def rc27(self) -> float:
+        return self.rc27_val
+
+    @property
+    def ab_per_hr(self) -> float:
+        if self.home_runs == 0: return 0.0
+        return self.at_bats / self.home_runs
+
+    @property
+    def bb_k_ratio(self) -> float:
+        # 打者用 BB/K
+        if self.strikeouts == 0: return float(self.walks)
+        return self.walks / self.strikeouts
+        
+    @property
+    def babip_against(self) -> float:
+        if self.balls_in_play > 0:
+            return (self.hits_allowed - self.home_runs_allowed) / self.balls_in_play
+        denom = (self.hits_allowed + self.walks_allowed + self.hit_batters + self.strikeouts_pitched + (self.innings_pitched*3)) - self.strikeouts_pitched - self.home_runs_allowed
+        if denom <= 0: return 0.0
+        return (self.hits_allowed - self.home_runs_allowed) / denom
+
+    @property
+    def gb_rate(self) -> float:
+        total = self.ground_balls + self.fly_balls + self.line_drives + self.popups
+        if total == 0: return 0.0
+        return self.ground_balls / total
+
+    @property
+    def fb_rate(self) -> float:
+        total = self.ground_balls + self.fly_balls + self.line_drives + self.popups
+        if total == 0: return 0.0
+        return self.fly_balls / total
+    
+    @property
+    def strike_percentage(self) -> float:
+        if self.pitches_thrown == 0: return 0.0
+        return self.strikes_thrown / self.pitches_thrown
+    
+    @property
+    def pitches_per_inning(self) -> float:
+        if self.innings_pitched == 0: return 0.0
+        return self.pitches_thrown / self.innings_pitched
+        
+    @property
+    def siera(self) -> float:
+        # 簡易実装: xFIPをベースにする
+        return self.xfip
 
     def reset(self):
         for field_name in self.__dataclass_fields__:
@@ -1219,6 +1285,8 @@ def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
     """
     指定された選手リストから、守備位置を考慮した最適オーダー(9人)を生成して返す。
     外野手をLeft/Center/Rightに最適配分する。
+    
+    ※野手が不足している場合は投手も含めて埋める（二軍・三軍対応）
     """
     
     # 優先順位: 捕手 -> 遊撃 -> 二塁 -> 中堅 -> 三塁 -> 右翼 -> 左翼 -> 一塁
@@ -1235,7 +1303,10 @@ def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
     
     candidates = {}
     for p in roster_players:
-        if p.position == Position.PITCHER: continue
+        # 基本的に投手は除外だが、人数不足の緊急措置として
+        # ここでは除外せず、スコア計算で不利にする等の対応も考えられるが
+        # 元のロジックでは投手を除外していた。
+        # 修正: 投手も候補に含めるが、ポジション適正がないと選ばれにくくなる
         try:
             original_idx = team.players.index(p)
             candidates[original_idx] = p
@@ -1249,7 +1320,12 @@ def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
         # defense_ranges から適正を取得
         # 外野ポジションの場合は、個別の適正がなければ汎用"外野手"の値を見る
         aptitude = player.stats.get_defense_range(getattr(Position, pos_name_enum_key))
-        if aptitude < 20: return -1
+        
+        # 投手が野手ポジションを守る場合のペナルティ（緊急時以外選ばれないように）
+        if player.position == Position.PITCHER:
+            aptitude = 1 # 最低限
+        
+        if aptitude < 1: return -1 # 適正なし
         
         bat_score = (player.stats.contact * 1.0 + player.stats.power * 1.2 + 
                      player.stats.speed * 0.5 + player.stats.eye * 0.5)
@@ -1268,12 +1344,17 @@ def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
         pos_name_enum_key = pos_enum.name
         
         best_idx = -1
-        best_score = -1.0
+        best_score = -999.0 # 初期値を低く設定
         
         for idx, p in candidates.items():
             if idx in used_indices: continue
             
             score = calculate_score(p, pos_name, weight)
+            
+            # 適正が20未満でも、他に誰もいなければ選ぶ必要がある（二軍・三軍用）
+            # calculate_scoreで-1が返ってきても、強制的に割り当てるロジックが必要か？
+            # ここではスコアが高い順に選ぶ
+            
             if score > best_score:
                 best_score = score
                 best_idx = idx
@@ -1282,10 +1363,13 @@ def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
             selected_starters[pos_name] = best_idx
             used_indices.add(best_idx)
     
+    # DH選出
     dh_best_idx = -1
     dh_best_score = -1
     for idx, p in candidates.items():
         if idx in used_indices: continue
+        # 投手はDHに入れない（二刀流対応は別途必要だが基本は野手優先）
+        if p.position == Position.PITCHER: continue 
         score = p.stats.overall_batting()
         if score > dh_best_score:
             dh_best_score = score
@@ -1301,11 +1385,13 @@ def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
     for pos, idx in selected_starters.items():
         lineup_candidates.append(idx)
         
+    # 打順決定（打撃能力順）
     lineup_candidates.sort(key=lambda i: team.players[i].stats.overall_batting(), reverse=True)
     
-    # 人数が足りない場合の補充
+    # 人数が足りない場合の補充 (9人に満たない場合)
     if len(lineup_candidates) < 9:
         remaining = [i for i in candidates.keys() if i not in used_indices]
+        # 投手も含めて補充（緊急措置）
         remaining.sort(key=lambda i: team.players[i].stats.overall_batting(), reverse=True)
         lineup_candidates.extend(remaining[:9 - len(lineup_candidates)])
     

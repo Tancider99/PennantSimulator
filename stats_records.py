@@ -232,9 +232,11 @@ class LeagueStatsCalculator:
                 r.woba_val = 0.0
 
             # --- wRAA Calculation ---
-            # wRAA = (wOBA - lg_wOBA) / Scale * PA
             divisor = woba_scale if woba_scale > 0 else 1.25
             wraa = ((r.woba_val - lg_woba) / divisor) * r.plate_appearances
+            
+            # ★追加: wRAA保存
+            r.wraa_val = wraa
 
             # --- PF補正 ---
             games_ratio = r.home_games / r.games if r.games > 0 else 0.5
@@ -250,7 +252,6 @@ class LeagueStatsCalculator:
             r.wrc_val = adjusted_wrc 
 
             # --- wRC+ Calculation ---
-            # wRC+ = 100 * {補正wRAA + (R/PA) * PA} / {(R/PA) * PA}
             if lg_r_pa > 0:
                 league_expected_runs = lg_r_pa * r.plate_appearances
                 if league_expected_runs > 0.0001:
@@ -259,6 +260,23 @@ class LeagueStatsCalculator:
                     r.wrc_plus_val = 100.0
             else:
                 r.wrc_plus_val = 100.0
+                
+            # ★追加: RC (Runs Created) Calculation (Technical Version近似)
+            val_A = r.hits + r.walks + r.hit_by_pitch - r.caught_stealing - r.grounded_into_dp
+            val_B = r.total_bases + 0.26 * (r.walks - r.intentional_walks + r.hit_by_pitch) + 0.52 * (r.sacrifice_hits + r.sacrifice_flies + r.stolen_bases)
+            val_C = r.at_bats + r.walks + r.hit_by_pitch + r.sacrifice_hits + r.sacrifice_flies
+            
+            if val_C > 0:
+                r.rc_val = (val_A * val_B) / val_C
+            else:
+                r.rc_val = 0.0
+                
+            # ★追加: RC/27
+            outs = r.at_bats - r.hits + r.caught_stealing + r.sacrifice_hits + r.sacrifice_flies + r.grounded_into_dp
+            if outs > 0:
+                r.rc27_val = r.rc_val / (outs / 27.0)
+            else:
+                r.rc27_val = 0.0
             
         # --- Pitching Stats ---
         if r.innings_pitched > 0:
@@ -279,14 +297,11 @@ class LeagueStatsCalculator:
             batting_runs = adjusted_wraa if r.plate_appearances > 0 else 0
             
             # wSB (Weighted Stolen Base Runs)
-            # wSB = (SB * run_sb) + (CS * run_cs) 
-            # linear weights approximation: SB +0.2, CS -0.4
             wsb = (r.stolen_bases * 0.2) - (r.caught_stealing * 0.4)
-            r.wsb_val = wsb # Store it
+            r.wsb_val = wsb
             
-            # UBR (Ultimate Base Running) - Placeholder
-            # Current engine does not track base running advancements explicitly enough for full UBR
-            r.ubr_val = 0.0 
+            # UBR (Ultimate Base Running) - Placeholder (LiveGameEngine側で計算)
+            if not hasattr(r, 'ubr_val'): r.ubr_val = 0.0 
             
             bsr = wsb + r.ubr_val
             fielding_runs = r.uzr_val

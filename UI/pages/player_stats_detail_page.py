@@ -19,6 +19,9 @@ from UI.theme import get_theme
 from UI.widgets.panels import ToolbarPanel
 from models import Player, PlayerRecord, TeamLevel, CareerStats
 
+def safe_enum_val(obj):
+    """Safely get value from Enum or return string representation"""
+    return obj.value if hasattr(obj, "value") else str(obj)
 
 class StatsCard(QFrame):
     """統計カード"""
@@ -248,7 +251,8 @@ class PlayerStatsDetailPage(QWidget):
         # レコードを取得
         record = self._get_record(player, year, level_text)
 
-        is_pitcher = player.position.value == "投手"
+        pos_val = safe_enum_val(player.position)
+        is_pitcher = (pos_val == "投手")
 
         # ヘッダー
         header = self._create_header(player, year, level_text)

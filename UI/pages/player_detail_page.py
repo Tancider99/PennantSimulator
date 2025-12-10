@@ -19,6 +19,9 @@ from UI.theme import get_theme
 from UI.widgets.panels import ToolbarPanel, InfoPanel
 from UI.widgets.charts import RadarChart, BarChart, StatMeter
 
+def safe_enum_val(obj):
+    """Safely get value from Enum or return string representation"""
+    return obj.value if hasattr(obj, "value") else str(obj)
 
 class StatBlock(QFrame):
     """A block displaying a single stat with rank badge"""
@@ -278,11 +281,13 @@ class PlayerDetailPage(QWidget):
         left_layout.addLayout(name_layout)
 
         # Info line
+        pos_val = safe_enum_val(player.position)
         pitch_type_str = ""
-        if player.position.value == "投手" and player.pitch_type:
-            pitch_type_str = f" ({player.pitch_type.value})"
+        if pos_val == "投手" and player.pitch_type:
+            pt_val = safe_enum_val(player.pitch_type)
+            pitch_type_str = f" ({pt_val})"
             
-        pos_str = f"{player.position.value}{pitch_type_str}"
+        pos_str = f"{pos_val}{pitch_type_str}"
         status_str = "外国人" if player.is_foreign else "国内"
         if player.is_developmental:
             status_str += " / 育成"
@@ -357,7 +362,8 @@ class PlayerDetailPage(QWidget):
 
         radar = RadarChart()
         radar.setFixedSize(280, 280)
-        is_pitcher = player.position.value == "投手"
+        pos_val = safe_enum_val(player.position)
+        is_pitcher = (pos_val == "投手")
         radar.set_player_stats(player, is_pitcher)
         chart_layout.addWidget(radar, 0, Qt.AlignCenter)
 
@@ -463,7 +469,7 @@ class PlayerDetailPage(QWidget):
         sub_positions = []
         if hasattr(player.stats, 'defense_ranges'):
             for pos_name, rating in player.stats.defense_ranges.items():
-                if pos_name != player.position.value and rating >= 2:
+                if pos_name != safe_enum_val(player.position) and rating >= 2:
                     sub_positions.append(pos_name)
         
         if sub_positions:
@@ -488,7 +494,7 @@ class PlayerDetailPage(QWidget):
             """)
             pos_layout.addWidget(pos_title)
 
-            main_pos = QLabel(f"メイン: {player.position.value}")
+            main_pos = QLabel(f"メイン: {safe_enum_val(player.position)}")
             main_pos.setStyleSheet(f"""
                 font-size: 13px;
                 color: {self.theme.text_primary};
@@ -517,7 +523,8 @@ class PlayerDetailPage(QWidget):
         layout = QVBoxLayout()
         layout.setSpacing(16)
 
-        is_pitcher = player.position.value == "投手"
+        pos_val = safe_enum_val(player.position)
+        is_pitcher = (pos_val == "投手")
         stats = player.stats
 
         # === 1. Main Stats Container (基本能力) ===
@@ -713,7 +720,7 @@ class PlayerDetailPage(QWidget):
         self._add_detail_stat(f_grid, "併殺処理", stats.turn_dp, 0, 2)
         
         # 捕手専用
-        if stats.get_defense_range(player.position) > 0 and player.position.value == "捕手":
+        if stats.get_defense_range(player.position) > 0 and pos_val == "捕手":
              self._add_detail_stat(f_grid, "捕手リード", stats.catcher_lead, 1, 0)
         
         # 守備範囲 (保持しているポジション全て)
@@ -827,7 +834,7 @@ class PlayerDetailPage(QWidget):
             }}
             QTabBar::tab:selected {{
                 background-color: {self.theme.primary};
-                color: #222222;  /* 選択時は黒文字 */
+                color: #222222;
             }}
             QTabBar::tab:hover:!selected {{
                 background-color: {self.theme.bg_card_hover};
@@ -860,7 +867,8 @@ class PlayerDetailPage(QWidget):
         wrapper_layout = QVBoxLayout(wrapper)
         wrapper_layout.setContentsMargins(0, 16, 0, 0)
 
-        is_pitcher = player.position.value == "投手"
+        pos_val = safe_enum_val(player.position)
+        is_pitcher = (pos_val == "投手")
         stats_grid = QGridLayout()
         stats_grid.setSpacing(16)
 
