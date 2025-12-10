@@ -21,7 +21,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from UI.theme import get_theme
 from UI.widgets.panels import ToolbarPanel
-# RatingDelegate を追加インポート
 from UI.widgets.tables import SortableTableWidgetItem, RatingDelegate
 from models import PlayerStats
 
@@ -197,12 +196,17 @@ class DraggableTableWidget(QTableWidget):
             stream.writeInt32(row)
             mime.setData(MIME_PLAYER_DATA, data)
             
+            # Adjust column index for name based on mode and extra columns
             if self.mode == "lineup":
-                name_col = 2
+                name_col = 3 
             elif self.mode == "bench":
-                name_col = 1
+                name_col = 2 
             elif self.mode == "farm_batter":
-                name_col = 0
+                name_col = 1 
+            elif self.mode in ["rotation", "bullpen"]:
+                name_col = 2 
+            elif self.mode == "farm_pitcher":
+                name_col = 2 
             else:
                 name_col = 1
             
@@ -474,46 +478,44 @@ class OrderPage(QWidget):
         table.items_changed.connect(lambda: self._on_table_changed(table))
         
         if mode == "lineup":
-            cols = ["順", "守", "選手名", "ミ", "パ", "走", "肩", "守", "適正", "総合"]
-            widths = [30, 40, 130, 35, 35, 35, 35, 35, 80, 45]
+            # 順, 守, 調, 選手名, ...
+            cols = ["順", "守", "調", "選手名", "ミ", "パ", "走", "肩", "守", "適正", "総合"]
+            widths = [30, 40, 30, 130, 35, 35, 35, 35, 35, 80, 45]
             table.position_swapped.connect(self._on_pos_swapped)
             
-            # Set RatingDelegate for stats columns
-            for c in [3, 4, 5, 6, 7]:
+            # Delegate設定
+            for c in [4, 5, 6, 7, 8]:
                 table.setItemDelegateForColumn(c, self.rating_delegate)
-            # Set Aptitude Delegate
-            table.setItemDelegateForColumn(8, self.defense_delegate)
+            table.setItemDelegateForColumn(9, self.defense_delegate)
             
         elif mode == "bench":
-            cols = ["適性", "選手名", "ミ", "パ", "走", "肩", "守", "適正", "総合"]
-            widths = [70, 130, 35, 35, 35, 35, 35, 80, 45]
+            cols = ["適性", "調", "選手名", "ミ", "パ", "走", "肩", "守", "適正", "総合"]
+            widths = [70, 30, 130, 35, 35, 35, 35, 35, 80, 45]
             
-            for c in [2, 3, 4, 5, 6]:
+            for c in [3, 4, 5, 6, 7]:
                 table.setItemDelegateForColumn(c, self.rating_delegate)
-            table.setItemDelegateForColumn(7, self.defense_delegate)
+            table.setItemDelegateForColumn(8, self.defense_delegate)
 
         elif mode == "farm_batter":
-            cols = ["選手名", "年齢", "ミ", "パ", "走", "肩", "守", "守備適正", "総合"]
-            widths = [130, 40, 35, 35, 35, 35, 35, 80, 45]
+            cols = ["調", "選手名", "年齢", "ミ", "パ", "走", "肩", "守", "守備適正", "総合"]
+            widths = [30, 130, 40, 35, 35, 35, 35, 35, 80, 45]
             
-            for c in [2, 3, 4, 5, 6]:
+            for c in [3, 4, 5, 6, 7]:
                 table.setItemDelegateForColumn(c, self.rating_delegate)
-            table.setItemDelegateForColumn(7, self.defense_delegate)
+            table.setItemDelegateForColumn(8, self.defense_delegate)
 
         elif mode == "rotation" or mode == "bullpen":
-            # コ(3), ス(4), 変(5) のみランク表示（球速は数値テキスト）
-            cols = ["役", "選手名", "球速", "コ", "ス", "変", "先", "中", "抑", "総合"]
-            widths = [40, 130, 50, 35, 35, 35, 35, 35, 35, 45]
+            cols = ["役", "調", "選手名", "球速", "コ", "ス", "変", "先", "中", "抑", "総合"]
+            widths = [40, 30, 130, 50, 35, 35, 35, 35, 35, 35, 45]
             
-            for c in [3, 4, 5]:
+            for c in [4, 5, 6]:
                 table.setItemDelegateForColumn(c, self.rating_delegate)
 
         elif mode == "farm_pitcher":
-            # コ(4), ス(5), 変(6) のみランク表示
-            cols = ["タイプ", "選手名", "年齢", "球速", "コ", "ス", "変", "先", "中", "抑", "総合"]
-            widths = [45, 130, 40, 50, 35, 35, 35, 35, 35, 45]
+            cols = ["タイプ", "調", "選手名", "年齢", "球速", "コ", "ス", "変", "先", "中", "抑", "総合"]
+            widths = [45, 30, 130, 40, 50, 35, 35, 35, 35, 35, 35, 45]
             
-            for c in [4, 5, 6]:
+            for c in [5, 6, 7]:
                 table.setItemDelegateForColumn(c, self.rating_delegate)
 
         table.setColumnCount(len(cols))
@@ -646,7 +648,7 @@ class OrderPage(QWidget):
 
     # === Data Helpers ===
     
-    def _create_item(self, value, align=Qt.AlignCenter, rank_color=False, pos_badge=None, is_star=False, sort_val=None):
+    def _create_item(self, value, align=Qt.AlignCenter, rank_color=False, pos_badge=None, is_star=False, sort_val=None, text_color=None):
         """Rich Table Item Factory using SortableTableWidgetItem for correct sorting"""
         item = SortableTableWidgetItem()
         
@@ -673,6 +675,9 @@ class OrderPage(QWidget):
                 font = QFont()
                 font.setBold(True)
                 item.setFont(font)
+        
+        if text_color:
+            item.setForeground(text_color)
 
         item.setTextAlignment(align)
         
@@ -688,6 +693,49 @@ class OrderPage(QWidget):
                     item.setData(Qt.UserRole, value)
             except:
                 pass
+            
+        return item
+
+    def _create_condition_item(self, player):
+        """調子・怪我を表示するアイテムを作成"""
+        item = SortableTableWidgetItem()
+        item.setTextAlignment(Qt.AlignCenter)
+        
+        if hasattr(player, 'is_injured') and player.is_injured:
+            item.setText(f"残{player.injury_days}日")
+            item.setForeground(QColor("#95a5a6")) # 灰色 (Concrete)
+            item.setToolTip(f"怪我: 残り{player.injury_days}日")
+            item.setData(Qt.UserRole, -1) # ソート順最下位
+        else:
+            cond = player.condition # 1-9
+            # アイコンや色で表現
+            if cond >= 8:
+                text = "絶"
+                color = "#e67e22" # オレンジ
+                sort_val = 5
+            elif cond >= 6:
+                text = "好"
+                color = "#f1c40f" # 黄色
+                sort_val = 4
+            elif cond >= 4:
+                text = "普"
+                color = "#ecf0f1" # 白
+                sort_val = 3
+            elif cond >= 2:
+                text = "不"
+                color = "#3498db" # 青
+                sort_val = 2
+            else:
+                text = "絶"
+                color = "#9b59b6" # 紫
+                sort_val = 1
+            
+            item.setText(text)
+            item.setForeground(QColor(color))
+            font = QFont()
+            font.setBold(True)
+            item.setFont(font)
+            item.setData(Qt.UserRole, sort_val)
             
         return item
 
@@ -730,22 +778,29 @@ class OrderPage(QWidget):
             
             if p_idx != -1 and p_idx < len(team.players):
                 p = team.players[p_idx]
-                table.setItem(i, 2, self._create_item(p.name, Qt.AlignLeft))
+                
+                is_injured = hasattr(p, 'is_injured') and p.is_injured
+                row_color = QColor("#95a5a6") if is_injured else None
+
+                # 調子
+                table.setItem(i, 2, self._create_condition_item(p))
+                
+                table.setItem(i, 3, self._create_item(p.name, Qt.AlignLeft, text_color=row_color))
                 
                 s = p.stats
                 # Pass raw numeric stats with rank_color=True for RatingDelegate
-                table.setItem(i, 3, self._create_item(s.contact, rank_color=True))
-                table.setItem(i, 4, self._create_item(s.power, rank_color=True))
-                table.setItem(i, 5, self._create_item(s.speed, rank_color=True))
-                table.setItem(i, 6, self._create_item(s.arm, rank_color=True))
-                table.setItem(i, 7, self._create_item(s.error, rank_color=True))
+                table.setItem(i, 4, self._create_item(s.contact, rank_color=True))
+                table.setItem(i, 5, self._create_item(s.power, rank_color=True))
+                table.setItem(i, 6, self._create_item(s.speed, rank_color=True))
+                table.setItem(i, 7, self._create_item(s.arm, rank_color=True))
+                table.setItem(i, 8, self._create_item(s.error, rank_color=True))
                 
                 apt_data = self._format_aptitude_delegate(p)
                 p_pos_char = self._short_pos_name(p.position.value)
                 sort_val = pos_order.get(p_pos_char, 99)
-                table.setItem(i, 8, self._create_item(apt_data, sort_val=sort_val))
+                table.setItem(i, 9, self._create_item(apt_data, sort_val=sort_val, text_color=row_color))
                 
-                table.setItem(i, 9, self._create_item(f"★{p.overall_rating}", is_star=True))
+                table.setItem(i, 10, self._create_item(f"★{p.overall_rating}", is_star=True))
                 
                 for c in range(table.columnCount()):
                     if table.item(i, c): table.item(i, c).setData(ROLE_PLAYER_IDX, p_idx)
@@ -762,22 +817,30 @@ class OrderPage(QWidget):
             if p_idx != -1 and p_idx < len(team.players):
                 p = team.players[p_idx]
                 main_pos = self._short_pos_name(p.position.value)
-                table.setItem(i, 0, self._create_item(main_pos))
-                table.setItem(i, 1, self._create_item(p.name, Qt.AlignLeft))
+                
+                is_injured = hasattr(p, 'is_injured') and p.is_injured
+                row_color = QColor("#95a5a6") if is_injured else None
+
+                table.setItem(i, 0, self._create_item(main_pos, text_color=row_color))
+                
+                # 調子
+                table.setItem(i, 1, self._create_condition_item(p))
+                
+                table.setItem(i, 2, self._create_item(p.name, Qt.AlignLeft, text_color=row_color))
                 
                 s = p.stats
-                table.setItem(i, 2, self._create_item(s.contact, rank_color=True))
-                table.setItem(i, 3, self._create_item(s.power, rank_color=True))
-                table.setItem(i, 4, self._create_item(s.speed, rank_color=True))
-                table.setItem(i, 5, self._create_item(s.arm, rank_color=True))
-                table.setItem(i, 6, self._create_item(s.error, rank_color=True))
+                table.setItem(i, 3, self._create_item(s.contact, rank_color=True))
+                table.setItem(i, 4, self._create_item(s.power, rank_color=True))
+                table.setItem(i, 5, self._create_item(s.speed, rank_color=True))
+                table.setItem(i, 6, self._create_item(s.arm, rank_color=True))
+                table.setItem(i, 7, self._create_item(s.error, rank_color=True))
                 
                 apt_data = self._format_aptitude_delegate(p)
                 p_pos_char = main_pos
                 sort_val = pos_order.get(p_pos_char, 99)
-                table.setItem(i, 7, self._create_item(apt_data, sort_val=sort_val))
+                table.setItem(i, 8, self._create_item(apt_data, sort_val=sort_val, text_color=row_color))
 
-                table.setItem(i, 8, self._create_item(f"★{p.overall_rating}", is_star=True))
+                table.setItem(i, 9, self._create_item(f"★{p.overall_rating}", is_star=True))
                 
                 for c in range(table.columnCount()):
                     if table.item(i, c): table.item(i, c).setData(ROLE_PLAYER_IDX, p_idx)
@@ -809,24 +872,30 @@ class OrderPage(QWidget):
 
         table.setRowCount(len(candidates))
         for i, (p_idx, p) in enumerate(candidates):
-            table.setItem(i, 0, self._create_item(p.name, Qt.AlignLeft))
-            table.setItem(i, 1, self._create_item(p.age)) 
+            is_injured = hasattr(p, 'is_injured') and p.is_injured
+            row_color = QColor("#95a5a6") if is_injured else None
+
+            # 調子
+            table.setItem(i, 0, self._create_condition_item(p))
+            
+            table.setItem(i, 1, self._create_item(p.name, Qt.AlignLeft, text_color=row_color))
+            table.setItem(i, 2, self._create_item(p.age, text_color=row_color)) 
             
             s = p.stats
-            table.setItem(i, 2, self._create_item(s.contact, rank_color=True))
-            table.setItem(i, 3, self._create_item(s.power, rank_color=True))
-            table.setItem(i, 4, self._create_item(s.speed, rank_color=True))
-            table.setItem(i, 5, self._create_item(s.arm, rank_color=True))
-            table.setItem(i, 6, self._create_item(s.error, rank_color=True))
+            table.setItem(i, 3, self._create_item(s.contact, rank_color=True))
+            table.setItem(i, 4, self._create_item(s.power, rank_color=True))
+            table.setItem(i, 5, self._create_item(s.speed, rank_color=True))
+            table.setItem(i, 6, self._create_item(s.arm, rank_color=True))
+            table.setItem(i, 7, self._create_item(s.error, rank_color=True))
             
             apt_data = self._format_aptitude_delegate(p)
             p_pos_char = self._short_pos_name(p.position.value)
             sort_val = pos_order.get(p_pos_char, 99)
             
-            apt_item = self._create_item(apt_data, sort_val=sort_val) 
-            table.setItem(i, 7, apt_item)
+            apt_item = self._create_item(apt_data, sort_val=sort_val, text_color=row_color) 
+            table.setItem(i, 8, apt_item)
             
-            table.setItem(i, 8, self._create_item(f"★{p.overall_rating}", is_star=True))
+            table.setItem(i, 9, self._create_item(f"★{p.overall_rating}", is_star=True))
             
             for c in range(table.columnCount()):
                 if table.item(i, c): table.item(i, c).setData(ROLE_PLAYER_IDX, p_idx)
@@ -891,28 +960,34 @@ class OrderPage(QWidget):
                 
         table.setRowCount(len(candidates))
         for i, (p_idx, p) in enumerate(candidates):
+            is_injured = hasattr(p, 'is_injured') and p.is_injured
+            row_color = QColor("#95a5a6") if is_injured else None
+
             role = p.pitch_type.value[:2]
-            table.setItem(i, 0, self._create_item(role))
+            table.setItem(i, 0, self._create_item(role, text_color=row_color))
             
-            table.setItem(i, 1, self._create_item(p.name, Qt.AlignLeft))
-            table.setItem(i, 2, self._create_item(p.age))
+            # 調子
+            table.setItem(i, 1, self._create_condition_item(p))
+            
+            table.setItem(i, 2, self._create_item(p.name, Qt.AlignLeft, text_color=row_color))
+            table.setItem(i, 3, self._create_item(p.age, text_color=row_color))
             
             kmh = p.stats.speed_to_kmh()
-            table.setItem(i, 3, self._create_item(f"{kmh}km", sort_val=kmh))
+            table.setItem(i, 4, self._create_item(f"{kmh}km", sort_val=kmh, text_color=row_color))
             
             # Pass raw stats for RatingDelegate
-            table.setItem(i, 4, self._create_item(p.stats.control, rank_color=True))
-            table.setItem(i, 5, self._create_item(p.stats.stamina, rank_color=True))
-            table.setItem(i, 6, self._create_item(p.stats.stuff, rank_color=True))
+            table.setItem(i, 5, self._create_item(p.stats.control, rank_color=True))
+            table.setItem(i, 6, self._create_item(p.stats.stamina, rank_color=True))
+            table.setItem(i, 7, self._create_item(p.stats.stuff, rank_color=True))
             
             st = "◎" if p.pitch_type.value == "先発" else "△"
             rl = "◎" if p.pitch_type.value == "中継ぎ" else "△"
             cl = "◎" if p.pitch_type.value == "抑え" else "△"
-            table.setItem(i, 7, self._create_item(st, sort_val=2 if st=="◎" else 1))
-            table.setItem(i, 8, self._create_item(rl, sort_val=2 if rl=="◎" else 1))
-            table.setItem(i, 9, self._create_item(cl, sort_val=2 if cl=="◎" else 1))
+            table.setItem(i, 8, self._create_item(st, sort_val=2 if st=="◎" else 1, text_color=row_color))
+            table.setItem(i, 9, self._create_item(rl, sort_val=2 if rl=="◎" else 1, text_color=row_color))
+            table.setItem(i, 10, self._create_item(cl, sort_val=2 if cl=="◎" else 1, text_color=row_color))
             
-            table.setItem(i, 10, self._create_item(f"★{p.overall_rating}", is_star=True))
+            table.setItem(i, 11, self._create_item(f"★{p.overall_rating}", is_star=True))
 
             for c in range(table.columnCount()):
                 if table.item(i, c): table.item(i, c).setData(ROLE_PLAYER_IDX, p_idx)
@@ -921,22 +996,28 @@ class OrderPage(QWidget):
         table.sortItems(header.sortIndicatorSection(), header.sortIndicatorOrder())
 
     def _fill_pitcher_data(self, table, row, p, p_idx, start_col):
-        table.setItem(row, start_col, self._create_item(p.name, Qt.AlignLeft))
+        is_injured = hasattr(p, 'is_injured') and p.is_injured
+        row_color = QColor("#95a5a6") if is_injured else None
+
+        # 調子
+        table.setItem(row, start_col, self._create_condition_item(p))
+        
+        table.setItem(row, start_col+1, self._create_item(p.name, Qt.AlignLeft, text_color=row_color))
         kmh = p.stats.speed_to_kmh()
-        table.setItem(row, start_col+1, self._create_item(f"{kmh}km"))
+        table.setItem(row, start_col+2, self._create_item(f"{kmh}km", text_color=row_color))
         
         # Pass raw stats for RatingDelegate
-        table.setItem(row, start_col+2, self._create_item(p.stats.control, rank_color=True))
-        table.setItem(row, start_col+3, self._create_item(p.stats.stamina, rank_color=True))
-        table.setItem(row, start_col+4, self._create_item(p.stats.stuff, rank_color=True))
+        table.setItem(row, start_col+3, self._create_item(p.stats.control, rank_color=True))
+        table.setItem(row, start_col+4, self._create_item(p.stats.stamina, rank_color=True))
+        table.setItem(row, start_col+5, self._create_item(p.stats.stuff, rank_color=True))
         
         st = "◎" if p.pitch_type.value == "先発" else "△"
         rl = "◎" if p.pitch_type.value == "中継ぎ" else "△"
         cl = "◎" if p.pitch_type.value == "抑え" else "△"
-        table.setItem(row, start_col+5, self._create_item(st))
-        table.setItem(row, start_col+6, self._create_item(rl))
-        table.setItem(row, start_col+7, self._create_item(cl))
-        table.setItem(row, start_col+8, self._create_item(f"★{p.overall_rating}", is_star=True))
+        table.setItem(row, start_col+6, self._create_item(st, text_color=row_color))
+        table.setItem(row, start_col+7, self._create_item(rl, text_color=row_color))
+        table.setItem(row, start_col+8, self._create_item(cl, text_color=row_color))
+        table.setItem(row, start_col+9, self._create_item(f"★{p.overall_rating}", is_star=True))
 
         for c in range(table.columnCount()):
             if table.item(row, c): table.item(row, c).setData(ROLE_PLAYER_IDX, p_idx)

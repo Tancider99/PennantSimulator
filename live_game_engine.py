@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-ライブ試合エンジン (修正版: BABIP調整・二塁打抑制・NPB式本格継投システム実装)
+ライブ試合エンジン (修正版: BABIP調整・二塁打抑制・NPB式本格継投システム実装・怪我システム・バランス調整済)
 """
 import random
 import math
@@ -72,10 +72,16 @@ def get_rank(value: int) -> str:
 def get_effective_stat(player: Player, stat_name: str, opponent: Optional[Player] = None, is_risp: bool = False, is_close_game: bool = False) -> float:
     if not hasattr(player.stats, stat_name):
         return 50.0
+
+    # 怪我している場合は大幅ダウン
+    if hasattr(player, 'is_injured') and player.is_injured:
+        return getattr(player.stats, stat_name) * 0.5
+
     base_value = getattr(player.stats, stat_name)
     
+    # 調子補正 (係数を 0.02 -> 0.015 に縮小し、極端な絶不調の影響を緩和)
     condition_diff = player.condition - 5
-    condition_multiplier = 1.0 + (condition_diff * 0.02)
+    condition_multiplier = 1.0 + (condition_diff * 0.015)
     
     value = base_value * condition_multiplier
     
@@ -114,7 +120,8 @@ def get_effective_stat(player: Player, stat_name: str, opponent: Optional[Player
                 mitigation = (stability - 50) * 0.2
                 value += max(0, mitigation)
 
-    return max(1.0, value)
+    # 最終値を 20~120 の範囲に収める (極端な弱体化/強化を防ぐ)
+    return max(20.0, min(120.0, value))
 
 # ========================================
 # 列挙型
@@ -203,36 +210,42 @@ class NPBPitcherManager:
         if state.is_top: score_diff *= -1 # 守備側（自チーム）から見た点差
         
         # 1. スタミナ・限界による強制交代判定
-        if current_stamina <= 0 or pitch_count > 130:
+        # 修正: 限界球数を引き上げ (130 -> 140)
+        if current_stamina <= 0 or pitch_count > 140:
             return self._select_reliever(team, state, score_diff, next_batter)
             
         # 2. 先発投手の交代判断
         if is_starter:
-            # 炎上時 (5失点以上)
-            if current_runs >= 5 and state.inning <= 5:
+            # 炎上時 (5失点 -> 6失点, 6回まで)
+            if current_runs >= 6 and state.inning <= 6:
                 return self._select_reliever(team, state, score_diff, next_batter)
             
-            # 球数目処 (100球)
-            if pitch_count > 100:
+            # 球数目処 (100球 -> 120球)
+            if pitch_count > 120:
                 # 接戦で勝ち越し中、かつあと1アウトで回が終わるなら続投も
-                if score_diff > 0 and state.outs == 2 and pitch_count < 115:
+                if score_diff > 0 and state.outs == 2 and pitch_count < 130:
                     pass
                 else:
                     return self._select_reliever(team, state, score_diff, next_batter)
             
             # 勝利投手の権利 (5回)
-            if state.inning == 5 and score_diff > 0 and current_stamina > 10 and current_runs < 4:
+            if state.inning == 5 and score_diff > 0 and current_stamina > 10 and current_runs < 5:
                 return None # 勝ち投手の権利までは引っ張る傾向
 
             # 7回以降の継投 (リード時、僅差ビハインド時)
             if state.inning >= 7:
-                if pitch_count > 90 or current_stamina < 30:
+                # 修正: スタミナ条件を緩和 (30 -> 15), 球数条件緩和 (90 -> 110)
+                if pitch_count > 110 or current_stamina < 15:
                      if score_diff >= -2: # 接戦
                          return self._select_reliever(team, state, score_diff, next_batter)
 
             # 打順巡り合わせ（3巡目以降かつピンチ）
-            if state.inning >= 6 and state.is_risp() and score_diff in range(-1, 3):
-                return self._select_reliever(team, state, score_diff, next_batter)
+            if state.inning >= 7 and state.is_risp() and score_diff in range(-1, 2):
+                 # ここでは簡易的に、スタミナが残っていれば続投させる
+                if current_stamina > 20:
+                    pass
+                else:
+                    return self._select_reliever(team, state, score_diff, next_batter)
 
         # 3. リリーフ投手の交代判断
         else:
@@ -240,18 +253,18 @@ class NPBPitcherManager:
             # リリーフは基本1イニングだが、ピンチを招いたら代える、イニング跨ぎの制限など
             
             # 回またぎ判定 (イニングが変わった時)
-            if state.outs == 0 and pitch_count > 20: # 既に20球投げて次の回
+            if state.outs == 0 and pitch_count > 25: # 少し増やす
                 # クローザーは回またぎあり（9回同点→10回など）
                 is_closer = team.closer_idx != -1 and team.players[team.closer_idx] == current_pitcher
                 if not is_closer:
                     return self._select_reliever(team, state, score_diff, next_batter)
             
             # 打たれた場合
-            if current_runs >= 2: # リリーフが2点取られたら交代
+            if current_runs >= 3: # リリーフが3点取られたら交代
                 return self._select_reliever(team, state, score_diff, next_batter)
                 
             # スタミナ切れ
-            if current_stamina < 10:
+            if current_stamina < 5:
                 return self._select_reliever(team, state, score_diff, next_batter)
         
         # 4. 勝利の方程式 (Winning Formula)
@@ -267,7 +280,7 @@ class NPBPitcherManager:
                 setup = team.get_setup_pitcher()
                 if setup and setup != current_pitcher:
                     # 現在の投手が先発で余力がある場合は続投もありだが、基本はセットアッパー
-                    if is_starter and current_stamina > 40 and pitch_count < 90:
+                    if is_starter and current_stamina > 30 and pitch_count < 110:
                         pass
                     else:
                         return setup
@@ -524,9 +537,10 @@ class BattedBallGenerator:
         quality = "hard" if quality_roll < hard_chance else ("medium" if quality_roll < medium_limit else "soft")
         
         # 打球速度
-        base_v = 148 + (power - 50) * 0.2
-        if strategy == "POWER": base_v += 9
-        if quality == "hard": base_v += 20 + (power / 10) 
+        # 修正: 全体的に打球速度を下げてホームランを減らす
+        base_v = 145 + (power - 50) * 0.18
+        if strategy == "POWER": base_v += 8
+        if quality == "hard": base_v += 18 + (power / 12) 
         if quality == "soft": base_v -= 35 
         
         traj_bias = 5 + (trajectory * 5)
@@ -548,7 +562,7 @@ class BattedBallGenerator:
             angle = random.gauss(angle_center, 12)
         
         velo = max(40, base_v + random.gauss(0, 5))
-        if quality == "hard": velo = max(velo, 140)
+        if quality == "hard": velo = max(velo, 138)
         
         gb_limit = 16 + (140 - velo) * 0.08
         ld_limit = 22 - (140 - velo) * 0.05
@@ -561,7 +575,8 @@ class BattedBallGenerator:
         v_ms = velo / 3.6
         vacuum_dist = (v_ms**2 * math.sin(math.radians(2 * angle))) / 9.8
         
-        drag_base = 0.94 - (velo / 550.0) 
+        # 修正: 空気抵抗(ドラッグ)を強めて飛距離を抑える
+        drag_base = 0.92 - (velo / 550.0) 
         drag_factor = max(0.2, drag_base)
         
         if angle > 45 or angle < 10:
@@ -612,21 +627,23 @@ class AdvancedDefenseEngine:
         dist_to_ball = math.sqrt((target_pos[0] - initial_pos[0])**2 + (target_pos[1] - initial_pos[1])**2)
         
         range_stat = best_fielder.stats.get_defense_range(getattr(Position, fielder_type))
-        range_stat = range_stat * (1.0 + (best_fielder.condition - 5) * 0.02)
+        # 修正: 守備範囲の影響をマイルドにする
+        adjusted_range = 50 + (range_stat - 50) * 0.7
+        adjusted_range = adjusted_range * (1.0 + (best_fielder.condition - 5) * 0.01)
+
         speed_stat = get_effective_stat(best_fielder, 'speed')
+        # 修正: 移動速度の基本値を上げ、能力差を縮める
+        max_speed = 7.5 + (speed_stat / 100.0) * 1.5 
         
-        # ★修正: BABIP向上のため、守備範囲・移動速度を少し落とす
-        max_speed = 6.0 + (speed_stat / 100.0) * 2.0  # 下方修正
-        
-        # 反応時間 (少し遅くする)
-        reaction_delay = 0.45 - (range_stat / 500.0) 
+        # 反応時間
+        reaction_delay = 0.45 - (adjusted_range / 600.0) 
         
         time_needed = reaction_delay + (dist_to_ball / max_speed)
         
         if ball.hit_type in [BattedBallType.FLYBALL, BattedBallType.POPUP, BattedBallType.LINEDRIVE]:
             time_available = ball.hang_time
             if ball.hit_type == BattedBallType.LINEDRIVE:
-                 if dist_to_ball < 2.0: time_needed = 0  # 正面
+                 if dist_to_ball < 2.5: time_needed = 0  # 正面
         else:
             # ゴロ
             ball_speed_ms = (ball.exit_velocity / 3.6) * 0.6 
@@ -637,22 +654,25 @@ class AdvancedDefenseEngine:
         time_diff = time_available - time_needed
         catch_prob = 0.0
         
-        # ★修正: 捕球確率のカーブを調整し、ヒットを増やす
-        if time_diff >= 0.4:
-             catch_prob = 0.95 # イージーでもエラーやポテンヒットの可能性を残す
+        # 修正: 捕球確率のカーブを調整し、BABIP向上
+        if time_diff >= 0.5:
+             catch_prob = 0.95
         elif time_diff >= 0.0:
-             # ギリギリのプレーは5分5分〜
-             catch_prob = 0.50 + (time_diff / 0.4) * 0.40
-        elif time_diff > -0.3:
-             # ダイビング等
-             ratio = (time_diff + 0.3) / 0.3
-             catch_prob = ratio * 0.30 
+             catch_prob = 0.40 + (time_diff / 0.5) * 0.55
+        elif time_diff > -0.2:
+             ratio = (time_diff + 0.2) / 0.2
+             catch_prob = ratio * 0.40 
         else:
              catch_prob = 0.0
         
-        # 強い打球の補正 (BABIP向上)
-        if ball.contact_quality == "hard": catch_prob *= 0.90 # 強烈な打球は捕りにくい
-        if ball.hit_type == BattedBallType.LINEDRIVE: catch_prob *= 0.85 # ライナーはヒットになりやすい
+        # 修正: 運要素を強化 (BABIP向上)
+        luck_factor = 0.15 
+        base_prob = 0.45 
+        catch_prob = catch_prob * (1 - luck_factor) + base_prob * luck_factor
+        
+        # 強い打球の補正
+        if ball.contact_quality == "hard": catch_prob *= 0.82 
+        if ball.hit_type == BattedBallType.LINEDRIVE: catch_prob *= 0.78
         
         if stadium: catch_prob /= stadium.pf_1b
         catch_prob = max(0.0, min(0.99, catch_prob))
@@ -750,9 +770,8 @@ class AdvancedDefenseEngine:
         pf_2b = stadium.pf_2b if stadium else 1.0
         pf_3b = stadium.pf_3b if stadium else 1.0
         
-        # ★修正: 二塁打の閾値を上げて、容易な二塁打を減らす
-        # 標準的な球場サイズを考慮し、フェンス到達や深い位置のみを二塁打とする
-        base_double_threshold = 78.0 # 元: 65.0
+        # 二塁打の閾値を上げて、容易な二塁打を減らす
+        base_double_threshold = 78.0 
         
         double_threshold = base_double_threshold / math.sqrt(pf_2b)
         triple_threshold = 105.0 / math.sqrt(pf_3b)
@@ -927,6 +946,37 @@ class LiveGameEngine:
             if team.players[p_idx].position == Position.CATCHER: return team.players[p_idx]
         return None
 
+    def _check_injury_occurrence(self, player: Player, action_type: str):
+        """
+        プレーごとの怪我発生判定
+        action_type: "PITCH", "SWING", "RUN", "DEFENSE"
+        """
+        if hasattr(player, 'is_injured') and player.is_injured: return 
+
+        # 耐久値 (高いほど怪我しにくい)
+        durability = getattr(player.stats, 'durability', 50)
+        
+        # 疲労度による確率上昇 (投手)
+        fatigue_factor = 1.0
+        if player.position == Position.PITCHER:
+            if player.stats.stamina < 30: fatigue_factor = 3.0
+            
+        # 基礎怪我率 (極めて低く設定)
+        base_rate = 0.0005
+        
+        rate = base_rate * (100 - durability) / 50.0 * fatigue_factor
+        
+        if random.random() < rate:
+            # 怪我発生
+            days = random.randint(3, 30) 
+            injury_names = ["違和感", "捻挫", "肉離れ", "炎症"]
+            name = f"患部の{random.choice(injury_names)}"
+            
+            if hasattr(player, 'inflict_injury'):
+                player.inflict_injury(days, name)
+            return True
+        return False
+
     def simulate_pitch(self, manual_strategy=None):
         # 0. 投手交代判定 (打者と対戦する前)
         batter, _ = self.get_current_batter()
@@ -953,6 +1003,9 @@ class LiveGameEngine:
         if self.state.is_top: self.state.home_pitch_count += 1
         else: self.state.away_pitch_count += 1
         
+        # 投球時の怪我判定
+        self._check_injury_occurrence(pitcher, "PITCH")
+        
         if not pitch.location.is_strike and pitch.location.z < 0.15 and catcher:
             catch_err = get_effective_stat(catcher, 'error')
             block_prob = 0.85 + (catch_err - 50) * 0.005
@@ -973,9 +1026,11 @@ class LiveGameEngine:
     def _resolve_contact(self, batter, pitcher, pitch, strategy):
         if not pitch.location.is_strike:
             control = get_effective_stat(pitcher, 'control')
-            if random.random() < (0.003 + max(0, (50-control)*0.0003)): return PitchResult.HIT_BY_PITCH, None
+            # 死球率を少し下げる（無駄な出塁抑制）
+            if random.random() < (0.002 + max(0, (50-control)*0.0002)): return PitchResult.HIT_BY_PITCH, None
 
         if strategy == "BUNT":
+            # ... (バント処理はそのまま) ...
             bunt_skill = get_effective_stat(batter, 'bunt_sac')
             difficulty = 20 if not pitch.location.is_strike else 0
             if random.uniform(0, 100) > (bunt_skill - difficulty):
@@ -985,8 +1040,9 @@ class LiveGameEngine:
                 return PitchResult.IN_PLAY, ball
 
         eye = get_effective_stat(batter, 'eye')
-        swing_prob = (0.75 + (eye-50)*0.001) if pitch.location.is_strike else (0.30 - (eye-50)*0.003)
-        if self.state.strikes == 2: swing_prob += 0.15
+        # スイング率の調整: ストライクは振り、ボールは見極める傾向を維持しつつ調整
+        swing_prob = (0.78 + (eye-50)*0.001) if pitch.location.is_strike else (0.30 - (eye-50)*0.004)
+        if self.state.strikes == 2: swing_prob += 0.18 # 追い込まれたら必死に振る
         if strategy == "POWER": swing_prob += 0.1 
         if strategy == "MEET": swing_prob -= 0.1
         swing_prob = max(0.01, min(0.99, swing_prob))
@@ -994,14 +1050,48 @@ class LiveGameEngine:
         if random.random() >= swing_prob: return PitchResult.STRIKE_CALLED if pitch.location.is_strike else PitchResult.BALL, None
             
         contact = get_effective_stat(batter, 'contact', opponent=pitcher)
-        hit_prob = 0.80 + (contact - 50)*0.001
-        if not pitch.location.is_strike: hit_prob -= 0.50 + (contact - 50)*0.001
+        stuff = get_effective_stat(pitcher, 'stuff', opponent=batter)
+        
+        # ★修正: コンタクト率を下げて三振を増やす
+        # 以前: base_contact = 0.88 -> これが高すぎたため三振が減った
+        # 修正: 0.76 まで下げる（NPB平均的な空振り率へ近づける）
+        base_contact = 0.76
+        diff = contact - stuff
+        
+        # 能力差の影響を少し強める
+        hit_prob = base_contact + (diff * 0.0035)
+        
+        if pitch.location.is_strike:
+            hit_prob += 0.08 # ストライクは当てやすい
+        else:
+            hit_prob -= 0.12 # ボール球は空振りしやすい
+            
         if self.stadium: hit_prob /= max(0.5, self.stadium.pf_so)
 
-        if random.random() > hit_prob: return PitchResult.STRIKE_SWINGING, None
-        if random.random() < 0.35: return PitchResult.FOUL, None
+        # 下限・上限設定 (三振マシーンでも50%くらいは当たる、イチローでもミスる)
+        hit_prob = max(0.45, min(0.96, hit_prob))
+
+        # ★追加: 追い込まれた後の粘り（三振回避能力）
+        if self.state.strikes == 2:
+            avoid_k = get_effective_stat(batter, 'avoid_k')
+            hit_prob += (avoid_k - 50) * 0.002
+
+        if random.random() > hit_prob: 
+             # 空振り（三振またはストライク）
+             if hasattr(self, '_check_injury_occurrence'):
+                self._check_injury_occurrence(batter, "SWING")
+             return PitchResult.STRIKE_SWINGING, None
+             
+        # ファウル率 (32%程度)
+        # インプレー率が高すぎると打席数が回るのが早くなるため、適度なファウルは必要だが
+        # 三振を増やしたので、ここは標準的に
+        if random.random() < 0.32: return PitchResult.FOUL, None
              
         ball = self.bat_gen.generate(batter, pitcher, pitch, self.state, strategy)
+        
+        if hasattr(self, '_check_injury_occurrence'):
+            self._check_injury_occurrence(batter, "RUN")
+        
         return PitchResult.IN_PLAY, ball
 
     def _attempt_steal(self, catcher):
@@ -1015,6 +1105,9 @@ class LiveGameEngine:
         
         catcher_rec = None
         if catcher: catcher_rec = self.game_stats[catcher]
+
+        # 盗塁時怪我判定
+        self._check_injury_occurrence(runner, "RUN")
 
         if random.random() < success_prob:
             self.state.runner_2b = runner; self.state.runner_1b = None
@@ -1459,7 +1552,6 @@ class LiveGameEngine:
                 win_p = starter
             else:
                 # リリーフの中で最も貢献した投手（簡易的に最後から2番目か、先発の次）
-                # NPBルール: 先発が要件満たさない場合、リリーフで「勝利を決定づけた投球」をした者
                 if len(win_team_pitchers) > 1:
                     win_p = win_team_pitchers[1] # 2番手
                 else:

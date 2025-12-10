@@ -875,6 +875,9 @@ class Player:
     years_pro: int = 0
     draft_round: int = 0
 
+    injury_days: int = 0  # 怪我の残り日数 (0なら健康)
+    injury_name: str = "" # 怪我名 (例: "右肩痛", "肉離れ")
+
     is_developmental: bool = False
     team_level: 'TeamLevel' = None
 
@@ -968,6 +971,34 @@ class Player:
     def update_condition(self):
         change = random.choices([-1, 0, 1], weights=[0.25, 0.5, 0.25])[0]
         self.condition = max(1, min(9, self.condition + change))
+
+    def recover_daily(self):
+        """日付経過による回復処理"""
+        # 怪我の回復
+        if self.injury_days > 0:
+            self.injury_days -= 1
+            if self.injury_days == 0:
+                self.injury_name = ""
+        
+        # 疲労回復 (投手)
+        if self.position == Position.PITCHER:
+            self.days_rest += 1
+            
+        # 調子の変動 (ランダムで少しずつ変わる)
+        if random.random() < 0.2: # 20%の確率で変動
+            change = random.choice([-1, 1])
+            self.condition = max(1, min(9, self.condition + change))
+
+    @property
+    def is_injured(self) -> bool:
+        return self.injury_days > 0
+
+    def inflict_injury(self, days: int, name: str):
+        """怪我をさせる"""
+        self.injury_days = days
+        self.injury_name = name
+        # 怪我したら調子は最低になる
+        self.condition = 1
 
     @property
     def overall_rating(self) -> int:
@@ -1283,10 +1314,7 @@ TEAM_ABBRS = {
 
 def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
     """
-    指定された選手リストから、守備位置を考慮した最適オーダー(9人)を生成して返す。
-    外野手をLeft/Center/Rightに最適配分する。
-    
-    ※野手が不足している場合は投手も含めて埋める（二軍・三軍対応）
+    指定された選手リストから、守備位置と調子を考慮した最適オーダー(9人)を生成して返す。
     """
     
     # 優先順位: 捕手 -> 遊撃 -> 二塁 -> 中堅 -> 三塁 -> 右翼 -> 左翼 -> 一塁
@@ -1303,10 +1331,6 @@ def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
     
     candidates = {}
     for p in roster_players:
-        # 基本的に投手は除外だが、人数不足の緊急措置として
-        # ここでは除外せず、スコア計算で不利にする等の対応も考えられるが
-        # 元のロジックでは投手を除外していた。
-        # 修正: 投手も候補に含めるが、ポジション適正がないと選ばれにくくなる
         try:
             original_idx = team.players.index(p)
             candidates[original_idx] = p
@@ -1317,43 +1341,44 @@ def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
     used_indices = set()
     
     def calculate_score(player, pos_name, weight):
-        # defense_ranges から適正を取得
-        # 外野ポジションの場合は、個別の適正がなければ汎用"外野手"の値を見る
-        aptitude = player.stats.get_defense_range(getattr(Position, pos_name_enum_key))
+        pos_enum_key = None
+        for p_enum in Position:
+            if p_enum.value == pos_name:
+                pos_enum_key = p_enum.name
+                break
         
-        # 投手が野手ポジションを守る場合のペナルティ（緊急時以外選ばれないように）
-        if player.position == Position.PITCHER:
-            aptitude = 1 # 最低限
+        # 適正取得
+        aptitude = player.stats.get_defense_range(getattr(Position, pos_enum_key))
+        if player.position == Position.PITCHER: aptitude = 1
+        if aptitude < 1: return -999 # 適正なしは基本除外
         
-        if aptitude < 1: return -1 # 適正なし
-        
+        # 打撃スコア
         bat_score = (player.stats.contact * 1.0 + player.stats.power * 1.2 + 
                      player.stats.speed * 0.5 + player.stats.eye * 0.5)
         
-        # 守備スコア補正: 中堅は走力、右翼は肩力を重視
+        # ★修正: 調子ボーナスを追加 (調子1につき約5%の能力変動に相当するスコアを加算)
+        # condition: 1(絶不調) ~ 5(普通) ~ 9(絶好調)
+        # 絶好調(+4)なら +20点、絶不調(-4)なら -20点
+        condition_bonus = (player.condition - 5) * 5.0
+        
+        # 守備スコア
         def_bonus = 0
         if pos_name == "中堅手": def_bonus = player.stats.speed * 0.5
         if pos_name == "右翼手": def_bonus = player.stats.arm * 0.5
         
         def_score = (aptitude * 1.5 + player.stats.error * 0.5 + player.stats.arm * 0.5 + def_bonus)
         
-        return bat_score + (def_score * weight)
+        # 総合スコア = 打撃 + 守備 + 調子
+        return bat_score + (def_score * weight) + condition_bonus
 
+    # ポジションごとにベストな選手を選出
     for pos_enum, pos_name, weight in def_priority:
-        # pos_enumに対応するキー名を取得 (例: CENTER -> "CENTER")
-        pos_name_enum_key = pos_enum.name
-        
         best_idx = -1
-        best_score = -999.0 # 初期値を低く設定
+        best_score = -9999.0
         
         for idx, p in candidates.items():
             if idx in used_indices: continue
-            
             score = calculate_score(p, pos_name, weight)
-            
-            # 適正が20未満でも、他に誰もいなければ選ぶ必要がある（二軍・三軍用）
-            # calculate_scoreで-1が返ってきても、強制的に割り当てるロジックが必要か？
-            # ここではスコアが高い順に選ぶ
             
             if score > best_score:
                 best_score = score
@@ -1363,14 +1388,16 @@ def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
             selected_starters[pos_name] = best_idx
             used_indices.add(best_idx)
     
-    # DH選出
+    # DH選出 (守備負担なし、打撃と調子のみ)
     dh_best_idx = -1
-    dh_best_score = -1
+    dh_best_score = -9999.0
     for idx, p in candidates.items():
         if idx in used_indices: continue
-        # 投手はDHに入れない（二刀流対応は別途必要だが基本は野手優先）
         if p.position == Position.PITCHER: continue 
-        score = p.stats.overall_batting()
+        
+        # 打撃 + 調子
+        score = p.stats.overall_batting() + (p.condition - 5) * 8.0 
+        
         if score > dh_best_score:
             dh_best_score = score
             dh_best_idx = idx
@@ -1380,18 +1407,15 @@ def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
         used_indices.add(dh_best_idx)
 
     lineup_candidates = []
-    # 辞書順ではなく、一般的な打順構成のためのスタメンリストを作成
-    # ポジションマップからリストへ
     for pos, idx in selected_starters.items():
         lineup_candidates.append(idx)
         
-    # 打順決定（打撃能力順）
-    lineup_candidates.sort(key=lambda i: team.players[i].stats.overall_batting(), reverse=True)
+    # 打順決定（打撃能力 + 調子順）
+    # ここでも調子を加味して並べ替えることで、好調な選手が上位に来る
+    lineup_candidates.sort(key=lambda i: team.players[i].stats.overall_batting() + (team.players[i].condition - 5) * 10, reverse=True)
     
-    # 人数が足りない場合の補充 (9人に満たない場合)
     if len(lineup_candidates) < 9:
         remaining = [i for i in candidates.keys() if i not in used_indices]
-        # 投手も含めて補充（緊急措置）
         remaining.sort(key=lambda i: team.players[i].stats.overall_batting(), reverse=True)
         lineup_candidates.extend(remaining[:9 - len(lineup_candidates)])
     
