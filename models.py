@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-データモデル定義 (修正版: 外野3ポジション化・利き腕・詳細指標対応・Plate Discipline追加)
+データモデル定義 (修正版: 総合力計算をWAR準拠に変更・平均250化)
 """
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Tuple
@@ -16,10 +16,10 @@ class Position(Enum):
     SECOND = "二塁手"
     THIRD = "三塁手"
     SHORTSTOP = "遊撃手"
-    # 外野手を3ポジションに分割
     LEFT = "左翼手"
     CENTER = "中堅手"
     RIGHT = "右翼手"
+    DH = "指名打者"
 
 
 class PitchType(Enum):
@@ -106,7 +106,7 @@ class ScheduledGame:
             return self.home_team_name
         elif self.away_score > self.home_score:
             return self.away_team_name
-        return None  # 引き分け
+        return None 
 
     def is_draw(self) -> bool:
         return self.is_completed and self.home_score == self.away_score
@@ -125,42 +125,40 @@ class ScheduledGame:
 @dataclass
 class PlayerStats:
     """選手能力値（1-99スケール）"""
-    # ===== 打撃能力 (Batting Ratings) =====
+    # ===== 打撃能力 =====
     contact: int = 50          # ミート
-    gap: int = 50              # ギャップ（二・三塁打）
+    gap: int = 50              # ギャップ
     power: int = 50            # パワー
     eye: int = 50              # 選球眼
     avoid_k: int = 50          # 三振回避
-    trajectory: int = 2        # 弾道 (1:低 2:中 3:高 4:アーチ)
+    trajectory: int = 2        # 弾道
 
     # ===== 特殊打撃能力 =====
-    vs_left_batter: int = 50   # 対左投手
-    chance: int = 50           # チャンス
+    vs_left_batter: int = 50
+    chance: int = 50
 
-    # ===== 走塁能力 (Running Ratings) =====
+    # ===== 走塁能力 =====
     speed: int = 50            # 走力
     steal: int = 50            # 盗塁技術
     baserunning: int = 50      # 走塁技術
 
     # ===== バント能力 =====
-    bunt_sac: int = 50         # 送りバント
-    bunt_hit: int = 50         # セーフティバント
+    bunt_sac: int = 50
+    bunt_hit: int = 50
 
-    # ===== 守備能力 (Fielding Ratings) =====
-    arm: int = 50              # 肩力 (全ポジション共通)
-    error: int = 50            # 捕球/エラー回避 (全ポジション共通)
+    # ===== 守備能力 =====
+    arm: int = 50              # 肩力
+    error: int = 50            # 捕球/エラー回避
     
     # 守備範囲 (Defense Range)
-    # キー: "捕手", "一塁手", "二塁手", "三塁手", "遊撃手", "左翼手", "中堅手", "右翼手"
-    # 以前の "外野手" キーも互換性のため維持推奨だが、基本は新キーを使用
     defense_ranges: Dict[str, int] = field(default_factory=dict)
     
     catcher_lead: int = 50     # 捕手リード
     turn_dp: int = 50          # 併殺処理
 
-    # ===== 投球能力 (Pitching Ratings) =====
+    # ===== 投球能力 =====
     stuff: int = 50            # 球威
-    movement: int = 50         # 変化球/ムーブメント
+    movement: int = 50         # 変化球
     control: int = 50          # 制球
 
     # ===== 投手追加能力 =====
@@ -169,24 +167,23 @@ class PlayerStats:
     hold_runners: int = 50     # クイック
     gb_tendency: int = 50      # ゴロ傾向
     
-    vs_left_pitcher: int = 50  # 対左打者
-    vs_pinch: int = 50         # 対ピンチ
-    stability: int = 50        # 安定感
+    vs_left_pitcher: int = 50
+    vs_pinch: int = 50
+    stability: int = 50
 
     # ===== 共通能力 =====
-    durability: int = 50       # ケガしにくさ
-    recovery: int = 50         # 回復力
-    work_ethic: int = 50       # 練習態度
-    intelligence: int = 50     # 野球脳
-    mental: int = 50           # メンタル/打たれ強さ
+    durability: int = 50
+    recovery: int = 50
+    work_ethic: int = 50
+    intelligence: int = 50
+    mental: int = 50
 
     # ===== 投手専用 =====
-    pitches: Dict[str, int] = field(default_factory=dict)  # 球種 {"ストレート": 60, ...}
+    pitches: Dict[str, int] = field(default_factory=dict)
 
     # ===== ヘルパーメソッド =====
     def get_defense_range(self, position: 'Position') -> int:
         val = self.defense_ranges.get(position.value, 0)
-        # 互換性: 具体的な外野ポジションがない場合、汎用"外野手"の値を使う
         if val == 0 and position in [Position.LEFT, Position.CENTER, Position.RIGHT]:
             val = self.defense_ranges.get("外野手", 1)
         return max(1, val)
@@ -203,12 +200,10 @@ class PlayerStats:
     # ===== 互換性・エイリアス =====
     @property
     def run(self) -> int: return self.speed
-    
     @property
     def fielding(self) -> int:
         max_range = max(self.defense_ranges.values()) if self.defense_ranges else 1
         return max_range
-
     @property
     def catching(self) -> int: return self.error
     @property
@@ -232,59 +227,85 @@ class PlayerStats:
     def breaking(self, value): self.stuff = value
     @bunt.setter
     def bunt(self, value): self.bunt_sac = value
-    
     @property
     def inf_arm(self) -> int: return self.arm
     @inf_arm.setter
     def inf_arm(self, value): self.arm = value
-    
     @property
     def of_arm(self) -> int: return self.arm
     @of_arm.setter
     def of_arm(self, value): self.arm = value
-    
     @property
     def catcher_arm(self) -> int: return self.arm
     @catcher_arm.setter
     def catcher_arm(self, value): self.arm = value
-    
     @property
     def inf_error(self) -> int: return self.error
     @inf_error.setter
     def inf_error(self, value): self.error = value
-    
     @property
     def of_error(self) -> int: return self.error
     @of_error.setter
     def of_error(self, value): self.error = value
-
     @property
     def catcher_ability(self) -> int: return self.catcher_lead
     @catcher_ability.setter
     def catcher_ability(self, value): self.catcher_lead = value
 
     def to_star_rating(self, value: int) -> float:
-        return max(0.5, min(5.0, value / 20))
+        # 総合力250を基準に星評価 (0-500スケール想定)
+        return max(0.5, min(5.0, value / 100))
 
     def overall_batting(self, position: Optional[Position] = None) -> float:
-        batting = (self.contact * 2 + self.gap * 1.5 + self.power * 1.5 + self.eye + self.avoid_k) / 7
-        running = (self.speed + self.steal + self.baserunning) / 3
+        """
+        WAR（勝利貢献度）に対応した総合力計算
+        平均的な選手(全能力50)が250になるように調整
+        """
+        # 1. 打撃 (Batting) - WARの最大要素
+        # ContactとPowerを最重視
+        batting_val = (self.contact * 3.5 + self.power * 3.0 + self.eye * 2.0 + self.gap * 1.0 + self.avoid_k * 0.5) / 10.0
         
+        # 2. 走塁 (Baserunning)
+        running_val = (self.speed * 2.0 + self.steal * 1.0 + self.baserunning * 1.0) / 4.0
+        
+        # 3. 守備 (Fielding) + 守備位置補正 (Positional Adjustment)
+        # 守備は「守備範囲(Range)」が最もWARに影響する
+        def_range = self.get_defense_range(position) if position else 0
+        fielding_val = (def_range * 4.0 + self.arm * 1.0 + self.error * 1.0) / 6.0
+        
+        # 守備位置補正 (平均250のスケールに合わせて調整)
+        # WARの守備位置補正係数を参考にスケーリング
+        pos_adj = 0
         if position:
-            def_range = self.get_defense_range(position)
-        else:
-            def_range = max(self.defense_ranges.values()) if self.defense_ranges else 1
-            
-        defense = (def_range * 1.5 + self.error + self.arm) / 3.5
+            if position == Position.CATCHER: pos_adj = 40
+            elif position == Position.SHORTSTOP: pos_adj = 30
+            elif position == Position.SECOND: pos_adj = 15
+            elif position == Position.CENTER: pos_adj = 15
+            elif position == Position.THIRD: pos_adj = -10
+            elif position == Position.RIGHT: pos_adj = -10
+            elif position == Position.LEFT: pos_adj = -25
+            elif position == Position.FIRST: pos_adj = -30
+            elif position == Position.DH: pos_adj = -35
         
-        if position == Position.CATCHER or (not position and self.get_defense_range(Position.CATCHER) > 40):
-             defense = (defense * 3 + self.effective_catcher_lead) / 4
-
-        return (batting * 0.5 + running * 0.2 + defense * 0.3)
+        # 総合値計算
+        # 重み付け: 打撃6.5, 守備3.0, 走塁0.5
+        raw_score = (batting_val * 6.5 + fielding_val * 3.0 + running_val * 0.5) / 10.0
+        
+        # スケーリング (平均50 -> 250)
+        # 線形変換: (Score - 50) * 8 + 250 + PosAdj
+        rating = (raw_score - 50) * 8 + 250 + pos_adj
+        
+        return max(1, min(999, int(rating)))
 
     def overall_pitching(self) -> float:
+        """投手総合力"""
         vel_rating = self.kmh_to_rating(self.velocity)
-        return (self.stuff * 2 + self.movement * 1.5 + self.control * 2 + vel_rating + self.stamina * 0.5) / 7
+        # FIP（Stuff, Control）を重視
+        raw_score = (self.stuff * 3.5 + self.control * 3.0 + self.movement * 2.0 + vel_rating * 1.5) / 10.0
+        
+        # スケーリング (平均50 -> 250)
+        rating = (raw_score - 50) * 8 + 250
+        return max(1, min(999, int(rating)))
 
     def speed_to_kmh(self) -> int:
         return self.velocity
@@ -331,14 +352,13 @@ class Stadium:
     name: str
     capacity: int = 30000
     
-    # Park Factors (1.00 = League Average)
-    pf_runs: float = 1.00    # 得点
-    pf_hr: float = 1.00      # 本塁打
-    pf_1b: float = 1.00      # 単打
-    pf_2b: float = 1.00      # 二塁打
-    pf_3b: float = 1.00      # 三塁打
-    pf_so: float = 1.00      # 奪三振 (高いほど三振しやすい)
-    pf_bb: float = 1.00      # 与四球 (高いほど四球が出やすい)
+    pf_runs: float = 1.00
+    pf_hr: float = 1.00
+    pf_1b: float = 1.00
+    pf_2b: float = 1.00
+    pf_3b: float = 1.00
+    pf_so: float = 1.00
+    pf_bb: float = 1.00
 
     def get_factor(self, item: str) -> float:
         return getattr(self, f"pf_{item.lower()}", 1.0)
@@ -346,7 +366,6 @@ class Stadium:
 
 @dataclass
 class PlayerRecord:
-    """選手成績（基本統計 + 高度な守備指標 + 計算済み指標）"""
     # Basic
     games: int = 0
     plate_appearances: int = 0
@@ -367,10 +386,9 @@ class PlayerRecord:
     sacrifice_hits: int = 0
     sacrifice_flies: int = 0
     grounded_into_dp: int = 0
-    home_games: int = 0          # 本拠地での出場試合数 (野手)
-    home_games_pitched: int = 0  # 本拠地での登板試合数 (投手)
+    home_games: int = 0
+    home_games_pitched: int = 0
 
-    # 経験したパークファクターの累積値
     sum_pf_runs: float = 0.0
 
     # Pitching Basic
@@ -400,32 +418,27 @@ class PlayerRecord:
     line_drives: int = 0
     popups: int = 0
     hard_hit_balls: int = 0
-    
-    # 打球質・方向詳細カウンター
     medium_hit_balls: int = 0
     soft_hit_balls: int = 0
-    
     pull_balls: int = 0
     center_balls: int = 0
     oppo_balls: int = 0
-
     balls_in_play: int = 0
 
-    # Plate Discipline / Pitch Tracking (New)
-    pitches_seen: int = 0      # 打者用：見た投球数
-    pitches_thrown: int = 0    # 投手用：投げた投球数
+    pitches_seen: int = 0
+    pitches_thrown: int = 0
     strikes_thrown: int = 0
     balls_thrown: int = 0
     first_pitch_strikes: int = 0
     
-    zone_pitches: int = 0      # ゾーン内投球数
-    chase_pitches: int = 0     # ゾーン外投球数
-    zone_swings: int = 0       # ゾーン内スイング数
-    chase_swings: int = 0      # ゾーン外スイング数
-    zone_contact: int = 0      # ゾーン内コンタクト数
-    chase_contact: int = 0     # ゾーン外コンタクト数
-    swings: int = 0            # 総スイング数
-    whiffs: int = 0            # 空振り数 (Swinging Strikes)
+    zone_pitches: int = 0
+    chase_pitches: int = 0
+    zone_swings: int = 0
+    chase_swings: int = 0
+    zone_contact: int = 0
+    chase_contact: int = 0
+    swings: int = 0
+    whiffs: int = 0
 
     ground_outs: int = 0
     fly_outs: int = 0
@@ -433,26 +446,32 @@ class PlayerRecord:
     complete_games: int = 0
     shutouts: int = 0
 
-    # --- Defensive Metrics (Source Data) ---
+    # Defensive Metrics
     def_opportunities: int = 0 
     def_plays_made: int = 0    
     def_difficulty_sum: float = 0.0 
     def_drs_raw: float = 0.0 
+    defensive_innings: float = 0.0
+    
+    uzr_rngr: float = 0.0
+    uzr_errr: float = 0.0
+    uzr_arm: float = 0.0
+    uzr_dpr: float = 0.0
+    uzr_rsb: float = 0.0
+    uzr_rblk: float = 0.0
 
-    # --- Computed Advanced Stats (Cached/Calculated by Stats Engine) ---
+    # Computed Advanced Stats
     woba_val: float = 0.0
     wrc_val: float = 0.0
     wrc_plus_val: float = 0.0
     war_val: float = 0.0
     fip_val: float = 0.0
     xfip_val: float = 0.0
-    uzr_val: float = 0.0
     drs_val: float = 0.0
-    
     wsb_val: float = 0.0
     ubr_val: float = 0.0
     
-    # --- Basic Properties ---
+    # Properties
     @property
     def batting_average(self) -> float:
         return self.hits / self.at_bats if self.at_bats > 0 else 0.0
@@ -486,7 +505,7 @@ class PlayerRecord:
     def ops(self) -> float:
         return self.obp + self.slg
 
-    # --- Plate Discipline Properties (New) ---
+    # Plate Discipline Properties
     @property
     def o_swing_pct(self) -> float:
         return self.chase_swings / self.chase_pitches if self.chase_pitches > 0 else 0.0
@@ -497,7 +516,6 @@ class PlayerRecord:
         
     @property
     def swing_pct(self) -> float:
-        # 打者の場合pitches_seen、投手の場合pitches_thrownを分母にする
         total = self.pitches_seen if self.pitches_seen > 0 else self.pitches_thrown
         return self.swings / total if total > 0 else 0.0
 
@@ -522,7 +540,7 @@ class PlayerRecord:
         total = self.pitches_seen if self.pitches_seen > 0 else self.pitches_thrown
         return self.whiffs / total if total > 0 else 0.0
 
-    # --- Sabermetrics Properties ---
+    # Sabermetrics Properties
     @property
     def k_pct(self) -> float:
         return self.strikeouts / self.plate_appearances if self.plate_appearances > 0 else 0.0
@@ -627,8 +645,7 @@ class PlayerRecord:
 
     @property
     def xfip(self) -> float:
-        if self.xfip_val == 0.0:
-             return self.fip 
+        if self.xfip_val == 0.0: return self.fip 
         return self.xfip_val
 
     @property
@@ -695,14 +712,24 @@ class PlayerRecord:
         denom = (self.hits_allowed + self.walks_allowed + self.hit_batters) - (1.4 * self.home_runs_allowed)
         if denom <= 0: return 0.72
         return num / denom
-
+    
     @property
     def uzr(self) -> float:
-        return self.uzr_val
+        return self.uzr_rngr + self.uzr_errr + self.uzr_dpr + self.uzr_arm + self.uzr_rsb + self.uzr_rblk
     
     @property
     def drs(self) -> float:
         return self.drs_val
+
+    @property
+    def uzr_1000(self) -> float:
+        if self.defensive_innings <= 0: return 0.0
+        return (self.uzr / self.defensive_innings) * 1000
+
+    @property
+    def uzr_1200(self) -> float:
+        if self.defensive_innings <= 0: return 0.0
+        return (self.uzr / self.defensive_innings) * 1200
 
     def reset(self):
         for field_name in self.__dataclass_fields__:
@@ -882,8 +909,7 @@ class Player:
             val = self.stats.overall_pitching()
         else:
             val = self.stats.overall_batting(self.position)
-        rating = (val / 99) ** 2 * 999
-        return max(1, min(999, int(rating)))
+        return int(val)
 
 
 @dataclass(eq=False)
