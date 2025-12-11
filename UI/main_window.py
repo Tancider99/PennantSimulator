@@ -172,15 +172,11 @@ class MainWindow(QMainWindow):
         # Lazy imports to avoid circular dependencies and heavy startup
         from UI.pages.home_page import HomePage
         from UI.pages.roster_page import RosterPage
-        from UI.pages.live_game_page import LiveGamePage
-        from UI.pages.standings_page import StandingsPage
         from UI.pages.schedule_page import SchedulePage
         from UI.pages.stats_page import StatsPage
-        from UI.pages.draft_page import DraftPage
-        from UI.pages.trade_page import TradePage
-        from UI.pages.fa_page import FAPage
         from UI.pages.settings_page import SettingsPage
         from UI.pages.order_page import OrderPage
+        from UI.pages.farm_swap_page import FarmSwapPage
 
         page = None
         
@@ -202,39 +198,22 @@ class MainWindow(QMainWindow):
             # 修正: 選手詳細シグナルをメインウィンドウのメソッドに接続
             page.player_detail_requested.connect(self._show_player_detail)
             self.order_page = page
-            
+
+        elif section == "schedule":
+            self.schedule_page = SchedulePage(self)
+            page = self.schedule_page 
+
         elif section == "stats":
             self.stats_page = StatsPage(self)
             # 修正: スタッツページからの選手詳細リクエストを接続
             self.stats_page.player_detail_requested.connect(self._show_player_detail)
             page = self.stats_page
-            
-        elif section == "schedule":
-            self.schedule_page = SchedulePage(self)
-            page = self.schedule_page
-            
-        elif section == "standings":
-            # Page class is kept for potential internal use, though not in sidebar
-            self.standings_page = StandingsPage(self)
-            page = self.standings_page
-            
-        elif section == "game":
-            page = LiveGamePage(self)
-            page.game_finished.connect(self._on_game_finished)
-            self.game_page = page
+
+        elif section == "farm_swap":  # 追加
+            page = FarmSwapPage(self)
+            self.farm_swap_page = page
         
         # Unimplemented pages (kept for code reference but not in sidebar)
-        elif section == "trade":
-            self.trade_page = TradePage(self)
-            page = self.trade_page
-            
-        elif section == "draft":
-            self.draft_page = DraftPage(self)
-            page = self.draft_page
-            
-        elif section == "free_agency":
-            self.fa_page = FAPage(self)
-            page = self.fa_page
             
         elif section == "settings":
             page = SettingsPage(self)
