@@ -8,13 +8,13 @@ from PySide6.QtWidgets import (
     QPushButton, QTableWidget, QTableWidgetItem, 
     QHeaderView, QAbstractItemView, QFrame, QMessageBox, QSplitter
 )
-from PySide6.QtCore import Qt, Signal, QSize
-from PySide6.QtGui import QColor, QFont, QIcon
+from PySide6.QtCore import Qt, Signal, QSize, QMimeData
+from PySide6.QtGui import QColor, QFont, QIcon, QDrag
 
 import sys
 import os
 
-# パス設定（他のファイルと同様）
+# パス設定
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from UI.theme import get_theme
@@ -25,6 +25,75 @@ from models import TeamLevel, Position
 # ユーザーロール定義
 ROLE_PLAYER_IDX = Qt.UserRole + 1
 ROLE_ORIGINAL_LEVEL = Qt.UserRole + 2
+
+class DraggableTableWidget(QTableWidget):
+    """ドラッグ＆ドロップ対応のテーブルウィジェット"""
+    
+    # プレイヤーがドロップされたときに発火するシグナル (player_idx)
+    itemDropped = Signal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDragDropMode(QAbstractItemView.DragDrop)
+        self.setDefaultDropAction(Qt.MoveAction)
+        self.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.setAlternatingRowColors(True)
+        self.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.verticalHeader().setVisible(False)
+        self.horizontalHeader().setSectionResizeMode(QHeaderView.Fixed)
+        self.horizontalHeader().setStretchLastSection(True)
+        self.setShowGrid(False)
+
+    def startDrag(self, supportedActions):
+        """ドラッグ開始時の処理"""
+        item = self.item(self.currentRow(), 0)
+        if not item:
+            return
+            
+        # プレイヤーIDを取得
+        p_idx = item.data(ROLE_PLAYER_IDX)
+        if p_idx is None:
+            return
+        
+        # MIMEデータにプレイヤーIDを格納
+        mime = QMimeData()
+        mime.setText(str(p_idx))
+        
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        
+        # ドラッグ実行
+        drag.exec(supportedActions, Qt.MoveAction)
+
+    def dragEnterEvent(self, event):
+        """ドラッグが入ってきたとき"""
+        if event.mimeData().hasText():
+            event.accept()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        """ドラッグ中の移動"""
+        if event.mimeData().hasText():
+            event.accept()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        """ドロップされたとき"""
+        if event.mimeData().hasText():
+            try:
+                p_idx = int(event.mimeData().text())
+                self.itemDropped.emit(p_idx)
+                event.accept()
+            except ValueError:
+                event.ignore()
+        else:
+            event.ignore()
+
 
 class FarmSwapPage(QWidget):
     """二軍・三軍 入れ替え管理ページ"""
@@ -57,31 +126,14 @@ class FarmSwapPage(QWidget):
         content_frame.setStyleSheet(f"background-color: {self.theme.bg_dark};")
         content_layout = QHBoxLayout(content_frame)
         content_layout.setContentsMargins(16, 16, 16, 16)
-        content_layout.setSpacing(16)
+        content_layout.setSpacing(24)
 
         # 左側：二軍リスト
-        self.farm_panel = self._create_roster_panel("二軍", TeamLevel.SECOND)
+        self.farm_panel = self._create_roster_panel("二軍 (Farm)", TeamLevel.SECOND)
         content_layout.addWidget(self.farm_panel, 1)
 
-        # 中央：操作ボタンエリア
-        btn_layout = QVBoxLayout()
-        btn_layout.addStretch()
-        
-        self.to_third_btn = self._create_move_button(">>", "三軍へ移動")
-        self.to_third_btn.clicked.connect(self._move_selected_to_third)
-        btn_layout.addWidget(self.to_third_btn)
-        
-        btn_layout.addSpacing(16)
-        
-        self.to_farm_btn = self._create_move_button("<<", "二軍へ移動")
-        self.to_farm_btn.clicked.connect(self._move_selected_to_farm)
-        btn_layout.addWidget(self.to_farm_btn)
-        
-        btn_layout.addStretch()
-        content_layout.addLayout(btn_layout)
-
         # 右側：三軍リスト
-        self.third_panel = self._create_roster_panel("三軍", TeamLevel.THIRD)
+        self.third_panel = self._create_roster_panel("三軍 (3rd)", TeamLevel.THIRD)
         content_layout.addWidget(self.third_panel, 1)
 
         layout.addWidget(content_frame)
@@ -95,7 +147,7 @@ class FarmSwapPage(QWidget):
         self.team_label = QLabel("チーム名")
         self.team_label.setStyleSheet(f"color: {self.theme.text_primary}; font-weight: bold; font-size: 16px; margin-left: 12px;")
         toolbar.add_widget(self.team_label)
-
+        
         toolbar.add_stretch()
 
         # フィルタボタン
@@ -136,31 +188,6 @@ class FarmSwapPage(QWidget):
             }}
         """)
 
-    def _create_move_button(self, text, tooltip):
-        btn = QPushButton(text)
-        btn.setToolTip(tooltip)
-        btn.setFixedSize(50, 50)
-        btn.setCursor(Qt.PointingHandCursor)
-        btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {self.theme.bg_card};
-                color: {self.theme.text_primary};
-                border: 1px solid {self.theme.border};
-                border-radius: 25px;
-                font-size: 18px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background-color: {self.theme.primary};
-                color: {self.theme.text_highlight};
-                border-color: {self.theme.primary};
-            }}
-            QPushButton:pressed {{
-                background-color: {self.theme.primary_hover};
-            }}
-        """)
-        return btn
-
     def _create_roster_panel(self, title, level):
         """各軍のリストパネルを作成"""
         container = QWidget()
@@ -181,24 +208,16 @@ class FarmSwapPage(QWidget):
         
         layout.addLayout(header_layout)
 
-        # テーブル作成
-        table = QTableWidget()
-        table.setAlternatingRowColors(True)
-        table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        table.setSelectionMode(QAbstractItemView.SingleSelection)
-        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        table.verticalHeader().setVisible(False)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.Fixed)
-        table.horizontalHeader().setStretchLastSection(True)
-        table.setShowGrid(False)
+        # テーブル作成 (DraggableTableWidgetを使用)
+        table = DraggableTableWidget()
         
-        # スタイル適用 (OrderPageと同様のスタイル)
+        # スタイル適用
         table.setStyleSheet(f"""
             QTableWidget {{
                 background-color: {self.theme.bg_card};
                 border: 1px solid {self.theme.border};
                 gridline-color: {self.theme.border_muted};
-                selection-background-color: {self.theme.primary}40; /* 半透明のプライマリ色 */
+                selection-background-color: {self.theme.primary}40;
                 selection-color: {self.theme.text_primary};
                 outline: none;
             }}
@@ -216,13 +235,13 @@ class FarmSwapPage(QWidget):
             }}
         """)
 
-        # ダブルクリックで移動
+        # ドロップ時のシグナル接続
         if level == TeamLevel.SECOND:
-            table.itemDoubleClicked.connect(self._move_selected_to_third)
+            table.itemDropped.connect(self._on_dropped_to_farm)
             self.farm_table = table
             self.farm_count_lbl = count_lbl
         else:
-            table.itemDoubleClicked.connect(self._move_selected_to_farm)
+            table.itemDropped.connect(self._on_dropped_to_third)
             self.third_table = table
             self.third_count_lbl = count_lbl
 
@@ -231,16 +250,18 @@ class FarmSwapPage(QWidget):
 
     def _setup_table_columns(self, table, is_pitcher):
         """テーブルの列定義を設定"""
-        table.clear()
+        table.clear() 
         
         if is_pitcher:
-            headers = ["守", "調", "選手名", "年齢", "球速", "コ", "ス", "変", "総合"]
-            widths = [40, 30, 140, 40, 50, 35, 35, 35, 45]
-            delegate_cols = [5, 6, 7]
+            # 調子, 名前, 年齢, 球速, コン, スタ, 変化, 適正, 総合
+            headers = ["調", "選手名", "年齢", "球速", "コ", "ス", "変", "適", "総合"]
+            widths = [30, 140, 40, 50, 35, 35, 35, 45, 45]
+            delegate_cols = [4, 5, 6] # コ, ス, 変
         else:
-            headers = ["守", "調", "選手名", "年齢", "ミ", "パ", "走", "守", "総合"]
-            widths = [40, 30, 140, 40, 35, 35, 35, 35, 45]
-            delegate_cols = [4, 5, 6, 7]
+            # 調子, 名前, 年齢, ミート, パワー, 走力, 守力, 位置, 総合
+            headers = ["調", "選手名", "年齢", "ミ", "パ", "走", "守", "位置", "総合"]
+            widths = [30, 140, 40, 35, 35, 35, 35, 45, 45]
+            delegate_cols = [3, 4, 5, 6] # ミ, パ, 走, 守
 
         table.setColumnCount(len(headers))
         table.setHorizontalHeaderLabels(headers)
@@ -293,8 +314,17 @@ class FarmSwapPage(QWidget):
         
         # チームリストから走査
         for i, p in enumerate(self.current_team.players):
-            # ポジションフィルタ
-            p_is_pitcher = (p.position.value == "投手")
+            # 安全なPosition取得
+            try:
+                # p.position.value を安全に取得
+                if hasattr(p.position, 'value'):
+                    pos_val = p.position.value
+                else:
+                    pos_val = str(p.position)
+            except:
+                pos_val = ""
+            
+            p_is_pitcher = (pos_val == "投手")
             if p_is_pitcher != is_pitcher:
                 continue
 
@@ -304,7 +334,7 @@ class FarmSwapPage(QWidget):
             elif i in self.current_team.third_roster:
                 third_players.append((i, p))
 
-        # ソート（背番号順など）
+        # ソート（背番号順）
         farm_players.sort(key=lambda x: x[1].uniform_number)
         third_players.sort(key=lambda x: x[1].uniform_number)
 
@@ -312,91 +342,121 @@ class FarmSwapPage(QWidget):
         self._fill_table(self.farm_table, farm_players, is_pitcher)
         self._fill_table(self.third_table, third_players, is_pitcher)
 
-        # 人数表示更新
-        farm_limit = getattr(self.current_team, 'FARM_ROSTER_LIMIT', 40)
-        third_limit = getattr(self.current_team, 'THIRD_ROSTER_LIMIT', 30)
+        # 人数表示更新 (人数制限の撤廃)
+        # farm_limit = getattr(self.current_team, 'FARM_ROSTER_LIMIT', 40)
         
         farm_total = len(self.current_team.farm_roster)
         third_total = len(self.current_team.third_roster)
         
-        self.farm_count_lbl.setText(f"{farm_total}/{farm_limit}人")
+        self.farm_count_lbl.setText(f"{farm_total}人")
         self.third_count_lbl.setText(f"{third_total}人")
-        
-        # 色分け (制限を超えていたら赤くする)
-        if farm_total > farm_limit:
-             self.farm_count_lbl.setStyleSheet(f"color: {self.theme.danger}; font-weight: bold;")
-        else:
-             self.farm_count_lbl.setStyleSheet(f"color: {self.theme.text_secondary};")
+        self.farm_count_lbl.setStyleSheet(f"color: {self.theme.text_secondary};")
 
     def _fill_table(self, table, players_data, is_pitcher):
         """テーブルに行データを追加"""
         table.setRowCount(len(players_data))
         
         for row, (p_idx, p) in enumerate(players_data):
-            # 怪我状態などによる文字色
-            text_color = None
-            if p.is_injured:
-                text_color = QColor("#95a5a6")
-            
-            # 0: 守備位置/タイプ
-            pos_str = p.pitch_type.value[:2] if is_pitcher else p.position.value[0]
-            item_pos = self._create_item(pos_str, text_color=text_color)
-            if is_pitcher:
-                 # 投手タイプに応じた色分け
-                 badge_color = "#3498db" # Default blue
-                 if pos_str == "先発": badge_color = "#e67e22" # Orange
-                 elif pos_str == "抑え": badge_color = "#e74c3c" # Red
-                 
-                 item_pos.setBackground(QColor(badge_color))
-                 item_pos.setForeground(Qt.white)
-                 item_pos.setFont(QFont("Yu Gothic UI", 9, QFont.Bold))
-            else:
-                 # 野手ポジション色
-                 from UI.pages.order_page import get_pos_color
-                 color_code = get_pos_color(p.position.value[0])
-                 item_pos.setBackground(QColor(color_code))
-                 item_pos.setForeground(Qt.white)
-                 item_pos.setFont(QFont("Yu Gothic UI", 9, QFont.Bold))
-                 
-            table.setItem(row, 0, item_pos)
+            try:
+                # 怪我状態などによる文字色
+                text_color = None
+                if p.is_injured:
+                    text_color = QColor("#95a5a6")
+                
+                # 0: 調子 (Cond)
+                table.setItem(row, 0, self._create_condition_item(p))
 
-            # 1: 調子
-            table.setItem(row, 1, self._create_condition_item(p))
+                # 1: 名前 (Name)
+                name_item = self._create_item(p.name, align=Qt.AlignLeft, text_color=text_color)
+                if p.is_injured:
+                    name_item.setToolTip(f"怪我: {p.injury_name} (残{p.injury_days}日)")
+                table.setItem(row, 1, name_item)
 
-            # 2: 名前
-            name_item = self._create_item(p.name, align=Qt.AlignLeft, text_color=text_color)
-            # 怪我情報をツールチップに
-            if p.is_injured:
-                name_item.setToolTip(f"怪我: {p.injury_name} (残{p.injury_days}日)")
-            table.setItem(row, 2, name_item)
+                # 2: 年齢 (Age)
+                table.setItem(row, 2, self._create_item(str(p.age), text_color=text_color))
 
-            # 3: 年齢
-            table.setItem(row, 3, self._create_item(str(p.age), text_color=text_color))
+                # Stats
+                if is_pitcher:
+                    # 3: Speed
+                    kmh = p.stats.speed_to_kmh()
+                    table.setItem(row, 3, self._create_item(f"{kmh}km", text_color=text_color))
+                    # 4,5,6: Con, Stm, Stuff
+                    table.setItem(row, 4, self._create_item(p.stats.control, is_rating=True))
+                    table.setItem(row, 5, self._create_item(p.stats.stamina, is_rating=True))
+                    table.setItem(row, 6, self._create_item(p.stats.stuff, is_rating=True))
+                    
+                    # 7: Aptitude/Role (適正)
+                    role_str = "先"
+                    apt_val = 50
+                    
+                    # 役割と適正値の取得
+                    if hasattr(p, 'pitch_type') and p.pitch_type:
+                        try:
+                            full_role = p.pitch_type.value
+                            role_str = full_role[:1] # "先", "中", "抑"
+                            
+                            if "先発" in full_role: apt_val = p.starter_aptitude
+                            elif "中継" in full_role: apt_val = p.middle_aptitude
+                            elif "抑" in full_role: apt_val = p.closer_aptitude
+                        except:
+                            pass
+                    else:
+                        apt_val = p.starter_aptitude
 
-            # Stats
-            if is_pitcher:
-                kmh = p.stats.speed_to_kmh()
-                table.setItem(row, 4, self._create_item(f"{kmh}km", text_color=text_color))
-                table.setItem(row, 5, self._create_item(p.stats.control, is_rating=True))
-                table.setItem(row, 6, self._create_item(p.stats.stamina, is_rating=True))
-                table.setItem(row, 7, self._create_item(p.stats.stuff, is_rating=True))
-            else:
-                table.setItem(row, 4, self._create_item(p.stats.contact, is_rating=True))
-                table.setItem(row, 5, self._create_item(p.stats.power, is_rating=True))
-                table.setItem(row, 6, self._create_item(p.stats.speed, is_rating=True))
-                table.setItem(row, 7, self._create_item(p.stats.fielding, is_rating=True))
+                    # ランク取得 (★ここを修正しました★)
+                    # p.get_rank ではなく p.stats.get_rank を使用
+                    rank = p.stats.get_rank(apt_val)
+                    
+                    apt_item = self._create_item(f"{role_str}{rank}")
+                    # 色分け: 適正に応じて
+                    bg_color = None
+                    if role_str == "先": bg_color = "#e67e22"
+                    elif role_str == "抑": bg_color = "#e74c3c"
+                    else: bg_color = "#3498db"
+                    
+                    apt_item.setBackground(QColor(bg_color))
+                    apt_item.setForeground(Qt.white)
+                    apt_item.setFont(QFont("Yu Gothic UI", 9, QFont.Bold))
+                    table.setItem(row, 7, apt_item)
 
-            # 総合
-            star_item = self._create_item(f"★{p.overall_rating}")
-            star_item.setForeground(QColor("#FFD700"))
-            star_item.setFont(QFont("Yu Gothic UI", 9, QFont.Bold))
-            table.setItem(row, len(players_data[0]) if not is_pitcher else 8, star_item)
+                else:
+                    # 3,4,5,6: Con, Pwr, Spd, Fld
+                    table.setItem(row, 3, self._create_item(p.stats.contact, is_rating=True))
+                    table.setItem(row, 4, self._create_item(p.stats.power, is_rating=True))
+                    table.setItem(row, 5, self._create_item(p.stats.speed, is_rating=True))
+                    table.setItem(row, 6, self._create_item(p.stats.fielding, is_rating=True))
+                    
+                    # 7: Position Name (位置)
+                    try:
+                        pos_str = p.position.value[0] if hasattr(p.position, 'value') else str(p.position)[0]
+                    except:
+                        pos_str = "-"
+                        
+                    pos_item = self._create_item(pos_str, text_color=text_color)
+                    
+                    from UI.pages.order_page import get_pos_color
+                    color_code = get_pos_color(pos_str)
+                    pos_item.setBackground(QColor(color_code))
+                    pos_item.setForeground(Qt.white)
+                    pos_item.setFont(QFont("Yu Gothic UI", 9, QFont.Bold))
+                    
+                    table.setItem(row, 7, pos_item)
 
-            # ユーザーデータとしてプレイヤーインデックスを保存
-            for c in range(table.columnCount()):
-                item = table.item(row, c)
-                if item:
-                    item.setData(ROLE_PLAYER_IDX, p_idx)
+                # 8: Overall
+                star_item = self._create_item(f"★{p.overall_rating}")
+                star_item.setForeground(QColor("#FFD700"))
+                star_item.setFont(QFont("Yu Gothic UI", 9, QFont.Bold))
+                table.setItem(row, 8, star_item)
+
+                # ユーザーデータとしてプレイヤーインデックスを保存 (ドラッグ＆ドロップで使用)
+                for c in range(table.columnCount()):
+                    item = table.item(row, c)
+                    if item:
+                        item.setData(ROLE_PLAYER_IDX, p_idx)
+            except Exception as e:
+                # デバッグ用にエラーを出力（必要であればコンソールで確認）
+                print(f"Error filling table row {row}: {e}")
+                continue
 
     def _create_item(self, text, align=Qt.AlignCenter, is_rating=False, text_color=None):
         item = SortableTableWidgetItem(str(text))
@@ -407,11 +467,7 @@ class FarmSwapPage(QWidget):
         if is_rating:
             try:
                 val = int(text)
-                item.setData(Qt.UserRole, val) # ソート用数値
-                item.setData(Qt.DisplayRole, "") # 表示はデリゲートに任せるか、空にする
-                # RatingDelegateを使う場合、数値データはUserRoleに入れておくと良いが、
-                # ここでは簡易的に実装。RatingDelegateの仕様に合わせる。
-                # 既存のRatingDelegateはDisplayRoleの値を参照して描画しているはずなので値を戻す
+                item.setData(Qt.UserRole, val) 
                 item.setText(str(text)) 
             except:
                 pass
@@ -449,39 +505,34 @@ class FarmSwapPage(QWidget):
             
         return item
 
-    def _move_selected_to_third(self):
-        """二軍 -> 三軍 移動"""
-        selected_items = self.farm_table.selectedItems()
-        if not selected_items:
-            return
-            
-        # 1行選択されているので、その行のPlayerIdxを取得
-        p_idx = selected_items[0].data(ROLE_PLAYER_IDX)
+    def _on_dropped_to_farm(self, p_idx):
+        """二軍テーブルにドロップされた時の処理"""
         if p_idx is None: return
 
-        # モデル操作
-        self.current_team.move_to_third_roster(p_idx)
+        # 制限チェックを削除（無制限）
+        # farm_limit = getattr(self.current_team, 'FARM_ROSTER_LIMIT', 40)
         
-        # 画面更新
-        self._refresh_tables()
-
-    def _move_selected_to_farm(self):
-        """三軍 -> 二軍 移動"""
-        selected_items = self.third_table.selectedItems()
-        if not selected_items:
+        # 既に二軍にいる場合は何もしない
+        if p_idx in self.current_team.farm_roster:
             return
-            
-        p_idx = selected_items[0].data(ROLE_PLAYER_IDX)
+
+        # 人数チェックを削除
+        # if len(self.current_team.farm_roster) >= farm_limit:
+        #    QMessageBox.warning(self, "登録上限", f"二軍の登録枠({farm_limit}人)がいっぱいです。")
+        #    return
+
+        # 移動ロジック実行 (ActiveやThirdからFarmへ)
+        if self.current_team.move_to_farm_roster(p_idx):
+            self._refresh_tables()
+
+    def _on_dropped_to_third(self, p_idx):
+        """三軍テーブルにドロップされた時の処理"""
         if p_idx is None: return
-
-        # 制限チェック
-        farm_limit = getattr(self.current_team, 'FARM_ROSTER_LIMIT', 40)
-        if len(self.current_team.farm_roster) >= farm_limit:
-            QMessageBox.warning(self, "登録上限", f"二軍の登録枠({farm_limit}人)がいっぱいです。")
+        
+        # 既に三軍にいる場合は何もしない
+        if p_idx in self.current_team.third_roster:
             return
 
-        # モデル操作
-        self.current_team.move_to_farm_roster(p_idx)
-        
-        # 画面更新
-        self._refresh_tables()
+        # 移動ロジック実行 (ActiveやFarmからThirdへ)
+        if self.current_team.move_to_third_roster(p_idx):
+            self._refresh_tables()
