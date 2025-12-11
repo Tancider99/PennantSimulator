@@ -858,7 +858,8 @@ class OrderPage(QWidget):
                 table.setItem(i, 5, self._create_item(s.power, rank_color=True))
                 table.setItem(i, 6, self._create_item(s.speed, rank_color=True))
                 table.setItem(i, 7, self._create_item(s.arm, rank_color=True))
-                table.setItem(i, 8, self._create_item(s.error, rank_color=True))
+                # 修正: エラー回避(s.error)ではなく守備力(s.fielding)を表示
+                table.setItem(i, 8, self._create_item(s.fielding, rank_color=True))
                 
                 apt_data = self._format_aptitude_delegate(p)
                 p_pos_char = self._short_pos_name(p.position.value)
@@ -894,7 +895,8 @@ class OrderPage(QWidget):
                 table.setItem(i, 4, self._create_item(s.power, rank_color=True))
                 table.setItem(i, 5, self._create_item(s.speed, rank_color=True))
                 table.setItem(i, 6, self._create_item(s.arm, rank_color=True))
-                table.setItem(i, 7, self._create_item(s.error, rank_color=True))
+                # 修正: エラー回避(s.error)ではなく守備力(s.fielding)を表示
+                table.setItem(i, 7, self._create_item(s.fielding, rank_color=True))
                 
                 apt_data = self._format_aptitude_delegate(p)
                 p_pos_char = main_pos
@@ -943,7 +945,8 @@ class OrderPage(QWidget):
             table.setItem(i, 4, self._create_item(s.power, rank_color=True))
             table.setItem(i, 5, self._create_item(s.speed, rank_color=True))
             table.setItem(i, 6, self._create_item(s.arm, rank_color=True))
-            table.setItem(i, 7, self._create_item(s.error, rank_color=True))
+            # 修正: エラー回避(s.error)ではなく守備力(s.fielding)を表示
+            table.setItem(i, 7, self._create_item(s.fielding, rank_color=True))
             
             apt_data = self._format_aptitude_delegate(p)
             p_pos_char = self._short_pos_name(p.position.value)

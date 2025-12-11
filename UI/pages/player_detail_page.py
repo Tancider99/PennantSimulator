@@ -70,7 +70,20 @@ class VerticalStatBar(QWidget):
         fill_y = bar_bottom_y - fill_h
         
         stats = PlayerStats()
-        color = QColor(stats.get_rank_color(self.value))
+        
+        # 色とランクの決定
+        is_trajectory = (self.label == "弾道")
+        
+        if is_trajectory:
+            # 弾道用の特別色 (1:青, 2:緑, 3:橙, 4:赤/金)
+            if self.value == 1: color = QColor("#4488FF")
+            elif self.value == 2: color = QColor("#88FF44")
+            elif self.value == 3: color = QColor("#FF8800")
+            else: color = QColor("#FF4444")
+            rank_text = "" # 弾道はランク表示なし
+        else:
+            color = QColor(stats.get_rank_color(self.value))
+            rank_text = stats.get_rank(self.value)
         
         painter.setBrush(color)
         painter.drawRoundedRect(bar_x, fill_y, bar_w, fill_h, 6, 6)
@@ -81,18 +94,25 @@ class VerticalStatBar(QWidget):
         painter.setFont(font_lbl)
         painter.drawText(QRect(0, h - label_h, w, label_h), Qt.AlignCenter, self.label)
         
-        # ランク
-        rank = stats.get_rank(self.value)
-        painter.setPen(color)
-        font_rank = QFont("Segoe UI", 16, QFont.Black)
-        painter.setFont(font_rank)
-        painter.drawText(QRect(0, 0, w, rank_h), Qt.AlignCenter, rank)
+        # ランク (弾道の場合は表示しない)
+        if not is_trajectory:
+            painter.setPen(color)
+            font_rank = QFont("Segoe UI", 16, QFont.Black)
+            painter.setFont(font_rank)
+            painter.drawText(QRect(0, 0, w, rank_h), Qt.AlignCenter, rank_text)
         
         # 数値
         painter.setPen(Qt.white)
-        font_val = QFont("Consolas", 11, QFont.Bold)
+        # 弾道の場合は数値を大きく強調
+        font_size = 14 if is_trajectory else 11
+        font_val = QFont("Consolas", font_size, QFont.Bold)
         painter.setFont(font_val)
-        painter.drawText(QRect(0, rank_h, w, val_h), Qt.AlignCenter, str(self.value))
+        
+        # 弾道の場合はランクエリアも使って表示位置を調整
+        val_rect_y = 0 if is_trajectory else rank_h
+        val_rect_h = rank_h + val_h if is_trajectory else val_h
+        
+        painter.drawText(QRect(0, val_rect_y, w, val_rect_h), Qt.AlignCenter, str(self.value))
 
 class SeasonStatsWidget(QWidget):
     """
@@ -200,8 +220,9 @@ class PlayerDetailPage(QWidget):
     """
     Refined Layout: 
     - Global Radar Chart (No vertex dots, No Center OVR)
-    - OVR in Top-Right
-    - All Abilities Displayed
+    - OVR in Top-Right (with Star)
+    - All Abilities Displayed (Split Tabs)
+    - Trajectory customized
     """
     back_requested = Signal()
     detail_stats_requested = Signal(object)
@@ -301,7 +322,8 @@ class PlayerDetailPage(QWidget):
         
         # OVR Display (Top Right)
         ovr_v = QVBoxLayout()
-        ovr_val = QLabel(f"{player.overall_rating}")
+        # ★数値表記に変更
+        ovr_val = QLabel(f"★ {player.overall_rating}")
         stats_util = PlayerStats()
         ovr_color = stats_util.get_rank_color(player.overall_rating)
         ovr_val.setStyleSheet(f"font-size: 48px; font-weight: 900; color: {ovr_color}; font-family: 'Segoe UI';")
@@ -339,7 +361,7 @@ class PlayerDetailPage(QWidget):
         
         stats = player.stats
         
-        # タブごとのデータ定義 (全能力網羅)
+        # タブごとのデータ定義 (全能力網羅 + 守備/メンタル分離 + 守備範囲)
         if is_pitcher:
             # 投手: 基礎
             pitch_basic = [
@@ -347,29 +369,35 @@ class PlayerDetailPage(QWidget):
                 ("スタミナ", stats.stamina, 99), ("球威", stats.stuff, 99),
                 ("変化量", stats.movement, 99), ("安定度", stats.stability, 99)
             ]
-            # 投手: 特殊・メンタル
+            # 投手: 特殊・その他
             pitch_spec = [
                 ("対左打者", stats.vs_left_pitcher, 99), ("対ピンチ", stats.vs_pinch, 99),
-                ("打球反応", stats.gb_tendency, 99), ("クイック", stats.hold_runners, 99),
+                ("クイック", stats.hold_runners, 99)
+            ]
+            # 投手: 守備
+            pitch_fld = [
+                ("守備力", stats.fielding, 99), ("肩力", stats.arm, 99),
+                ("捕球", stats.error, 99), ("打球反応", stats.gb_tendency, 99), 
+                ("バント", stats.bunt_sac, 99)
+            ]
+            # 投手: メンタル・その他
+            pitch_mental = [
                 ("メンタル", stats.mental, 99), ("野球脳", stats.intelligence, 99),
                 ("回復", stats.recovery, 99), ("ケガ耐性", stats.durability, 99),
                 ("練習態度", stats.work_ethic, 99)
             ]
-            # 投手: 守備・その他
-            pitch_fld = [
-                ("守備力", stats.fielding, 99), ("肩力", stats.arm, 99), # 投手も守備あり
-                ("捕球", stats.error, 99), ("バント", stats.bunt_sac, 99)
-            ]
             
             bottom_tabs.addTab(self._create_full_tab(pitch_basic), "PITCHING BASIC")
-            bottom_tabs.addTab(self._create_full_tab(pitch_spec), "SPECIAL / MENTAL")
-            bottom_tabs.addTab(self._create_full_tab(pitch_fld), "FIELDING / OTHER")
+            bottom_tabs.addTab(self._create_full_tab(pitch_spec), "SPECIAL")
+            bottom_tabs.addTab(self._create_full_tab(pitch_fld), "FIELDING")
+            bottom_tabs.addTab(self._create_full_tab(pitch_mental), "MENTAL / OTHER")
             
         else:
-            # 野手: 打撃
+            # 野手: 打撃 (弾道を一番左に移動)
             bat_basic = [
+                ("弾道", stats.trajectory, 4), # 先頭へ
                 ("ミート", stats.contact, 99), ("パワー", stats.power, 99),
-                ("ギャップ", stats.gap, 99), ("弾道", stats.trajectory, 4),
+                ("ギャップ", stats.gap, 99), 
                 ("選球眼", stats.eye, 99), ("三振回避", stats.avoid_k, 99)
             ]
             # 野手: 特殊打撃・走塁
@@ -379,11 +407,25 @@ class PlayerDetailPage(QWidget):
                 ("走力", stats.speed, 99), ("盗塁", stats.steal, 99),
                 ("走塁技術", stats.baserunning, 99)
             ]
-            # 野手: 守備・メンタル・その他
-            fld_men = [
-                ("守備力", stats.fielding, 99), ("捕球", stats.error, 99),
+            
+            # 野手: 守備 (ポジション別適性を含む)
+            # 「守備力(最大)」を削除
+            fld_list = [
+                ("捕球", stats.error, 99),
                 ("肩力", stats.arm, 99), ("送球安定", getattr(stats, 'stability', 50), 99),
-                ("併殺処理", stats.turn_dp, 99), ("リード", stats.catcher_lead, 99), # 捕手用だが全表示
+                ("併殺処理", stats.turn_dp, 99)
+            ]
+            if safe_enum_val(player.position) == "捕手":
+                fld_list.append(("リード", stats.catcher_lead, 99))
+            
+            # 守備範囲（ポジション別）を追加
+            if hasattr(stats, 'defense_ranges'):
+                for pos_name, val in stats.defense_ranges.items():
+                    if val > 0:
+                        fld_list.append((f"守備({pos_name})", val, 99))
+
+            # 野手: メンタル・その他
+            mental_list = [
                 ("メンタル", stats.mental, 99), ("野球脳", stats.intelligence, 99),
                 ("回復", stats.recovery, 99), ("ケガ耐性", stats.durability, 99),
                 ("練習態度", stats.work_ethic, 99)
@@ -391,7 +433,8 @@ class PlayerDetailPage(QWidget):
             
             bottom_tabs.addTab(self._create_full_tab(bat_basic), "BATTING")
             bottom_tabs.addTab(self._create_full_tab(bat_spec), "SPECIAL / RUNNING")
-            bottom_tabs.addTab(self._create_full_tab(fld_men), "FIELDING / MENTAL")
+            bottom_tabs.addTab(self._create_full_tab(fld_list), "FIELDING")
+            bottom_tabs.addTab(self._create_full_tab(mental_list), "MENTAL / OTHER")
 
     def _create_full_tab(self, items):
         tab_widget = QWidget()
@@ -400,13 +443,7 @@ class PlayerDetailPage(QWidget):
         tab_layout.setSpacing(10)
         
         for lbl, val, max_v in items:
-            # 弾道の特殊処理
-            disp_val = val
-            if lbl == "弾道":
-                # 見た目はそのまま、ランクなどはVerticalStatBar内で処理
-                pass
-            
-            bar = VerticalStatBar(lbl, disp_val, max_v)
+            bar = VerticalStatBar(lbl, val, max_v)
             tab_layout.addWidget(bar)
             
         return tab_widget

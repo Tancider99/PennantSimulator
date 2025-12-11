@@ -31,7 +31,7 @@ class RadarChart(QWidget):
         try:
             self.theme = get_theme()
         except:
-            pass # フォールバックが必要なら実装
+            pass 
             
         self.data = {}
         self.labels = []
@@ -120,7 +120,7 @@ class RadarChart(QWidget):
             painter.drawLine(QPointF(cx, cy), p)
 
         # 2. データエリア描画
-        data_points = []
+        points = []
         values = list(self.data.values())
         
         for i, val in enumerate(values):
@@ -129,19 +129,21 @@ class RadarChart(QWidget):
             val_ratio = max(0.1, val / float(self.max_value))
             r = radius * val_ratio
             p = QPointF(cx + r * math.cos(angle), cy + r * math.sin(angle))
-            data_points.append(p)
+            points.append(p)
 
-        if data_points:
+        if points:
+            # QPainterPathを使って確実に閉じる
             path = QPainterPath()
-            path.addPolygon(QPolygonF(data_points))
-            
+            path.moveTo(points[0])
+            for p in points[1:]:
+                path.lineTo(p)
+            path.closeSubpath() # 始点と終点を結ぶ
+
             # グラデーション塗り
             base_color = QColor(self.theme.accent_blue)
             painter.setBrush(QColor(base_color.red(), base_color.green(), base_color.blue(), 100)) # 半透明
             painter.setPen(QPen(base_color, 3))
             painter.drawPath(path)
-            
-            # 頂点マーカーは削除 (要望により)
 
         # 3. ラベル描画
         painter.setPen(QColor(self.theme.text_secondary))
@@ -160,8 +162,6 @@ class RadarChart(QWidget):
             
             # 中心位置補正
             painter.drawText(int(lx - tw/2), int(ly + th/4), label)
-
-        # 中央の数値表示は削除 (要望により)
 
 
 class BarChart(QWidget):
