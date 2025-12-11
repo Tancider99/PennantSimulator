@@ -299,7 +299,6 @@ class OrderPage(QWidget):
         toolbar = ToolbarPanel()
         toolbar.setFixedHeight(50)
 
-        # --- 変更: チーム選択コンボボックスを削除し、チーム名ラベルを追加 ---
         self.team_name_label = QLabel("チーム名")
         self.team_name_label.setStyleSheet(f"color: {self.theme.text_primary}; font-weight: bold; font-size: 16px; margin-left: 12px;")
         toolbar.add_widget(self.team_name_label)
@@ -309,8 +308,6 @@ class OrderPage(QWidget):
         toolbar.add_widget(self.status_label)
 
         toolbar.add_stretch()
-        
-        # 詳細ボタンは削除済み
         
         auto_btn = QPushButton("自動編成")
         auto_btn.setCursor(Qt.PointingHandCursor)
@@ -495,9 +492,7 @@ class OrderPage(QWidget):
         table = DraggableTableWidget(mode)
         table.items_changed.connect(lambda: self._on_table_changed(table))
         
-        # --- 追加: ダブルクリックイベントの接続 ---
         table.itemDoubleClicked.connect(self._on_player_double_clicked)
-        # --------------------------------------
 
         if mode == "lineup":
             cols = ["順", "守", "調", "選手名", "ミ", "パ", "走", "肩", "守", "適正", "総合"]
@@ -601,7 +596,6 @@ class OrderPage(QWidget):
         self.game_state = game_state
         if not game_state: return
         
-        # --- 変更: コンボボックス設定を削除し、直接自チームをセット ---
         if game_state.player_team:
             self.current_team = game_state.player_team
             self.team_name_label.setText(self.current_team.name)
@@ -858,7 +852,6 @@ class OrderPage(QWidget):
                 table.setItem(i, 5, self._create_item(s.power, rank_color=True))
                 table.setItem(i, 6, self._create_item(s.speed, rank_color=True))
                 table.setItem(i, 7, self._create_item(s.arm, rank_color=True))
-                # 修正: エラー回避(s.error)ではなく守備力(s.fielding)を表示
                 table.setItem(i, 8, self._create_item(s.fielding, rank_color=True))
                 
                 apt_data = self._format_aptitude_delegate(p)
@@ -895,7 +888,6 @@ class OrderPage(QWidget):
                 table.setItem(i, 4, self._create_item(s.power, rank_color=True))
                 table.setItem(i, 5, self._create_item(s.speed, rank_color=True))
                 table.setItem(i, 6, self._create_item(s.arm, rank_color=True))
-                # 修正: エラー回避(s.error)ではなく守備力(s.fielding)を表示
                 table.setItem(i, 7, self._create_item(s.fielding, rank_color=True))
                 
                 apt_data = self._format_aptitude_delegate(p)
@@ -945,7 +937,6 @@ class OrderPage(QWidget):
             table.setItem(i, 4, self._create_item(s.power, rank_color=True))
             table.setItem(i, 5, self._create_item(s.speed, rank_color=True))
             table.setItem(i, 6, self._create_item(s.arm, rank_color=True))
-            # 修正: エラー回避(s.error)ではなく守備力(s.fielding)を表示
             table.setItem(i, 7, self._create_item(s.fielding, rank_color=True))
             
             apt_data = self._format_aptitude_delegate(p)
@@ -1137,26 +1128,21 @@ class OrderPage(QWidget):
                 target_list = state['setup_pitchers']
                 while len(target_list) <= row: target_list.append(-1)
                 target_p_idx = target_list[row]
-
-        if source_list is None and target_p_idx == -1:
-            active_count = self._get_active_player_count()
-            limit = 31
-            if hasattr(self.current_team, 'ACTIVE_ROSTER_LIMIT'):
-                limit = self.current_team.ACTIVE_ROSTER_LIMIT
                 
-            if active_count >= limit:
-                QMessageBox.warning(self, "登録制限", f"一軍登録枠({limit}人)を超えています。\n枠を空けるか、既存の選手と入れ替えてください。")
-                self._refresh_all()
-                del table.dropped_player_idx
-                return
+        # 変更: target_listがNoneの時(ファームへのドロップ)の処理を追加
+        if target_list is not None:
+             target_list[row] = p_idx
         
         if source_list is not None:
-            target_list[row] = p_idx
-            if source_idx < len(source_list):
-                source_list[source_idx] = target_p_idx
-        else:
-            target_list[row] = p_idx
-        
+             if target_list is not None:
+                 # Swap: put target's old player into source's old slot
+                 if source_idx < len(source_list):
+                      source_list[source_idx] = target_p_idx
+             else:
+                 # Remove: target is farm/None, so just clear source slot
+                 if source_idx < len(source_list):
+                      source_list[source_idx] = -1
+
         self._refresh_all()
         del table.dropped_player_idx
 
@@ -1338,11 +1324,9 @@ class OrderPage(QWidget):
         
         self._refresh_all()
     
-    # --- 追加: ダブルクリック時の詳細画面遷移 ---
     def _on_player_double_clicked(self, item):
         p_idx = item.data(ROLE_PLAYER_IDX)
         if p_idx is not None and isinstance(p_idx, int) and p_idx >= 0:
             if p_idx < len(self.current_team.players):
                 player = self.current_team.players[p_idx]
-                # メインウィンドウ側で接続されたシグナルを発火
                 self.player_detail_requested.emit(player)

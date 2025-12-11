@@ -211,6 +211,8 @@ class MainWindow(QMainWindow):
 
         elif section == "farm_swap":  # 追加
             page = FarmSwapPage(self)
+            # ★追加: 選手詳細シグナルをメインウィンドウのメソッドに接続
+            page.player_detail_requested.connect(self._show_player_detail)
             self.farm_swap_page = page
         
         # Unimplemented pages (kept for code reference but not in sidebar)
