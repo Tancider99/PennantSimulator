@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
     QTableWidget, QTableWidgetItem, QHeaderView, QTabWidget,
     QComboBox, QPushButton, QScrollArea, QAbstractItemView, QButtonGroup,
-    QScrollBar
+    QScrollBar, QCheckBox
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QColor, QBrush, QFont
@@ -101,7 +101,7 @@ class StatsTable(QTableWidget):
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.setSelectionMode(QAbstractItemView.SingleSelection)
         self.setShowGrid(True)
-        self.setAlternatingRowColors(False)
+        self.setAlternatingRowColors(True) # 行ごとの色変えを有効化
         self.setWordWrap(False)
 
         # Sort setup
@@ -436,6 +436,18 @@ class StatsPage(QWidget):
         self.category_combo.currentIndexChanged.connect(self._on_category_changed)
         toolbar.add_widget(self.category_combo)
         
+        toolbar.add_spacing(20)
+        
+        # 規定打席・投球回フィルタ
+        self.filter_qualified_btn = QCheckBox("規定到達のみ")
+        self.filter_qualified_btn.setChecked(True)
+        self.filter_qualified_btn.setStyleSheet(f"""
+            QCheckBox {{ color: {self.theme.text_primary}; font-weight: bold; }}
+            QCheckBox::indicator {{ width: 16px; height: 16px; }}
+        """)
+        self.filter_qualified_btn.toggled.connect(self._refresh_stats)
+        toolbar.add_widget(self.filter_qualified_btn)
+        
         toolbar.add_stretch()
 
         self.btn_group = QButtonGroup(self); self.btn_group.setExclusive(True)
@@ -553,21 +565,36 @@ class StatsPage(QWidget):
         update_league_stats(self.game_state.teams)
         
         level = self.current_level
+        is_qualified_only = self.filter_qualified_btn.isChecked()
+        
         batters_data = []
         pitchers_data = []
         
         target_teams = [self.current_team] if self.current_team else (self.game_state.teams if self.current_league == "All" else [t for t in self.game_state.teams if t.league.value == self.current_league])
 
         for team in target_teams:
+            # チーム試合数の取得（引き分け込み）
+            team_games = team.wins + team.losses + team.draws
+            # 0試合の場合は1として計算（ゼロ除算防止）
+            games_for_calc = max(1, team_games)
+            
+            # 規定打席: 試合数 * 3.1
+            reg_pa = games_for_calc * 3.1
+            # 規定投球回: 試合数 * 1.0
+            reg_ip = games_for_calc * 1.0
+
             for player in team.players:
                 record = player.get_record_by_level(level)
                 
-                # 修正: 試合数が0の選手はリストに表示しない
                 if player.position.value == "投手":
                     if record.games_pitched > 0:
+                        if is_qualified_only and record.innings_pitched < reg_ip:
+                            continue
                         pitchers_data.append((player, team.name, record))
                 else:
                     if record.games > 0:
+                        if is_qualified_only and record.plate_appearances < reg_pa:
+                            continue
                         batters_data.append((player, team.name, record))
 
         current_tab_idx = self.tabs.currentIndex()

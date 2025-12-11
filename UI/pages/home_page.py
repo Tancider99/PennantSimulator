@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout,
     QFrame, QPushButton, QScrollArea, QGraphicsDropShadowEffect
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QColor, QFont
 
 import sys
@@ -424,6 +424,13 @@ class HomePage(ContentPanel):
         self.add_layout(main_grid)
         self.add_stretch()
 
+    def showEvent(self, event):
+        """画面表示時にデータを更新"""
+        super().showEvent(event)
+        if self.game_state:
+            # 描画を確実にするため少し遅延させる
+            QTimer.singleShot(0, lambda: self.set_game_state(self.game_state))
+
     def _create_header(self):
         """Create header with team info and action buttons"""
         header = QFrame()
@@ -483,10 +490,6 @@ class HomePage(ContentPanel):
         """)
         self.play_btn.clicked.connect(lambda: self.game_requested.emit())
         btn_layout.addWidget(self.play_btn)
-
-        # Removed Skip Button as requested
-        # self.sim_btn = QPushButton("SKIP 1 WEEK")
-        # ...
 
         layout.addLayout(btn_layout)
 
@@ -678,9 +681,13 @@ class HomePage(ContentPanel):
         ])
 
         # ERA
-        pitchers_sorted = sorted(pitchers, key=lambda p: p.record.era if p.record.innings_pitched > 0 else 99)
+        # 規定回以上投げている投手を優先表示するなどのロジックも検討可能だが、ここでは単純に投球回>0でソート
+        pitchers_sorted = sorted(
+            [p for p in pitchers if p.record.innings_pitched > 0],
+            key=lambda p: p.record.era
+        )
         self.era_leaders.set_leaders([
-            (p.name, f"{p.record.era:.2f}" if p.record.innings_pitched > 0 else "-.--")
+            (p.name, f"{p.record.era:.2f}")
             for p in pitchers_sorted[:3]
         ])
 

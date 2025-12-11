@@ -7,7 +7,7 @@ from typing import List, Optional, Dict, Tuple
 from enum import Enum
 import datetime
 import random
-from datetime import datetime, timedelta # 日付計算用にインポート
+from datetime import datetime, timedelta
 
 class Position(Enum):
     PITCHER = "投手"
@@ -262,19 +262,16 @@ class PlayerStats:
         平均的な選手(全能力50)が250になるように調整
         """
         # 1. 打撃 (Batting) - WARの最大要素
-        # ContactとPowerを最重視
         batting_val = (self.contact * 3.5 + self.power * 3.0 + self.eye * 2.0 + self.gap * 1.0 + self.avoid_k * 0.5) / 10.0
         
         # 2. 走塁 (Baserunning)
         running_val = (self.speed * 2.0 + self.steal * 1.0 + self.baserunning * 1.0) / 4.0
         
         # 3. 守備 (Fielding) + 守備位置補正 (Positional Adjustment)
-        # 守備は「守備範囲(Range)」が最もWARに影響する
         def_range = self.get_defense_range(position) if position else 0
         fielding_val = (def_range * 4.0 + self.arm * 1.0 + self.error * 1.0) / 6.0
         
         # 守備位置補正 (平均250のスケールに合わせて調整)
-        # WARの守備位置補正係数を参考にスケーリング
         pos_adj = 0
         if position:
             if position == Position.CATCHER: pos_adj = 40
@@ -288,11 +285,9 @@ class PlayerStats:
             elif position == Position.DH: pos_adj = -35
         
         # 総合値計算
-        # 重み付け: 打撃6.5, 守備3.0, 走塁0.5
         raw_score = (batting_val * 6.5 + fielding_val * 3.0 + running_val * 0.5) / 10.0
         
         # スケーリング (平均50 -> 250)
-        # 線形変換: (Score - 50) * 8 + 250 + PosAdj
         rating = (raw_score - 50) * 8 + 250 + pos_adj
         
         return max(1, min(999, int(rating)))
@@ -471,7 +466,6 @@ class PlayerRecord:
     wsb_val: float = 0.0
     ubr_val: float = 0.0
     
-    # ★追加: 新しい指標用フィールド
     wraa_val: float = 0.0
     rc_val: float = 0.0
     rc27_val: float = 0.0
@@ -738,7 +732,6 @@ class PlayerRecord:
         if self.defensive_innings <= 0: return 0.0
         return (self.uzr / self.defensive_innings) * 1200
 
-    # ★追加: 不足していたプロパティの実装
     @property
     def wraa(self) -> float:
         return self.wraa_val
@@ -758,7 +751,6 @@ class PlayerRecord:
 
     @property
     def bb_k_ratio(self) -> float:
-        # 打者用 BB/K
         if self.strikeouts == 0: return float(self.walks)
         return self.walks / self.strikeouts
         
@@ -794,7 +786,6 @@ class PlayerRecord:
         
     @property
     def siera(self) -> float:
-        # 簡易実装: xFIPをベースにする
         return self.xfip
 
     def reset(self):
@@ -875,8 +866,8 @@ class Player:
     years_pro: int = 0
     draft_round: int = 0
 
-    injury_days: int = 0  # 怪我の残り日数 (0なら健康)
-    injury_name: str = "" # 怪我名 (例: "右肩痛", "肉離れ")
+    injury_days: int = 0
+    injury_name: str = ""
 
     is_developmental: bool = False
     team_level: 'TeamLevel' = None
@@ -896,13 +887,14 @@ class Player:
     
     condition: int = 5
     
-    days_rest: int = 6  # 登板間隔 (中n日)
+    days_rest: int = 6
     
     bats: str = "右"
     throws: str = "右"
     
     # ★追加: 直近成績履歴（日付文字列, PlayerRecord）
     recent_records: List[Tuple[str, PlayerRecord]] = field(default_factory=list)
+    days_until_promotion: int = 0
 
     def __post_init__(self):
         if self.team_level is None:
@@ -925,7 +917,7 @@ class Player:
         self.record = PlayerRecord()
         self.record_farm = PlayerRecord()
         self.record_third = PlayerRecord()
-        self.recent_records = [] # 履歴もリセット
+        self.recent_records = []
 
     def archive_season(self, year: int):
         if self.record.games > 0 or self.record.games_pitched > 0:
@@ -978,18 +970,18 @@ class Player:
 
     def recover_daily(self):
         """日付経過による回復処理"""
-        # 怪我の回復
         if self.injury_days > 0:
             self.injury_days -= 1
             if self.injury_days == 0:
                 self.injury_name = ""
         
-        # 疲労回復 (投手)
         if self.position == Position.PITCHER:
             self.days_rest += 1
             
-        # 調子の変動 (ランダムで少しずつ変わる)
-        if random.random() < 0.2: # 20%の確率で変動
+        if self.days_until_promotion > 0:
+            self.days_until_promotion -= 1
+            
+        if random.random() < 0.2:
             change = random.choice([-1, 1])
             self.condition = max(1, min(9, self.condition + change))
 
@@ -999,7 +991,6 @@ class Player:
         new_rec = PlayerRecord()
         new_rec.merge_from(record) # コピー
         self.recent_records.append((date_str, new_rec))
-        # 履歴が多すぎたら削除（直近60試合程度あれば十分）
         if len(self.recent_records) > 60:
             self.recent_records.pop(0)
 
@@ -1018,7 +1009,6 @@ class Player:
                     break
                 total.merge_from(rec)
         except Exception:
-            # 日付フォーマットエラーなどは無視して空レコードを返すか、全件返すか
             pass
         return total
 
@@ -1030,7 +1020,6 @@ class Player:
         """怪我をさせる"""
         self.injury_days = days
         self.injury_name = name
-        # 怪我したら調子は最低になる
         self.condition = 1
 
     @property
@@ -1074,7 +1063,6 @@ class Team:
     third_lineup: List[int] = field(default_factory=list)
     third_rotation: List[int] = field(default_factory=list)
     
-    # ★追加: 不足していたフィールド
     best_order: List[int] = field(default_factory=list)
     lineup_positions: List[str] = field(default_factory=lambda: ["捕", "一", "二", "三", "遊", "左", "中", "右", "DH"])
 
@@ -1125,7 +1113,6 @@ class Team:
         return best_candidate
 
     def auto_assign_pitching_roles(self, level: TeamLevel = TeamLevel.FIRST):
-        """指定レベルの投手陣を先発・中継ぎ・抑えに最適配分する"""
         roster_players = self.get_players_by_level(level)
         pitchers = [p for p in roster_players if p.position == Position.PITCHER]
         if not pitchers: return
@@ -1214,6 +1201,8 @@ class Team:
             if player_idx not in self.farm_roster: self.farm_roster.append(player_idx)
         if 0 <= player_idx < len(self.players):
             self.players[player_idx].team_level = to_level
+            # 登録抹消された選手は10日間再昇格不可
+            self.players[player_idx].days_until_promotion = 10
         return True
 
     def move_to_third_roster(self, player_idx: int) -> bool:
@@ -1354,7 +1343,6 @@ def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
     指定された選手リストから、守備位置と調子を考慮した最適オーダー(9人)を生成して返す。
     """
     
-    # 優先順位: 捕手 -> 遊撃 -> 二塁 -> 中堅 -> 三塁 -> 右翼 -> 左翼 -> 一塁
     def_priority = [
         (Position.CATCHER, "捕手", 1.5),
         (Position.SHORTSTOP, "遊撃手", 1.4),
@@ -1369,6 +1357,9 @@ def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
     candidates = {}
     for p in roster_players:
         try:
+            # ★追加: 怪我人はオーダー候補から除外
+            if p.is_injured: continue
+            
             original_idx = team.players.index(p)
             candidates[original_idx] = p
         except ValueError:
@@ -1384,31 +1375,23 @@ def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
                 pos_enum_key = p_enum.name
                 break
         
-        # 適正取得
         aptitude = player.stats.get_defense_range(getattr(Position, pos_enum_key))
         if player.position == Position.PITCHER: aptitude = 1
-        if aptitude < 1: return -999 # 適正なしは基本除外
+        if aptitude < 1: return -999 
         
-        # 打撃スコア
         bat_score = (player.stats.contact * 1.0 + player.stats.power * 1.2 + 
                      player.stats.speed * 0.5 + player.stats.eye * 0.5)
         
-        # ★修正: 調子ボーナスを追加 (調子1につき約5%の能力変動に相当するスコアを加算)
-        # condition: 1(絶不調) ~ 5(普通) ~ 9(絶好調)
-        # 絶好調(+4)なら +20点、絶不調(-4)なら -20点
         condition_bonus = (player.condition - 5) * 5.0
         
-        # 守備スコア
         def_bonus = 0
         if pos_name == "中堅手": def_bonus = player.stats.speed * 0.5
         if pos_name == "右翼手": def_bonus = player.stats.arm * 0.5
         
         def_score = (aptitude * 1.5 + player.stats.error * 0.5 + player.stats.arm * 0.5 + def_bonus)
         
-        # 総合スコア = 打撃 + 守備 + 調子
         return bat_score + (def_score * weight) + condition_bonus
 
-    # ポジションごとにベストな選手を選出
     for pos_enum, pos_name, weight in def_priority:
         best_idx = -1
         best_score = -9999.0
@@ -1425,14 +1408,12 @@ def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
             selected_starters[pos_name] = best_idx
             used_indices.add(best_idx)
     
-    # DH選出 (守備負担なし、打撃と調子のみ)
     dh_best_idx = -1
     dh_best_score = -9999.0
     for idx, p in candidates.items():
         if idx in used_indices: continue
         if p.position == Position.PITCHER: continue 
         
-        # 打撃 + 調子
         score = p.stats.overall_batting() + (p.condition - 5) * 8.0 
         
         if score > dh_best_score:
@@ -1447,8 +1428,6 @@ def generate_best_lineup(team: Team, roster_players: List[Player]) -> List[int]:
     for pos, idx in selected_starters.items():
         lineup_candidates.append(idx)
         
-    # 打順決定（打撃能力 + 調子順）
-    # ここでも調子を加味して並べ替えることで、好調な選手が上位に来る
     lineup_candidates.sort(key=lambda i: team.players[i].stats.overall_batting() + (team.players[i].condition - 5) * 10, reverse=True)
     
     if len(lineup_candidates) < 9:

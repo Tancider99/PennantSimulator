@@ -139,11 +139,8 @@ class LeagueStatsCalculator:
         c["woba_weights"] = final_woba_weights
         c["woba_scale"] = woba_scale
         
-        # ▼▼▼ 修正: wRC+基準値を「リーグの加重平均wOBA」に設定 ▼▼▼
-        # 個人のwOBAと同じスケール(final_woba_weights)でリーグ全体を計算し直す
-        # これにより、リーグwOBAが個人のwOBAの平均と完全に一致する
+        # リーグwOBA
         c["league_woba"] = lg_woba_raw * woba_scale 
-        # ▲▲▲ 修正終了 ▲▲▲
 
         # --- FIP Constant ---
         if t["IP"] > 0:
@@ -231,37 +228,39 @@ class LeagueStatsCalculator:
             else:
                 r.woba_val = 0.0
 
-            # --- wRAA Calculation ---
+            # --- wRAA Calculation (Unadjusted) ---
             divisor = woba_scale if woba_scale > 0 else 1.25
             wraa = ((r.woba_val - lg_woba) / divisor) * r.plate_appearances
-            
-            # ★追加: wRAA保存
             r.wraa_val = wraa
 
-            # --- PF補正 ---
+            # --- Park Adjustment ---
             games_ratio = r.home_games / r.games if r.games > 0 else 0.5
             pf_correction_coefficient = games_ratio * team_pf + (1.0 - games_ratio) * ((6.0 - team_pf) / 5.0)
             
+            # パーク補正値（打者有利ならマイナス）
             pf_correction_value = (1.0 - pf_correction_coefficient) * lg_r_pa * r.plate_appearances
             
-            # 補正wRAA
+            # 補正後wRAA (Batting Runs)
             adjusted_wraa = wraa + pf_correction_value
             
-            # wRC Calculation (wRC = Adjusted wRAA + League Runs)
-            adjusted_wrc = adjusted_wraa + (lg_r_pa * r.plate_appearances)
-            r.wrc_val = adjusted_wrc 
+            # --- wRC Calculation (Fix: Raw wRAA) ---
+            # wRCはパーク補正を含まない、純粋な創出得点数
+            r.wrc_val = wraa + (lg_r_pa * r.plate_appearances)
 
-            # --- wRC+ Calculation ---
+            # --- wRC+ Calculation (Fix: Use Park Adjusted wRAA) ---
+            # wRC+はパーク補正を含めた創出得点をリーグ平均と比較する
+            park_adjusted_wrc = adjusted_wraa + (lg_r_pa * r.plate_appearances)
+            
             if lg_r_pa > 0:
                 league_expected_runs = lg_r_pa * r.plate_appearances
                 if league_expected_runs > 0.0001:
-                    r.wrc_plus_val = 100 * adjusted_wrc / league_expected_runs
+                    r.wrc_plus_val = 100 * park_adjusted_wrc / league_expected_runs
                 else:
                     r.wrc_plus_val = 100.0
             else:
                 r.wrc_plus_val = 100.0
                 
-            # ★追加: RC (Runs Created) Calculation (Technical Version近似)
+            # RC (Runs Created) Calculation
             val_A = r.hits + r.walks + r.hit_by_pitch - r.caught_stealing - r.grounded_into_dp
             val_B = r.total_bases + 0.26 * (r.walks - r.intentional_walks + r.hit_by_pitch) + 0.52 * (r.sacrifice_hits + r.sacrifice_flies + r.stolen_bases)
             val_C = r.at_bats + r.walks + r.hit_by_pitch + r.sacrifice_hits + r.sacrifice_flies
@@ -271,7 +270,7 @@ class LeagueStatsCalculator:
             else:
                 r.rc_val = 0.0
                 
-            # ★追加: RC/27
+            # RC/27
             outs = r.at_bats - r.hits + r.caught_stealing + r.sacrifice_hits + r.sacrifice_flies + r.grounded_into_dp
             if outs > 0:
                 r.rc27_val = r.rc_val / (outs / 27.0)
@@ -294,24 +293,37 @@ class LeagueStatsCalculator:
 
         # --- WAR Calculation ---
         if player.position.value != "投手":
+            # Batting Runs (Park Adjusted)
             batting_runs = adjusted_wraa if r.plate_appearances > 0 else 0
             
             # wSB (Weighted Stolen Base Runs)
             wsb = (r.stolen_bases * 0.2) - (r.caught_stealing * 0.4)
             r.wsb_val = wsb
             
-            # UBR (Ultimate Base Running) - Placeholder (LiveGameEngine側で計算)
+            # UBR (Ultimate Base Running)
             if not hasattr(r, 'ubr_val'): r.ubr_val = 0.0 
             
             bsr = wsb + r.ubr_val
             fielding_runs = r.uzr_val
             
+            # Positional Adjustment
             pos_val_map = {
                 "捕手": 18.1, "遊撃手": 10.3, "二塁手": 3.4, "三塁手": -4.8, "中堅手": 4.2,
                 "左翼手": -12.0, "右翼手": -5.0,"一塁手": -14.1, "DH": -15.1
             }
             pos_base = pos_val_map.get(player.position.value, 0)
-            pos_adj = pos_base * (r.plate_appearances / 600.0)
+            
+            # ★修正: 守備位置補正を守備イニングベースに変更（DH以外）
+            if player.position == Position.DH:
+                 pos_adj = pos_base * (r.plate_appearances / 600.0)
+            else:
+                 if r.defensive_innings > 0:
+                     # 162試合 * 9回 = 1458イニング基準
+                     pos_adj = pos_base * (r.defensive_innings / 1458.0)
+                 else:
+                     pos_adj = pos_base * (r.plate_appearances / 600.0)
+
+            # Replacement Runs
             rep_runs = 20.0 * (r.plate_appearances / 600.0)
             
             total_runs = batting_runs + bsr + fielding_runs + pos_adj + rep_runs

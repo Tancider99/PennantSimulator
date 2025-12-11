@@ -590,7 +590,7 @@ class BattedBallGenerator:
 
 class AdvancedDefenseEngine:
     """
-    超本格守備エンジン: 空間座標・時間・UZR計算 (修正済み: BABIP平均.300調整)
+    超本格守備エンジン: 空間座標・時間・UZR計算 (修正済み: BABIP個人差超抑制・平均.300調整)
     """
     def judge(self, ball: BattedBallData, defense_team: Team, team_level: TeamLevel = TeamLevel.FIRST, stadium: Stadium = None):
         abs_spray = abs(ball.spray_angle)
@@ -612,15 +612,18 @@ class AdvancedDefenseEngine:
         dist_to_ball = math.sqrt((target_pos[0] - initial_pos[0])**2 + (target_pos[1] - initial_pos[1])**2)
         
         range_stat = best_fielder.stats.get_defense_range(getattr(Position, fielder_type))
-        # 修正: 守備範囲の影響をさらにマイルドにする (個人差抑制)
-        adjusted_range = 50 + (range_stat - 50) * 0.5
-        adjusted_range = adjusted_range * (1.0 + (best_fielder.condition - 5) * 0.01)
+        # ★修正: 守備範囲の影響を極限まで小さくし、個人差をほぼ無くす (0.5 -> 0.1)
+        adjusted_range = 50 + (range_stat - 50) * 0.1
+        adjusted_range = adjusted_range * (1.0 + (best_fielder.condition - 5) * 0.005)
 
         speed_stat = get_effective_stat(best_fielder, 'speed')
-        max_speed = 7.5 + (speed_stat / 100.0) * 1.2 
+        # ★修正: 走力の影響も極限まで小さくする (分散を小さく)
+        # 以前: 7.5 + (speed / 100) * 1.2 => range approx 7.5 - 8.7
+        # 今回: 7.8 + (speed - 50) * 0.01 => range approx 7.55 - 8.05
+        max_speed = 7.8 + (speed_stat - 50) * 0.01
         
-        # 反応時間
-        reaction_delay = 0.45 - (adjusted_range / 700.0) 
+        # 反応時間 (ほぼ固定値)
+        reaction_delay = 0.45 - (adjusted_range / 1500.0) 
         
         time_needed = reaction_delay + (dist_to_ball / max_speed)
         
@@ -638,28 +641,35 @@ class AdvancedDefenseEngine:
         time_diff = time_available - time_needed
         catch_prob = 0.0
         
-        # 修正: 捕球確率のカーブを調整し、BABIP平均.300を目指す
-        if time_diff >= 0.4:
-             catch_prob = 0.98
+        # ★修正: 捕球確率曲線の調整
+        if time_diff >= 0.5:
+             catch_prob = 0.90
         elif time_diff >= 0.0:
-             catch_prob = 0.60 + (time_diff / 0.4) * 0.38
-        elif time_diff > -0.2:
-             ratio = (time_diff + 0.2) / 0.2
-             catch_prob = ratio * 0.60 
+             # 時間的余裕が少ない場合でも、ある程度捕れるようにしてヒット過多を防ぐ
+             catch_prob = 0.65 + (time_diff / 0.5) * 0.29
+        elif time_diff > -0.3:
+             # 間に合わなくても飛び込んで捕るなどのファインプレー要素
+             ratio = (time_diff + 0.3) / 0.3
+             catch_prob = ratio * 0.63
         else:
              catch_prob = 0.0
         
-        # ★修正: 運要素を大幅に強化し、基礎確率を下げることでBABIPを向上させつつ個人差を縮める
-        # luck_factor: 能力に依存しない運の比重。上げることで能力差（個人差）が縮まる。
-        # base_prob: 運で捕球できる確率。下げることで全体的にヒットになりやすくする。
-        luck_factor = 0.50  # 0.15 -> 0.40 (個人差を縮小)
-        base_prob = 0.40    # 0.45 -> 0.20 (捕球率低下 = BABIP上昇)
+        # ★修正: 運要素の再調整 (個人差を縮小し、BABIPを上げる)
+        # luck_factor (運の比重): 0.50 -> 0.60 (個人能力差をさらに圧縮)
+        # base_prob (運で捕れる確率): 0.40 -> 0.30 (下げるとヒットになりやすい = BABIP増)
+        
+        luck_factor = 0.50  # 運の比重を高める
+        base_prob = 0.25    # 運での捕球率を下げる = ヒット増
+        
+        # Routine Play Protection: ほぼ確実に捕れる打球(>0.95)は運要素で落とさせない（エラーは別計算）
+        if catch_prob > 0.89:
+             luck_factor = 0.05 # 事故防止
         
         catch_prob = catch_prob * (1 - luck_factor) + base_prob * luck_factor
         
         # 強い打球の補正
-        if ball.contact_quality == "hard": catch_prob *= 0.82 
-        if ball.hit_type == BattedBallType.LINEDRIVE: catch_prob *= 0.78
+        if ball.contact_quality == "hard": catch_prob *= 0.85 
+        if ball.hit_type == BattedBallType.LINEDRIVE: catch_prob *= 0.80
         
         if stadium: catch_prob /= stadium.pf_1b
         catch_prob = max(0.0, min(0.99, catch_prob))
@@ -1020,8 +1030,8 @@ class LiveGameEngine:
         contact = get_effective_stat(batter, 'contact', opponent=pitcher)
         stuff = get_effective_stat(pitcher, 'stuff', opponent=batter)
         
-        # ★修正: コンタクト率を下げて、打席数過多（＝出塁過多）を抑制する
-        base_contact = 0.74
+        # ★修正: コンタクト率を下げて、三振を増やす (0.69 -> 0.66)
+        base_contact = 0.63
         diff = contact - stuff
         
         hit_prob = base_contact + (diff * 0.0035)
@@ -1033,7 +1043,8 @@ class LiveGameEngine:
             
         if self.stadium: hit_prob /= max(0.5, self.stadium.pf_so)
 
-        hit_prob = max(0.40, min(0.95, hit_prob))
+        # 修正: コンタクト率の上限を下げる
+        hit_prob = max(0.40, min(0.88, hit_prob))
 
         if self.state.strikes == 2:
             avoid_k = get_effective_stat(batter, 'avoid_k')
