@@ -44,6 +44,8 @@ class MainWindow(QMainWindow):
 
         # ページインスタンスのキャッシュ（永続化が必要なページ用）
         self.persistent_pages = {}
+        # ★追加: 自動生成されたページのキャッシュ用セット
+        self.cached_pages = set()
 
         self._setup_window()
         self._setup_ui()
@@ -404,32 +406,35 @@ class MainWindow(QMainWindow):
         self.addAction(escape_action)
 
     def _navigate_to(self, section: str):
-        """Navigate to a section, resetting the page state"""
+        """Navigate to a section, preserving page state where possible"""
         
-        # Check if page is persistent or creatable (handle unimplemented items)
+        # ページがまだ存在しない場合のみ新規作成するロジックに変更
         is_persistent = section in self.persistent_pages or section == "title"
-        new_page = None
-
-        if not is_persistent:
-            new_page = self._create_page_instance(section)
-            # If page creation returned None (unimplemented), do nothing
-            if new_page is None:
-                return
+        is_cached = section in self.cached_pages
         
         # 1. Update Sidebar Visual Selection
         self._update_sidebar_selection(section)
 
-        # 2. Check if page is persistent or needs recreation
+        # 2. Page Handling
         if is_persistent:
             self.pages.show_page(section)
+        elif is_cached:
+            # 既にキャッシュされている場合は単に表示する
+            self.pages.show_page(section)
         else:
-            if new_page:
+            # 新規作成
+            new_page = self._create_page_instance(section)
+            if new_page is not None:
                 self.pages.add_page(section, new_page)
+                self.cached_pages.add(section) # キャッシュに登録
                 
                 if self.game_state and hasattr(new_page, 'set_game_state'):
                     new_page.set_game_state(self.game_state)
                 
                 self.pages.show_page(section)
+            else:
+                # 未実装ページの処理など
+                pass
 
         # 3. Handle Sidebar Visibility
         if section == "game":

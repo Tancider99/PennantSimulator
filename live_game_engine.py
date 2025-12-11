@@ -464,8 +464,10 @@ class PitchGenerator:
 
     def _calc_location(self, control, state, strategy):
         if strategy == "WALK": return PitchLocation(1.0, 1.5, False)
-        zone_target_prob = 0.49 + (control - 50) * 0.003
-        if strategy == "STRIKE": zone_target_prob += 0.3
+        
+        # ★修正: ゾーン内投球率の基本値を引き上げ、四球を減らす（0.49 -> 0.54）
+        zone_target_prob = 0.54 + (control - 50) * 0.003
+        if strategy == "STRIKE": zone_target_prob += 0.25 # 少し抑えめに
         elif strategy == "BALL": zone_target_prob -= 0.3
         if state.balls == 3: zone_target_prob += 0.25
         if state.strikes == 0 and state.balls == 0: zone_target_prob += 0.1
@@ -647,21 +649,20 @@ class AdvancedDefenseEngine:
         else:
              catch_prob = 0.0
         
-        # 修正: 運要素(Luck)を大幅に強化して、能力による極端なBABIP差を埋める
-        # Luck Factor 0.15 -> 0.30 へ引き上げ
-        luck_factor = 0.30
+        # ★修正: 運要素を大幅に強化し、基礎確率を下げることでBABIPを向上させつつ個人差を縮める
+        # luck_factor: 能力に依存しない運の比重。上げることで能力差（個人差）が縮まる。
+        # base_prob: 運で捕球できる確率。下げることで全体的にヒットになりやすくする。
+        luck_factor = 0.50  # 0.15 -> 0.40 (個人差を縮小)
+        base_prob = 0.40    # 0.45 -> 0.20 (捕球率低下 = BABIP上昇)
         
-        # BABIP .300 を狙うためのベースアウト確率
-        base_out_prob = 0.72 
-        
-        catch_prob = catch_prob * (1 - luck_factor) + base_out_prob * luck_factor
+        catch_prob = catch_prob * (1 - luck_factor) + base_prob * luck_factor
         
         # 強い打球の補正
-        if ball.contact_quality == "hard": catch_prob *= 0.88 
-        if ball.hit_type == BattedBallType.LINEDRIVE: catch_prob *= 0.85
+        if ball.contact_quality == "hard": catch_prob *= 0.82 
+        if ball.hit_type == BattedBallType.LINEDRIVE: catch_prob *= 0.78
         
         if stadium: catch_prob /= stadium.pf_1b
-        catch_prob = max(0.01, min(0.99, catch_prob))
+        catch_prob = max(0.0, min(0.99, catch_prob))
         
         is_caught = random.random() < catch_prob
         
