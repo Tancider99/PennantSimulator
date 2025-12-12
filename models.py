@@ -1280,7 +1280,7 @@ class DraftProspect:
     pitch_type: Optional[PitchType]
     stats: PlayerStats
     age: int
-    high_school: str
+    origin: str  # 修正: high_school -> origin
     potential: int
     is_developmental: bool = False
 

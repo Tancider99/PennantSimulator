@@ -25,8 +25,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from UI.theme import get_theme, Theme
 from UI.widgets.tables import SortableTableWidgetItem, RatingDelegate
 
+# modelsやplayer_generatorのインポート
 try:
     from models import Position, PitchType, PlayerStats, Player, Team
+    import player_generator
 except ImportError:
     pass
 
@@ -54,91 +56,123 @@ class Scout:
     @property
     def daily_progress(self) -> float:
         """1日あたりの調査進捗率 (%)"""
-        return 5.0 + (self.skill / 10.0)  # 5-15%程度
+        # 5%前後になるように調整 (スキル50で5%)
+        # スキル範囲1-99 -> 2.0% ~ 8.0% 程度
+        return 2.0 + (self.skill * 0.06)
 
 
 @dataclass
 class DraftProspect:
-    """ドラフト候補選手"""
+    """ドラフト候補選手 (UI表示用拡張)"""
     id: int
     name: str
     position: Position
     pitch_type: Optional[PitchType] = None
     age: int = 18
-    school: str = ""
+    school: str = "" # 出身・所属
 
     # 実能力 (調査が完了するまで完全に見えない)
     true_stats: PlayerStats = field(default_factory=PlayerStats)
-    true_potential: int = 50  # 伸びしろ: 1-99
+    true_potential: int = 50  # 潜在能力: 1-99
 
     # 調査状態
     scout_level: float = 0.0  # 0-100%
     scouting_status: ScoutingStatus = ScoutingStatus.NOT_STARTED
     assigned_scout: Optional[Scout] = None
 
-    # 表示用の推定ランク (調査度に応じてブレが減る)
-    estimated_rank: str = "?"
-    estimated_potential_rank: str = "?"
+    # 推定値キャッシュ (リストと詳細で値を一致させるため)
+    _cached_visible_stats: Dict[str, int] = field(default_factory=dict)
+    
+    # 推定総合力の範囲 (min, max)
+    _cached_est_overall_range: tuple = (0, 0)
+    
+    # 推定潜在能力の範囲 (minランク, maxランク) - 数値で保持して表示時に変換
+    _cached_est_potential_range: tuple = (0, 0)
 
-    def get_visible_stats(self) -> Dict[str, int]:
-        """調査度に応じた可視能力値を返す"""
-        visible = {}
-        base_noise = max(0, 30 - int(self.scout_level * 0.3))  # 0-30のノイズ
+    def __post_init__(self):
+        """初期化時に推定値を計算"""
+        self.recalculate_estimates()
 
+    def recalculate_estimates(self):
+        """調査度に基づいて推定値を再計算しキャッシュする"""
+        # 調査度に応じた誤差範囲を決定
+        uncertainty = 1.0 - (self.scout_level / 100.0)
+        
+        # 1. 個別ステータスの推定値決定（詳細画面用）
+        noise_max = int(20 * uncertainty)
+        
         if self.position == Position.PITCHER:
-            stats_list = ['stuff', 'control', 'stamina', 'velocity']
+            stats_list = ['stuff', 'control', 'stamina', 'velocity', 'movement']
         else:
             stats_list = ['contact', 'power', 'speed', 'arm', 'fielding']
 
+        new_stats = {}
         for stat in stats_list:
-            # fieldingはpropertyなのでgetattr経由で取得
             if stat == 'fielding':
                 true_val = self.true_stats.fielding
             else:
                 true_val = getattr(self.true_stats, stat, 50)
 
-            if self.scout_level < 20:
-                # 20%未満: ほぼ見えない
-                visible[stat] = -1
-            elif self.scout_level < 50:
-                # 50%未満: 大きなブレあり
-                noise = random.randint(-base_noise, base_noise)
-                visible[stat] = max(1, min(99, true_val + noise))
-            elif self.scout_level < 80:
-                # 80%未満: 小さなブレあり
-                noise = random.randint(-base_noise // 2, base_noise // 2)
-                visible[stat] = max(1, min(99, true_val + noise))
+            noise = random.randint(-noise_max, noise_max)
+            if stat == 'velocity':
+                est_val = max(120, min(170, true_val + noise))
             else:
-                # 80%以上: ほぼ正確
-                visible[stat] = true_val
+                est_val = max(1, min(99, true_val + noise))
+            new_stats[stat] = est_val
 
-        return visible
+        self._cached_visible_stats = new_stats
 
-    def get_visible_potential(self) -> int:
-        """調査度に応じた伸びしろ推定値"""
-        if self.scout_level < 30:
-            return -1
-        elif self.scout_level < 60:
-            noise = random.randint(-20, 20)
-            return max(1, min(99, self.true_potential + noise))
-        elif self.scout_level < 90:
-            noise = random.randint(-10, 10)
-            return max(1, min(99, self.true_potential + noise))
+        # 2. 推定総合力の範囲決定 (一覧画面用)
+        if self.position == Position.PITCHER:
+            true_overall = self.true_stats.stuff + self.true_stats.control + self.true_stats.stamina
         else:
-            return self.true_potential
+            true_overall = (self.true_stats.contact + self.true_stats.power + 
+                           self.true_stats.speed + self.true_stats.arm + self.true_stats.fielding)
+        
+        range_half_width = int(40 * uncertainty)
+        min_ovr = max(0, true_overall - random.randint(0, range_half_width))
+        max_ovr = true_overall + random.randint(0, range_half_width)
+        
+        if range_half_width > 10 and (max_ovr - min_ovr) < 20:
+             max_ovr += 20
+             min_ovr = max(0, min_ovr - 10)
 
-    def update_estimated_ranks(self):
-        """推定ランクを更新"""
-        if self.scout_level < 20:
-            self.estimated_rank = "?"
-            self.estimated_potential_rank = "?"
-        else:
-            visible = self.get_visible_stats()
-            avg = sum(v for v in visible.values() if v > 0) / max(1, len([v for v in visible.values() if v > 0]))
-            self.estimated_rank = self._value_to_rank(int(avg))
+        self._cached_est_overall_range = (min_ovr, max_ovr)
 
-            pot = self.get_visible_potential()
-            self.estimated_potential_rank = self._value_to_rank(pot) if pot > 0 else "?"
+        # 3. 推定潜在能力の範囲決定
+        true_pot = self.true_potential
+        pot_uncertainty = max(0.2, uncertainty) 
+        pot_width = int(12 * pot_uncertainty) 
+        min_pot = max(1, true_pot - random.randint(0, pot_width))
+        max_pot = min(99, true_pot + random.randint(0, pot_width))
+        
+        self._cached_est_potential_range = (min_pot, max_pot)
+
+    def get_visible_stats(self) -> Dict[str, int]:
+        """キャッシュされた可視能力値を返す"""
+        return self._cached_visible_stats
+
+    def get_overall_display(self) -> str:
+        """推定総合力の表示文字列"""
+        min_v, max_v = self._cached_est_overall_range
+        if min_v == max_v:
+            return f"★{min_v}"
+        return f"★{min_v}～★{max_v}"
+    
+    def get_potential_display(self) -> str:
+        """推定潜在能力の表示文字列"""
+        min_v, max_v = self._cached_est_potential_range
+        min_rank = self._value_to_rank(min_v)
+        max_rank = self._value_to_rank(max_v)
+        if min_rank == max_rank:
+            return min_rank
+        return f"{min_rank}～{max_rank}"
+
+    def get_max_estimated_overall(self) -> int:
+        return self._cached_est_overall_range[1]
+    
+    def get_max_estimated_potential(self) -> int:
+        return self._cached_est_potential_range[1]
 
     @staticmethod
     def _value_to_rank(value: int) -> str:
@@ -150,11 +184,20 @@ class DraftProspect:
         elif value >= 40: return "E"
         elif value >= 30: return "F"
         else: return "G"
+        
+    @property
+    def position_order(self) -> int:
+        order = {
+            Position.PITCHER: 1, Position.CATCHER: 2, Position.FIRST: 3,
+            Position.SECOND: 4, Position.THIRD: 5, Position.SHORTSTOP: 6,
+            Position.LEFT: 7, Position.CENTER: 8, Position.RIGHT: 9, Position.DH: 10
+        }
+        return order.get(self.position, 99)
 
 
 @dataclass
 class ForeignPlayerCandidate:
-    """外国人選手候補"""
+    """外国人選手候補 (UI表示用拡張)"""
     id: int
     name: str
     position: Position
@@ -164,7 +207,9 @@ class ForeignPlayerCandidate:
 
     # 実能力
     true_stats: PlayerStats = field(default_factory=PlayerStats)
+    true_potential: int = 50  # 潜在能力
     salary_demand: int = 100000000  # 年俸要求額
+    bonus_demand: int = 50000000 # 契約金要求額 ★追加
     years_demand: int = 2  # 契約年数要求
 
     # 調査状態
@@ -177,41 +222,120 @@ class ForeignPlayerCandidate:
     negotiation_progress: int = 0  # 0-100
     interest_level: int = 50  # 興味度: 0-100
 
-    def get_visible_stats(self) -> Dict[str, int]:
-        """調査度に応じた可視能力値"""
-        visible = {}
-        base_noise = max(0, 25 - int(self.scout_level * 0.25))
+    # 推定値キャッシュ
+    _cached_visible_stats: Dict[str, int] = field(default_factory=dict)
+    _cached_est_overall_range: tuple = (0, 0)
+    _cached_est_potential_range: tuple = (0, 0)
+
+    def __post_init__(self):
+        """初期化時に推定値を計算"""
+        self.recalculate_estimates()
+
+    def recalculate_estimates(self):
+        """調査度に基づいて推定値を再計算しキャッシュする"""
+        uncertainty = 1.0 - (self.scout_level / 100.0)
+        
+        # 外国人は情報が少ないのでブレ幅を大きくする
+        noise_max = int(30 * uncertainty)
 
         if self.position == Position.PITCHER:
-            stats_list = ['stuff', 'control', 'stamina', 'velocity']
+            stats_list = ['stuff', 'control', 'stamina', 'velocity', 'movement']
         else:
             stats_list = ['contact', 'power', 'speed', 'arm', 'fielding']
 
+        new_stats = {}
         for stat in stats_list:
-            # fieldingはpropertyなのでgetattr経由で取得
             if stat == 'fielding':
                 true_val = self.true_stats.fielding
             else:
                 true_val = getattr(self.true_stats, stat, 50)
 
-            if self.scout_level < 10:
-                visible[stat] = -1
-            elif self.scout_level < 40:
-                noise = random.randint(-base_noise, base_noise)
-                visible[stat] = max(1, min(99, true_val + noise))
+            noise = random.randint(-noise_max, noise_max)
+            if stat == 'velocity':
+                est_val = max(120, min(170, true_val + noise))
             else:
-                noise = random.randint(-base_noise // 2, base_noise // 2)
-                visible[stat] = max(1, min(99, true_val + noise))
+                est_val = max(1, min(99, true_val + noise))
+            new_stats[stat] = est_val
 
-        return visible
+        self._cached_visible_stats = new_stats
 
-    def get_overall_estimate(self) -> int:
-        """推定総合力"""
-        visible = self.get_visible_stats()
-        valid_stats = [v for v in visible.values() if v > 0]
-        if not valid_stats:
-            return 0
-        return int(sum(valid_stats) / len(valid_stats))
+        # 総合力の推定 (ブレ幅大)
+        if self.position == Position.PITCHER:
+            true_overall = self.true_stats.stuff + self.true_stats.control + self.true_stats.stamina
+        else:
+            true_overall = (self.true_stats.contact + self.true_stats.power + 
+                           self.true_stats.speed + self.true_stats.arm + self.true_stats.fielding)
+        
+        # 範囲を大きく
+        range_half_width = int(60 * uncertainty)
+        min_ovr = max(0, true_overall - random.randint(0, range_half_width))
+        max_ovr = true_overall + random.randint(0, range_half_width)
+        
+        if range_half_width > 10 and (max_ovr - min_ovr) < 30:
+             max_ovr += 30
+             min_ovr = max(0, min_ovr - 20)
+
+        self._cached_est_overall_range = (min_ovr, max_ovr)
+
+        # 潜在能力の推定 (ブレ幅大)
+        true_pot = self.true_potential
+        pot_uncertainty = max(0.3, uncertainty)
+        pot_width = int(20 * pot_uncertainty)
+        
+        min_pot = max(1, true_pot - random.randint(0, pot_width))
+        max_pot = min(99, true_pot + random.randint(0, pot_width))
+        
+        self._cached_est_potential_range = (min_pot, max_pot)
+
+    def get_visible_stats(self) -> Dict[str, int]:
+        return self._cached_visible_stats
+
+    def get_overall_display(self) -> str:
+        min_v, max_v = self._cached_est_overall_range
+        if min_v == max_v:
+            return f"★{min_v}"
+        return f"★{min_v}～★{max_v}"
+    
+    def get_potential_display(self) -> str:
+        min_v, max_v = self._cached_est_potential_range
+        min_rank = self._value_to_rank(min_v)
+        max_rank = self._value_to_rank(max_v)
+        if min_rank == max_rank:
+            return min_rank
+        return f"{min_rank}～{max_rank}"
+
+    def get_max_estimated_overall(self) -> int:
+        return self._cached_est_overall_range[1]
+    
+    def get_max_estimated_potential(self) -> int:
+        return self._cached_est_potential_range[1]
+    
+    def get_total_cost(self) -> int:
+        return self.salary_demand + self.bonus_demand
+    
+    def get_total_cost_display(self) -> str:
+        total = self.get_total_cost() // 1000000 # 百万円単位
+        return f"{total}百万"
+
+    @staticmethod
+    def _value_to_rank(value: int) -> str:
+        if value >= 90: return "S"
+        elif value >= 80: return "A"
+        elif value >= 70: return "B"
+        elif value >= 60: return "C"
+        elif value >= 50: return "D"
+        elif value >= 40: return "E"
+        elif value >= 30: return "F"
+        else: return "G"
+
+    @property
+    def position_order(self) -> int:
+        order = {
+            Position.PITCHER: 1, Position.CATCHER: 2, Position.FIRST: 3,
+            Position.SECOND: 4, Position.THIRD: 5, Position.SHORTSTOP: 6,
+            Position.LEFT: 7, Position.CENTER: 8, Position.RIGHT: 9, Position.DH: 10
+        }
+        return order.get(self.position, 99)
 
 
 @dataclass
@@ -296,7 +420,7 @@ class ContractsTableWidget(QTableWidget):
 # ========================================
 
 def create_rank_item(value: int, show_value: bool = False) -> QTableWidgetItem:
-    """ランク表示用アイテムを作成 (RatingDelegate用)"""
+    """ランク表示用アイテムを作成"""
     item = SortableTableWidgetItem()
     if value > 0:
         item.setData(Qt.UserRole, value)
@@ -353,8 +477,14 @@ def create_status_item(status: ScoutingStatus) -> QTableWidgetItem:
     return item
 
 
-def get_rank_color(rank: str) -> QColor:
-    """ランクに対応する色を返す"""
+def get_rank_color(rank_str: str) -> QColor:
+    """ランク文字（範囲含む）から色を決定"""
+    if "~" in rank_str:
+        ranks = rank_str.split("~")
+        target = ranks[1] if len(ranks) > 1 else ranks[0]
+    else:
+        target = rank_str
+        
     colors = {
         'S': QColor(THEME.rating_s),
         'A': QColor(THEME.rating_a),
@@ -366,7 +496,7 @@ def get_rank_color(rank: str) -> QColor:
         'G': QColor(THEME.rating_g),
         '?': QColor(THEME.text_muted),
     }
-    return colors.get(rank.upper(), QColor(THEME.text_muted))
+    return colors.get(target.strip().upper(), QColor(THEME.text_muted))
 
 
 def short_pos_name(pos: Position) -> str:
@@ -406,7 +536,7 @@ class DraftScoutingPage(QWidget):
         self._setup_ui()
 
     def _generate_dummy_data(self):
-        """ダミーデータ生成"""
+        """データ生成 (300人)"""
         # スカウト生成
         scout_names = ["田中 誠", "山本 健一", "鈴木 太郎", "佐藤 次郎", "高橋 三郎"]
         specialties = ["野手", "投手", "汎用", "野手", "投手"]
@@ -417,47 +547,45 @@ class DraftScoutingPage(QWidget):
                 specialty=spec
             ))
 
-        # ドラフト候補生成
-        first_names = ["翔太", "健太", "大輝", "拓海", "蓮", "悠斗", "颯太", "陸", "樹", "優斗"]
-        last_names = ["佐藤", "田中", "高橋", "渡辺", "伊藤", "山本", "中村", "小林", "加藤", "吉田"]
-        schools = ["○○大学", "△△高校", "□□大学", "◇◇高校", "☆☆大学"]
+        # 学校名・チーム名パーツ
+        univ_names = ["明帝", "東都", "六大学", "関西", "北海", "九州", "国際"]
+        hs_names = ["大阪", "横浜", "仙台", "広島", "智辯", "浦和", "星稜"]
+        indep_names = ["四国", "BC", "九州", "関西", "北海道"]
+        social_names = ["自動車", "製鉄", "ガス", "通運", "生命"]
 
         positions = [Position.PITCHER, Position.CATCHER, Position.SHORTSTOP,
                     Position.SECOND, Position.CENTER, Position.FIRST,
                     Position.THIRD, Position.LEFT, Position.RIGHT]
 
-        for i in range(20):
+        # 300人に増やす
+        for i in range(300):
             pos = random.choice(positions)
-            is_pitcher = pos == Position.PITCHER
-
-            if is_pitcher:
-                stats = PlayerStats(
-                    stuff=random.randint(30, 90),
-                    control=random.randint(30, 90),
-                    stamina=random.randint(30, 90),
-                    velocity=random.randint(135, 155)
-                )
+            
+            # player_generatorを使って能力生成
+            gen_prospect = player_generator.create_draft_prospect(pos)
+            
+            # 学校名の補完
+            origin = gen_prospect.origin
+            school = ""
+            if origin == "高校":
+                school = random.choice(hs_names) + random.choice(["高校", "学園", "実業", "桐蔭"])
+            elif origin == "大学":
+                school = random.choice(univ_names) + random.choice(["大学", "学院"])
+            elif origin == "社会人":
+                school = random.choice(["日本", "東京", "大阪"]) + random.choice(social_names)
             else:
-                defense_val = random.randint(30, 90)
-                stats = PlayerStats(
-                    contact=random.randint(30, 90),
-                    power=random.randint(30, 90),
-                    speed=random.randint(30, 90),
-                    arm=random.randint(30, 90),
-                    defense_ranges={pos.value: defense_val}
-                )
+                school = random.choice(indep_names) + "アイランドリーグ"
 
             prospect = DraftProspect(
                 id=i,
-                name=f"{random.choice(last_names)} {random.choice(first_names)}",
-                position=pos,
-                pitch_type=random.choice([PitchType.STARTER, PitchType.RELIEVER]) if is_pitcher else None,
-                age=random.randint(18, 22),
-                school=random.choice(schools),
-                true_stats=stats,
-                true_potential=random.randint(30, 95)
+                name=gen_prospect.name,
+                position=gen_prospect.position,
+                pitch_type=gen_prospect.pitch_type,
+                age=gen_prospect.age,
+                school=school,
+                true_stats=gen_prospect.stats,
+                true_potential=gen_prospect.potential
             )
-            prospect.update_estimated_ranks()
             self.prospects.append(prospect)
 
     def _setup_ui(self):
@@ -481,7 +609,7 @@ class DraftScoutingPage(QWidget):
         right_widget = self._create_detail_panel()
         splitter.addWidget(right_widget)
 
-        splitter.setSizes([600, 400])
+        splitter.setSizes([650, 350])
         layout.addWidget(splitter)
 
     def _create_toolbar(self) -> QWidget:
@@ -526,23 +654,20 @@ class DraftScoutingPage(QWidget):
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(8, 8, 8, 8)
 
-        header = QLabel("候補選手リスト")
+        header = QLabel("候補選手リスト (300名)")
         header.setStyleSheet(f"font-weight: bold; color: {self.theme.text_secondary}; font-size: 13px;")
         layout.addWidget(header)
 
         self.prospect_table = ContractsTableWidget()
         self.rating_delegate = RatingDelegate(self)
 
-        cols = ["名前", "Pos", "年齢", "学校", "推定", "潜力", "調査度", "状態"]
-        widths = [100, 40, 40, 80, 45, 45, 60, 70]
+        cols = ["名前", "Pos", "年齢", "推定総合", "推定潜在", "調査度", "状態"]
+        widths = [140, 40, 40, 100, 80, 60, 70]
 
         self.prospect_table.setColumnCount(len(cols))
         self.prospect_table.setHorizontalHeaderLabels(cols)
         for i, w in enumerate(widths):
             self.prospect_table.setColumnWidth(i, w)
-
-        # ランク列にデリゲート設定
-        # (推定・潜力はランク文字なので、専用処理が必要)
 
         self.prospect_table.row_double_clicked.connect(self._on_prospect_selected)
         self.prospect_table.itemClicked.connect(lambda item: self._on_prospect_clicked(item.row()))
@@ -562,35 +687,24 @@ class DraftScoutingPage(QWidget):
         # 選手詳細ヘッダー
         self.detail_header = QLabel("選手を選択してください")
         self.detail_header.setStyleSheet(f"color: {self.theme.text_primary}; font-size: 16px; font-weight: bold;")
+        self.detail_header.setWordWrap(True)
         layout.addWidget(self.detail_header)
 
         # 能力詳細フレーム
         self.stats_frame = QFrame()
         self.stats_frame.setStyleSheet(f"background-color: {self.theme.bg_card_elevated}; border-radius: 4px; padding: 10px;")
-        stats_layout = QGridLayout(self.stats_frame)
-        stats_layout.setSpacing(8)
-
-        self.stat_labels = {}
-        stat_names = ["ミート", "パワー", "走力", "肩力", "守備", "球威", "制球", "スタミナ", "球速"]
-        for i, name in enumerate(stat_names):
-            row, col = i // 3, (i % 3) * 2
-            label = QLabel(name)
-            label.setStyleSheet(f"color: {self.theme.text_secondary};")
-            stats_layout.addWidget(label, row, col)
-
-            value_label = QLabel("?")
-            value_label.setStyleSheet(f"color: {self.theme.text_muted}; font-weight: bold;")
-            stats_layout.addWidget(value_label, row, col + 1)
-            self.stat_labels[name] = value_label
+        
+        self.stats_layout = QGridLayout(self.stats_frame)
+        self.stats_layout.setSpacing(8)
 
         layout.addWidget(self.stats_frame)
 
-        # 伸びしろ表示
+        # 潜在能力表示
         potential_frame = QFrame()
         potential_frame.setStyleSheet(f"background-color: {self.theme.bg_card_elevated}; border-radius: 4px; padding: 10px;")
         potential_layout = QHBoxLayout(potential_frame)
 
-        potential_layout.addWidget(QLabel("伸びしろ:"))
+        potential_layout.addWidget(QLabel("推定潜在能力:"))
         self.potential_label = QLabel("?")
         self.potential_label.setStyleSheet(f"color: {self.theme.text_primary}; font-weight: bold; font-size: 18px;")
         potential_layout.addWidget(self.potential_label)
@@ -620,8 +734,6 @@ class DraftScoutingPage(QWidget):
             }}
         """)
         progress_layout.addWidget(self.progress_bar)
-
-        layout.addWidget(progress_frame)
 
         # スカウト派遣セクション
         scout_frame = QFrame()
@@ -689,7 +801,6 @@ class DraftScoutingPage(QWidget):
 
     def _refresh_table(self):
         """テーブルを更新"""
-        # フィルター適用
         filtered = self.prospects.copy()
 
         pos_filter = self.pos_filter.currentText()
@@ -710,54 +821,52 @@ class DraftScoutingPage(QWidget):
         elif status_filter == "調査完了":
             filtered = [p for p in filtered if p.scouting_status == ScoutingStatus.COMPLETED]
 
+        # ソート: ポジション順 -> 年齢順 -> 推定総合力の範囲の最大値順(降順)
+        filtered.sort(key=lambda p: (p.position_order, p.age, -p.get_max_estimated_overall()))
+
         self.prospect_table.setRowCount(len(filtered))
 
         for row, prospect in enumerate(filtered):
-            prospect.update_estimated_ranks()
-
-            # 名前
             name_item = create_text_item(prospect.name, Qt.AlignLeft | Qt.AlignVCenter)
             name_item.setData(Qt.UserRole, prospect)
             self.prospect_table.setItem(row, 0, name_item)
 
-            # ポジション
             pos_item = create_text_item(short_pos_name(prospect.position))
             self.prospect_table.setItem(row, 1, pos_item)
 
-            # 年齢
             age_item = create_text_item(str(prospect.age))
             self.prospect_table.setItem(row, 2, age_item)
 
-            # 学校
-            school_item = create_text_item(prospect.school, Qt.AlignLeft | Qt.AlignVCenter)
-            self.prospect_table.setItem(row, 3, school_item)
-
-            # 推定ランク
-            rank_item = create_text_item(prospect.estimated_rank)
-            rank_item.setForeground(get_rank_color(prospect.estimated_rank))
+            ovr_text = prospect.get_overall_display()
+            rank_item = create_text_item(ovr_text)
+            
+            max_ovr = prospect.get_max_estimated_overall()
+            if max_ovr >= 240: rank_item.setForeground(QColor(THEME.rating_s))
+            elif max_ovr >= 220: rank_item.setForeground(QColor(THEME.rating_a))
+            elif max_ovr >= 200: rank_item.setForeground(QColor(THEME.rating_b))
+            elif max_ovr >= 180: rank_item.setForeground(QColor(THEME.text_primary))
+            else: rank_item.setForeground(QColor(THEME.text_muted))
+            
             font = rank_item.font()
             font.setBold(True)
             rank_item.setFont(font)
-            self.prospect_table.setItem(row, 4, rank_item)
+            self.prospect_table.setItem(row, 3, rank_item)
 
-            # 潜力ランク
-            pot_item = create_text_item(prospect.estimated_potential_rank)
-            pot_item.setForeground(get_rank_color(prospect.estimated_potential_rank))
+            pot_text = prospect.get_potential_display()
+            pot_item = create_text_item(pot_text)
+            pot_item.setForeground(get_rank_color(pot_text))
             font = pot_item.font()
             font.setBold(True)
             pot_item.setFont(font)
-            self.prospect_table.setItem(row, 5, pot_item)
+            self.prospect_table.setItem(row, 4, pot_item)
 
-            # 調査度
             progress_item = create_progress_item(prospect.scout_level)
-            self.prospect_table.setItem(row, 6, progress_item)
+            self.prospect_table.setItem(row, 5, progress_item)
 
-            # 状態
             status_item = create_status_item(prospect.scouting_status)
-            self.prospect_table.setItem(row, 7, status_item)
+            self.prospect_table.setItem(row, 6, status_item)
 
     def _on_prospect_clicked(self, row: int):
-        """候補選択時"""
         item = self.prospect_table.item(row, 0)
         if item:
             prospect = item.data(Qt.UserRole)
@@ -766,63 +875,61 @@ class DraftScoutingPage(QWidget):
                 self._update_detail_panel()
 
     def _on_prospect_selected(self, row: int):
-        """候補ダブルクリック時"""
         self._on_prospect_clicked(row)
 
     def _update_detail_panel(self):
-        """詳細パネルを更新"""
         p = self.selected_prospect
         if not p:
             return
 
         self.detail_header.setText(f"{p.name} ({short_pos_name(p.position)}) - {p.school}")
 
-        # 能力値更新
+        while self.stats_layout.count():
+            item = self.stats_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
         visible = p.get_visible_stats()
 
-        # 野手能力
-        for name, key in [("ミート", "contact"), ("パワー", "power"), ("走力", "speed"), ("肩力", "arm"), ("守備", "fielding")]:
-            val = visible.get(key, -1)
-            label = self.stat_labels.get(name)
-            if label:
-                if val > 0:
-                    rank = Theme.get_rating_rank(val)
-                    label.setText(f"{rank} ({val})")
-                    label.setStyleSheet(f"color: {Theme.get_rating_color(val)}; font-weight: bold;")
-                else:
-                    label.setText("?")
-                    label.setStyleSheet(f"color: {self.theme.text_muted}; font-weight: bold;")
-
-        # 投手能力
-        for name, key in [("球威", "stuff"), ("制球", "control"), ("スタミナ", "stamina"), ("球速", "velocity")]:
-            val = visible.get(key, -1)
-            label = self.stat_labels.get(name)
-            if label:
-                if key == "velocity" and val > 0:
-                    label.setText(f"{val}km/h")
-                    label.setStyleSheet(f"color: {self.theme.text_primary}; font-weight: bold;")
-                elif val > 0:
-                    rank = Theme.get_rating_rank(val)
-                    label.setText(f"{rank} ({val})")
-                    label.setStyleSheet(f"color: {Theme.get_rating_color(val)}; font-weight: bold;")
-                else:
-                    label.setText("?")
-                    label.setStyleSheet(f"color: {self.theme.text_muted}; font-weight: bold;")
-
-        # 伸びしろ
-        pot = p.get_visible_potential()
-        if pot > 0:
-            rank = Theme.get_rating_rank(pot)
-            self.potential_label.setText(f"{rank} ({pot})")
-            self.potential_label.setStyleSheet(f"color: {Theme.get_rating_color(pot)}; font-weight: bold; font-size: 18px;")
+        if p.position == Position.PITCHER:
+            items = [
+                ("球速", "velocity"), ("球威", "stuff"), ("制球", "control"),
+                ("スタミナ", "stamina"), ("変化球", "movement")
+            ]
         else:
-            self.potential_label.setText("?")
-            self.potential_label.setStyleSheet(f"color: {self.theme.text_muted}; font-weight: bold; font-size: 18px;")
+            items = [
+                ("ミート", "contact"), ("パワー", "power"), ("走力", "speed"),
+                ("肩力", "arm"), ("守備", "fielding")
+            ]
 
-        # 進捗バー
+        for i, (name, key) in enumerate(items):
+            row, col = i // 3, (i % 3) * 2
+            
+            label = QLabel(name)
+            label.setStyleSheet(f"color: {self.theme.text_secondary};")
+            self.stats_layout.addWidget(label, row, col)
+
+            val = visible.get(key, -1)
+            value_label = QLabel("?")
+            value_label.setStyleSheet(f"color: {self.theme.text_muted}; font-weight: bold;")
+            
+            if val > 0:
+                if key == "velocity":
+                    value_label.setText(f"{val}km/h")
+                    value_label.setStyleSheet(f"color: {self.theme.text_primary}; font-weight: bold;")
+                else:
+                    rank = Theme.get_rating_rank(val)
+                    value_label.setText(f"{rank} ({val})")
+                    value_label.setStyleSheet(f"color: {Theme.get_rating_color(val)}; font-weight: bold;")
+            
+            self.stats_layout.addWidget(value_label, row, col + 1)
+
+        pot_text = p.get_potential_display()
+        self.potential_label.setText(pot_text)
+        self.potential_label.setStyleSheet(f"color: {get_rank_color(pot_text).name()}; font-weight: bold; font-size: 18px;")
+
         self.progress_bar.setValue(int(p.scout_level))
 
-        # ボタン状態更新
         self.dispatch_btn.setEnabled(
             p.scouting_status != ScoutingStatus.IN_PROGRESS and
             p.scout_level < 100 and
@@ -831,20 +938,17 @@ class DraftScoutingPage(QWidget):
         self.recall_btn.setEnabled(p.scouting_status == ScoutingStatus.IN_PROGRESS)
 
     def _update_scout_combo(self):
-        """スカウトコンボボックスを更新"""
         self.scout_combo.clear()
         for scout in self.scouts:
             status = "空き" if scout.is_available else "派遣中"
             self.scout_combo.addItem(f"{scout.name} (能力:{scout.skill} / {scout.specialty}) [{status}]", scout)
 
     def _update_scout_status(self):
-        """スカウト状態ラベルを更新"""
         available = sum(1 for s in self.scouts if s.is_available)
         total = len(self.scouts)
         self.scout_status_label.setText(f"スカウト: {available}/{total} 空き")
 
     def _dispatch_scout(self):
-        """スカウトを派遣"""
         if not self.selected_prospect:
             return
 
@@ -869,7 +973,6 @@ class DraftScoutingPage(QWidget):
         self._refresh_table()
 
     def _recall_scout(self):
-        """スカウトを帰還させる"""
         if not self.selected_prospect or not self.selected_prospect.assigned_scout:
             return
 
@@ -888,7 +991,6 @@ class DraftScoutingPage(QWidget):
         self._refresh_table()
 
     def advance_day(self):
-        """日付を進める (ゲーム進行時に呼び出し)"""
         for prospect in self.prospects:
             if prospect.scouting_status == ScoutingStatus.IN_PROGRESS and prospect.assigned_scout:
                 progress = prospect.assigned_scout.daily_progress
@@ -900,7 +1002,7 @@ class DraftScoutingPage(QWidget):
                     prospect.assigned_scout.current_mission_id = None
                     prospect.assigned_scout = None
 
-                prospect.update_estimated_ranks()
+                prospect.recalculate_estimates()
 
         self._update_scout_combo()
         self._update_scout_status()
@@ -914,7 +1016,7 @@ class DraftScoutingPage(QWidget):
 # ========================================
 
 class ForeignPlayerScoutingPage(QWidget):
-    """外国人選手調査ページ"""
+    """新外国人調査ページ"""
 
     player_selected = Signal(object)
 
@@ -929,8 +1031,7 @@ class ForeignPlayerScoutingPage(QWidget):
         self._setup_ui()
 
     def _generate_dummy_data(self):
-        """ダミーデータ生成"""
-        # スカウト生成
+        """ダミーデータ生成 (100人)"""
         scout_names = ["John Smith", "Mike Johnson", "Carlos Garcia"]
         for name in scout_names:
             self.scouts.append(Scout(
@@ -939,45 +1040,49 @@ class ForeignPlayerScoutingPage(QWidget):
                 specialty="汎用"
             ))
 
-        # 外国人選手候補生成
-        first_names = ["James", "Michael", "Robert", "David", "Chris", "Jose", "Carlos", "Pedro", "Juan", "Luis"]
-        last_names = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Rodriguez", "Martinez", "Lopez", "Gonzalez"]
-        countries = ["USA", "Dominican", "Cuba", "Venezuela", "Mexico", "Korea", "Taiwan"]
+        countries = ["USA", "Dominican", "Cuba", "Venezuela", "Mexico", "Korea", "Taiwan", "Puerto Rico", "Canada", "Australia"]
 
         positions = [Position.PITCHER, Position.FIRST, Position.LEFT,
-                    Position.RIGHT, Position.CENTER, Position.SHORTSTOP]
+                    Position.RIGHT, Position.CENTER, Position.SHORTSTOP, Position.THIRD, Position.SECOND, Position.CATCHER]
 
-        for i in range(15):
+        # 100人に増やす
+        for i in range(100):
             pos = random.choice(positions)
-            is_pitcher = pos == Position.PITCHER
+            
+            # player_generatorを利用 (外国人選手)
+            gen_player = player_generator.create_foreign_free_agent(pos)
+            
+            country = random.choice(countries)
+            
+            # 年齢や能力はplayer_generator側ですでに調整済み
+            # 契約金を計算 (年俸の30~50%程度)
+            bonus = int(gen_player.salary * random.uniform(0.3, 0.5))
+            bonus = (bonus // 1000000) * 1000000 # 100万単位に丸める
 
-            if is_pitcher:
-                stats = PlayerStats(
-                    stuff=random.randint(50, 95),
-                    control=random.randint(40, 90),
-                    stamina=random.randint(40, 90),
-                    velocity=random.randint(145, 160)
-                )
+            # ポテンシャルは年齢に応じて（若いほど高く、ベテランは低い）
+            # 外国人選手は即戦力期待なので、DraftProspectよりはポテンシャル幅は狭いかも
+            # しかし「外れ」も多いので低めに振れることも
+            if gen_player.age < 24:
+                pot_base = 60
+            elif gen_player.age < 30:
+                pot_base = 50
             else:
-                defense_val = random.randint(40, 85)
-                stats = PlayerStats(
-                    contact=random.randint(40, 90),
-                    power=random.randint(50, 95),
-                    speed=random.randint(40, 85),
-                    arm=random.randint(40, 85),
-                    defense_ranges={pos.value: defense_val}
-                )
+                pot_base = 30
+            
+            true_potential = max(1, min(99, int(random.gauss(pot_base, 15))))
 
             candidate = ForeignPlayerCandidate(
                 id=i,
-                name=f"{random.choice(first_names)} {random.choice(last_names)}",
-                position=pos,
-                pitch_type=random.choice([PitchType.STARTER, PitchType.RELIEVER, PitchType.CLOSER]) if is_pitcher else None,
-                age=random.randint(24, 35),
-                country=random.choice(countries),
-                true_stats=stats,
-                salary_demand=random.randint(50, 300) * 1000000,
-                years_demand=random.randint(1, 4),
+                name=gen_player.name,
+                position=gen_player.position,
+                pitch_type=gen_player.pitch_type,
+                age=gen_player.age,
+                country=country,
+                true_stats=gen_player.stats,
+                true_potential=true_potential,
+                salary_demand=gen_player.salary,
+                bonus_demand=bonus,
+                years_demand=random.choice([1, 1, 1, 2, 2, 3]),
                 interest_level=random.randint(30, 80)
             )
             self.candidates.append(candidate)
@@ -987,23 +1092,19 @@ class ForeignPlayerScoutingPage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # ツールバー
         toolbar = self._create_toolbar()
         layout.addWidget(toolbar)
 
-        # メインコンテンツ
         splitter = QSplitter(Qt.Horizontal)
         splitter.setStyleSheet(f"QSplitter::handle {{ background: {self.theme.border}; width: 1px; }}")
 
-        # 左: 候補リスト
         left_widget = self._create_candidate_list()
         splitter.addWidget(left_widget)
 
-        # 右: 詳細 & 交渉
         right_widget = self._create_detail_panel()
         splitter.addWidget(right_widget)
 
-        splitter.setSizes([600, 400])
+        splitter.setSizes([650, 350])
         layout.addWidget(splitter)
 
     def _create_toolbar(self) -> QWidget:
@@ -1014,7 +1115,7 @@ class ForeignPlayerScoutingPage(QWidget):
         layout = QHBoxLayout(toolbar)
         layout.setContentsMargins(12, 0, 12, 0)
 
-        title = QLabel("助っ人調査")
+        title = QLabel("新外国人調査")
         title.setStyleSheet(f"color: {self.theme.text_primary}; font-weight: bold; font-size: 16px;")
         layout.addWidget(title)
 
@@ -1025,6 +1126,16 @@ class ForeignPlayerScoutingPage(QWidget):
         self.pos_filter.setStyleSheet(f"background: {self.theme.bg_input}; color: {self.theme.text_primary}; border: 1px solid {self.theme.border}; padding: 4px;")
         self.pos_filter.currentIndexChanged.connect(self._refresh_table)
         layout.addWidget(self.pos_filter)
+        
+        layout.addSpacing(10)
+        
+        # ソート機能追加
+        layout.addWidget(QLabel("並び順:"))
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItems(["推定総合(最高値)", "推定潜在(最高値)", "予想総額", "年齢"])
+        self.sort_combo.setStyleSheet(f"background: {self.theme.bg_input}; color: {self.theme.text_primary}; border: 1px solid {self.theme.border}; padding: 4px;")
+        self.sort_combo.currentIndexChanged.connect(self._refresh_table)
+        layout.addWidget(self.sort_combo)
 
         layout.addStretch()
 
@@ -1040,15 +1151,15 @@ class ForeignPlayerScoutingPage(QWidget):
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(8, 8, 8, 8)
 
-        header = QLabel("外国人選手候補リスト")
+        header = QLabel("外国人選手候補リスト (100名)")
         header.setStyleSheet(f"font-weight: bold; color: {self.theme.text_secondary}; font-size: 13px;")
         layout.addWidget(header)
 
         self.candidate_table = ContractsTableWidget()
         self.rating_delegate = RatingDelegate(self)
 
-        cols = ["名前", "Pos", "年齢", "国籍", "推定", "調査度", "年俸", "状態"]
-        widths = [120, 40, 40, 70, 45, 60, 80, 70]
+        cols = ["名前", "Pos", "年齢", "国籍", "推定総合", "推定潜在", "予想総額", "調査度", "状態"]
+        widths = [140, 40, 40, 70, 100, 80, 80, 60, 70]
 
         self.candidate_table.setColumnCount(len(cols))
         self.candidate_table.setHorizontalHeaderLabels(cols)
@@ -1070,33 +1181,32 @@ class ForeignPlayerScoutingPage(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
 
-        # 選手詳細ヘッダー
         self.detail_header = QLabel("選手を選択してください")
         self.detail_header.setStyleSheet(f"color: {self.theme.text_primary}; font-size: 16px; font-weight: bold;")
+        self.detail_header.setWordWrap(True)
         layout.addWidget(self.detail_header)
 
-        # 能力詳細フレーム
         self.stats_frame = QFrame()
         self.stats_frame.setStyleSheet(f"background-color: {self.theme.bg_card_elevated}; border-radius: 4px; padding: 10px;")
-        stats_layout = QGridLayout(self.stats_frame)
-        stats_layout.setSpacing(8)
-
-        self.stat_labels = {}
-        stat_names = ["ミート", "パワー", "走力", "肩力", "守備", "球威", "制球", "スタミナ", "球速"]
-        for i, name in enumerate(stat_names):
-            row, col = i // 3, (i % 3) * 2
-            label = QLabel(name)
-            label.setStyleSheet(f"color: {self.theme.text_secondary};")
-            stats_layout.addWidget(label, row, col)
-
-            value_label = QLabel("?")
-            value_label.setStyleSheet(f"color: {self.theme.text_muted}; font-weight: bold;")
-            stats_layout.addWidget(value_label, row, col + 1)
-            self.stat_labels[name] = value_label
+        
+        # グリッドレイアウトを保持
+        self.stats_layout = QGridLayout(self.stats_frame)
+        self.stats_layout.setSpacing(8)
 
         layout.addWidget(self.stats_frame)
 
-        # 調査進捗
+        potential_frame = QFrame()
+        potential_frame.setStyleSheet(f"background-color: {self.theme.bg_card_elevated}; border-radius: 4px; padding: 10px;")
+        potential_layout = QHBoxLayout(potential_frame)
+
+        potential_layout.addWidget(QLabel("推定潜在能力:"))
+        self.potential_label = QLabel("?")
+        self.potential_label.setStyleSheet(f"color: {self.theme.text_primary}; font-weight: bold; font-size: 18px;")
+        potential_layout.addWidget(self.potential_label)
+        potential_layout.addStretch()
+
+        layout.addWidget(potential_frame)
+
         progress_frame = QFrame()
         progress_frame.setStyleSheet(f"background-color: {self.theme.bg_card_elevated}; border-radius: 4px; padding: 10px;")
         progress_layout = QVBoxLayout(progress_frame)
@@ -1121,7 +1231,6 @@ class ForeignPlayerScoutingPage(QWidget):
 
         layout.addWidget(progress_frame)
 
-        # スカウト派遣セクション
         scout_frame = QFrame()
         scout_frame.setStyleSheet(f"background-color: {self.theme.bg_card_elevated}; border-radius: 4px; padding: 10px;")
         scout_layout = QVBoxLayout(scout_frame)
@@ -1182,14 +1291,12 @@ class ForeignPlayerScoutingPage(QWidget):
         scout_layout.addLayout(btn_layout)
         layout.addWidget(scout_frame)
 
-        # 交渉セクション
         negotiation_frame = QFrame()
         negotiation_frame.setStyleSheet(f"background-color: {self.theme.bg_card_elevated}; border-radius: 4px; padding: 10px;")
         negotiation_layout = QVBoxLayout(negotiation_frame)
 
         negotiation_layout.addWidget(QLabel("契約交渉"))
 
-        # 興味度表示
         interest_layout = QHBoxLayout()
         interest_layout.addWidget(QLabel("興味度:"))
         self.interest_label = QLabel("?")
@@ -1198,7 +1305,6 @@ class ForeignPlayerScoutingPage(QWidget):
         interest_layout.addStretch()
         negotiation_layout.addLayout(interest_layout)
 
-        # 提示条件
         offer_layout = QGridLayout()
         offer_layout.addWidget(QLabel("提示年俸:"), 0, 0)
         self.salary_spin = QSpinBox()
@@ -1246,7 +1352,6 @@ class ForeignPlayerScoutingPage(QWidget):
         return widget
 
     def _refresh_table(self):
-        """テーブルを更新"""
         filtered = self.candidates.copy()
 
         pos_filter = self.pos_filter.currentText()
@@ -1255,50 +1360,64 @@ class ForeignPlayerScoutingPage(QWidget):
         elif pos_filter == "野手":
             filtered = [c for c in filtered if c.position != Position.PITCHER]
 
+        # ソート処理
+        sort_key = self.sort_combo.currentText()
+        if sort_key == "推定総合(最高値)":
+            filtered.sort(key=lambda p: -p.get_max_estimated_overall())
+        elif sort_key == "推定潜在(最高値)":
+            filtered.sort(key=lambda p: -p.get_max_estimated_potential())
+        elif sort_key == "予想総額":
+            filtered.sort(key=lambda p: -p.get_total_cost())
+        elif sort_key == "年齢":
+            filtered.sort(key=lambda p: p.age)
+
         self.candidate_table.setRowCount(len(filtered))
 
         for row, candidate in enumerate(filtered):
-            # 名前
             name_item = create_text_item(candidate.name, Qt.AlignLeft | Qt.AlignVCenter)
             name_item.setData(Qt.UserRole, candidate)
             self.candidate_table.setItem(row, 0, name_item)
 
-            # ポジション
             pos_item = create_text_item(short_pos_name(candidate.position))
             self.candidate_table.setItem(row, 1, pos_item)
 
-            # 年齢
             age_item = create_text_item(str(candidate.age))
             self.candidate_table.setItem(row, 2, age_item)
 
-            # 国籍
             country_item = create_text_item(candidate.country)
             self.candidate_table.setItem(row, 3, country_item)
 
-            # 推定総合
-            ovr = candidate.get_overall_estimate()
-            if ovr > 0:
-                rank = Theme.get_rating_rank(ovr)
-                rank_item = create_text_item(rank)
-                rank_item.setForeground(QColor(Theme.get_rating_color(ovr)))
-            else:
-                rank_item = create_text_item("?")
-                rank_item.setForeground(QColor(self.theme.text_muted))
+            ovr_text = candidate.get_overall_display()
+            rank_item = create_text_item(ovr_text)
+            
+            max_ovr = candidate.get_max_estimated_overall()
+            if max_ovr >= 240: rank_item.setForeground(QColor(THEME.rating_s))
+            elif max_ovr >= 220: rank_item.setForeground(QColor(THEME.rating_a))
+            elif max_ovr >= 200: rank_item.setForeground(QColor(THEME.rating_b))
+            elif max_ovr >= 180: rank_item.setForeground(QColor(THEME.text_primary))
+            else: rank_item.setForeground(QColor(THEME.text_muted))
+            
             font = rank_item.font()
             font.setBold(True)
             rank_item.setFont(font)
             self.candidate_table.setItem(row, 4, rank_item)
 
-            # 調査度
+            pot_text = candidate.get_potential_display()
+            pot_item = create_text_item(pot_text)
+            pot_item.setForeground(get_rank_color(pot_text))
+            font = pot_item.font()
+            font.setBold(True)
+            pot_item.setFont(font)
+            self.candidate_table.setItem(row, 5, pot_item)
+
+            # 予想総額
+            cost_text = candidate.get_total_cost_display()
+            cost_item = create_text_item(cost_text)
+            self.candidate_table.setItem(row, 6, cost_item)
+
             progress_item = create_progress_item(candidate.scout_level)
-            self.candidate_table.setItem(row, 5, progress_item)
+            self.candidate_table.setItem(row, 7, progress_item)
 
-            # 年俸
-            salary_text = f"{candidate.salary_demand // 1000000}百万" if candidate.scout_level >= 30 else "?"
-            salary_item = create_text_item(salary_text)
-            self.candidate_table.setItem(row, 6, salary_item)
-
-            # 状態
             if candidate.negotiation_started:
                 status = "交渉中"
                 color = self.theme.success
@@ -1314,10 +1433,9 @@ class ForeignPlayerScoutingPage(QWidget):
 
             status_item = create_text_item(status)
             status_item.setForeground(QColor(color))
-            self.candidate_table.setItem(row, 7, status_item)
+            self.candidate_table.setItem(row, 8, status_item)
 
     def _on_candidate_clicked(self, row: int):
-        """候補選択時"""
         item = self.candidate_table.item(row, 0)
         if item:
             candidate = item.data(Qt.UserRole)
@@ -1326,51 +1444,63 @@ class ForeignPlayerScoutingPage(QWidget):
                 self._update_detail_panel()
 
     def _on_candidate_selected(self, row: int):
-        """候補ダブルクリック時"""
         self._on_candidate_clicked(row)
 
     def _update_detail_panel(self):
-        """詳細パネルを更新"""
         c = self.selected_candidate
         if not c:
             return
 
         self.detail_header.setText(f"{c.name} ({short_pos_name(c.position)}) - {c.country}")
 
-        # 能力値更新
+        # 詳細パネルの能力表示をクリアして再生成
+        while self.stats_layout.count():
+            item = self.stats_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
         visible = c.get_visible_stats()
 
-        for name, key in [("ミート", "contact"), ("パワー", "power"), ("走力", "speed"), ("肩力", "arm"), ("守備", "fielding")]:
-            val = visible.get(key, -1)
-            label = self.stat_labels.get(name)
-            if label:
-                if val > 0:
-                    rank = Theme.get_rating_rank(val)
-                    label.setText(f"{rank} ({val})")
-                    label.setStyleSheet(f"color: {Theme.get_rating_color(val)}; font-weight: bold;")
-                else:
-                    label.setText("?")
-                    label.setStyleSheet(f"color: {self.theme.text_muted}; font-weight: bold;")
+        # ポジションに応じた能力表示
+        if c.position == Position.PITCHER:
+            items = [
+                ("球速", "velocity"), ("球威", "stuff"), ("制球", "control"),
+                ("スタミナ", "stamina"), ("変化球", "movement")
+            ]
+        else:
+            items = [
+                ("ミート", "contact"), ("パワー", "power"), ("走力", "speed"),
+                ("肩力", "arm"), ("守備", "fielding")
+            ]
 
-        for name, key in [("球威", "stuff"), ("制球", "control"), ("スタミナ", "stamina"), ("球速", "velocity")]:
-            val = visible.get(key, -1)
-            label = self.stat_labels.get(name)
-            if label:
-                if key == "velocity" and val > 0:
-                    label.setText(f"{val}km/h")
-                    label.setStyleSheet(f"color: {self.theme.text_primary}; font-weight: bold;")
-                elif val > 0:
-                    rank = Theme.get_rating_rank(val)
-                    label.setText(f"{rank} ({val})")
-                    label.setStyleSheet(f"color: {Theme.get_rating_color(val)}; font-weight: bold;")
-                else:
-                    label.setText("?")
-                    label.setStyleSheet(f"color: {self.theme.text_muted}; font-weight: bold;")
+        for i, (name, key) in enumerate(items):
+            row, col = i // 3, (i % 3) * 2
+            
+            label = QLabel(name)
+            label.setStyleSheet(f"color: {self.theme.text_secondary};")
+            self.stats_layout.addWidget(label, row, col)
 
-        # 進捗バー
+            val = visible.get(key, -1)
+            value_label = QLabel("?")
+            value_label.setStyleSheet(f"color: {self.theme.text_muted}; font-weight: bold;")
+            
+            if val > 0:
+                if key == "velocity":
+                    value_label.setText(f"{val}km/h")
+                    value_label.setStyleSheet(f"color: {self.theme.text_primary}; font-weight: bold;")
+                else:
+                    rank = Theme.get_rating_rank(val)
+                    value_label.setText(f"{rank} ({val})")
+                    value_label.setStyleSheet(f"color: {Theme.get_rating_color(val)}; font-weight: bold;")
+            
+            self.stats_layout.addWidget(value_label, row, col + 1)
+
+        pot_text = c.get_potential_display()
+        self.potential_label.setText(pot_text)
+        self.potential_label.setStyleSheet(f"color: {get_rank_color(pot_text).name()}; font-weight: bold; font-size: 18px;")
+
         self.progress_bar.setValue(int(c.scout_level))
 
-        # 興味度
         if c.scout_level >= 40:
             self.interest_label.setText(f"{c.interest_level}%")
             if c.interest_level >= 70:
@@ -1383,7 +1513,6 @@ class ForeignPlayerScoutingPage(QWidget):
             self.interest_label.setText("?")
             self.interest_label.setStyleSheet(f"color: {self.theme.text_muted}; font-weight: bold;")
 
-        # ボタン状態更新
         self.dispatch_btn.setEnabled(
             c.scouting_status != ScoutingStatus.IN_PROGRESS and
             c.scout_level < 100 and
@@ -1393,20 +1522,17 @@ class ForeignPlayerScoutingPage(QWidget):
         self.negotiate_btn.setEnabled(c.scout_level >= 50 and not c.negotiation_started)
 
     def _update_scout_combo(self):
-        """スカウトコンボボックスを更新"""
         self.scout_combo.clear()
         for scout in self.scouts:
             status = "空き" if scout.is_available else "派遣中"
             self.scout_combo.addItem(f"{scout.name} (能力:{scout.skill}) [{status}]", scout)
 
     def _update_scout_status(self):
-        """スカウト状態ラベルを更新"""
         available = sum(1 for s in self.scouts if s.is_available)
         total = len(self.scouts)
         self.scout_status_label.setText(f"海外スカウト: {available}/{total} 空き")
 
     def _dispatch_scout(self):
-        """スカウトを派遣"""
         if not self.selected_candidate:
             return
 
@@ -1430,7 +1556,6 @@ class ForeignPlayerScoutingPage(QWidget):
         self._refresh_table()
 
     def _recall_scout(self):
-        """スカウトを帰還させる"""
         if not self.selected_candidate or not self.selected_candidate.assigned_scout:
             return
 
@@ -1449,7 +1574,6 @@ class ForeignPlayerScoutingPage(QWidget):
         self._refresh_table()
 
     def _start_negotiation(self):
-        """交渉開始"""
         c = self.selected_candidate
         if not c or c.scout_level < 50:
             return
@@ -1457,7 +1581,6 @@ class ForeignPlayerScoutingPage(QWidget):
         offered_salary = self.salary_spin.value() * 1000000
         offered_years = self.years_spin.value()
 
-        # 交渉成功率計算
         salary_ratio = offered_salary / c.salary_demand
         years_ratio = offered_years / c.years_demand
 
@@ -1485,7 +1608,6 @@ class ForeignPlayerScoutingPage(QWidget):
                 f"{c.name}との契約が成立しました！\n"
                 f"年俸: {offered_salary // 1000000}百万円 / {offered_years}年契約")
             c.negotiation_started = True
-            # ここで実際のPlayer作成とチーム追加を行う
         else:
             QMessageBox.warning(self, "交渉失敗",
                 f"{c.name}は提示条件に満足しませんでした。\n"
@@ -1496,7 +1618,6 @@ class ForeignPlayerScoutingPage(QWidget):
         self._refresh_table()
 
     def advance_day(self):
-        """日付を進める"""
         for candidate in self.candidates:
             if candidate.scouting_status == ScoutingStatus.IN_PROGRESS and candidate.assigned_scout:
                 progress = candidate.assigned_scout.daily_progress
@@ -1507,6 +1628,8 @@ class ForeignPlayerScoutingPage(QWidget):
                     candidate.assigned_scout.is_available = True
                     candidate.assigned_scout.current_mission_id = None
                     candidate.assigned_scout = None
+                
+                candidate.recalculate_estimates()
 
         self._update_scout_combo()
         self._update_scout_status()
@@ -2014,7 +2137,7 @@ class ContractsPage(QWidget):
 
     PAGES = {
         "ドラフト候補調査": 0,
-        "助っ人調査": 1,
+        "新外国人調査": 1,
         "トレード": 2,
     }
 
