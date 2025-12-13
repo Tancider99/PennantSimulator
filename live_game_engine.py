@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-ライブ試合エンジン (修正版: 投手守備参加修正・フリーズ対策・ポテンヒット抑制)
+ライブ試合エンジン (修正版: BABIP抑制・ポテンヒット激減・内野安打抑制・ゴロ増加)
 """
 import random
 import math
@@ -487,7 +487,8 @@ class BattedBallGenerator:
         
         traj_bias = 5 + (trajectory * 5)
         angle_center = traj_bias - (p_gb_tendency - 50) * 0.2
-        angle_center -= 3.0
+        # --- 修正: ポップフライ過多抑制 (角度を少し下げる) ---
+        angle_center -= 6.0  # 3.0 -> 6.0
         
         if pitch.location.z < 0.5: angle_center -= 5
         if pitch.location.z > 0.9: angle_center += 5
@@ -501,7 +502,8 @@ class BattedBallGenerator:
                 else: velo += 20
             quality = "soft"
         else:
-            angle = random.gauss(angle_center, 12)
+            # --- 修正: バラつきを抑える (標準偏差 12 -> 10) ---
+            angle = random.gauss(angle_center, 10)
         
         velo = max(40, base_v + random.gauss(0, 5))
         if quality == "hard": velo = max(velo, 138)
@@ -553,9 +555,7 @@ class AdvancedDefenseEngine:
         if ball.hit_type == BattedBallType.FLYBALL and ball.distance > fence_dist and abs_spray < 45:
             return PlayResult.HOME_RUN
         
-        # 守備判定
         target_pos = (ball.landing_x, ball.landing_y)
-        # ★修正: 現在の投手を渡す
         best_fielder, fielder_type, initial_pos = self._find_nearest_fielder(target_pos, defense_team, team_level, current_pitcher)
         
         if not best_fielder: 
@@ -571,7 +571,10 @@ class AdvancedDefenseEngine:
         speed_stat = get_effective_stat(best_fielder, 'speed')
         max_speed = 7.8 + (speed_stat - 50) * 0.01
         
-        reaction_delay = 0.45 - (adjusted_range / 1500.0) 
+        # --- 修正: 守備範囲の微増 (BABIP抑制) ---
+        max_speed *= 1.08 
+        
+        reaction_delay = 0.40 - (adjusted_range / 1500.0) 
         time_needed = reaction_delay + (dist_to_ball / max_speed)
         
         if ball.hit_type in [BattedBallType.FLYBALL, BattedBallType.POPUP, BattedBallType.LINEDRIVE]:
@@ -587,22 +590,24 @@ class AdvancedDefenseEngine:
         time_diff = time_available - time_needed
         catch_prob = 0.0
         
-        if time_diff >= 0.5: catch_prob = 0.90 
-        elif time_diff >= 0.0: catch_prob = 0.65 + (time_diff / 0.5) * 0.29
+        # --- 修正: 捕球確率のベースアップ (ポテンヒット抑制) ---
+        if time_diff >= 0.5: catch_prob = 0.99 
+        elif time_diff >= 0.0: catch_prob = 0.75 + (time_diff / 0.5) * 0.24 
         elif time_diff > -0.3:
              ratio = (time_diff + 0.3) / 0.3
-             catch_prob = ratio * 0.63
+             catch_prob = ratio * 0.65
         else: catch_prob = 0.0
         
         luck_factor = 0.50; base_prob = 0.25
-        if catch_prob > 0.89: luck_factor = 0.05 
+        if catch_prob > 0.89: luck_factor = 0.01 
         catch_prob = catch_prob * (1 - luck_factor) + base_prob * luck_factor
         
         if ball.contact_quality == "hard": catch_prob *= 0.85 
         if ball.hit_type == BattedBallType.LINEDRIVE: catch_prob *= 0.80
         
+        # --- 修正: 弱いフライのヒット確率を激減させる ---
         if ball.contact_quality == "soft" and ball.hit_type in [BattedBallType.FLYBALL, BattedBallType.LINEDRIVE]:
-            catch_prob = 0.5 + (catch_prob * 0.5) 
+            catch_prob = 0.9 + (catch_prob * 0.1) # ほぼ捕れるようにする
 
         if stadium: catch_prob /= stadium.pf_1b
         catch_prob = max(0.0, min(0.99, catch_prob))
@@ -650,7 +655,6 @@ class AdvancedDefenseEngine:
                 p = team.players[idx]
                 if p.position != Position.DH and p.position != Position.PITCHER: pos_map[p.position] = p
         
-        # ★修正: 現在の投手を守備位置にセット (先発投手インデックスは使わない)
         if current_pitcher:
              pos_map[Position.PITCHER] = current_pitcher
 
@@ -667,8 +671,11 @@ class AdvancedDefenseEngine:
         dist_to_1b = math.sqrt((ball_x - base_1b_pos[0])**2 + (ball_y - base_1b_pos[1])**2)
         
         arm = get_effective_stat(fielder, 'arm')
-        throw_speed = 30 + (arm / 100.0) * 15
-        transfer_time = 0.8 - (get_effective_stat(fielder, 'error') / 200.0)
+        # --- 修正: 送球速度アップ (内野安打抑制) ---
+        throw_speed = 38 + (arm / 100.0) * 16
+        
+        # --- 修正: 握り替え時間短縮 ---
+        transfer_time = 0.65 - (get_effective_stat(fielder, 'error') / 250.0)
         throw_time = transfer_time + (dist_to_1b / throw_speed)
         
         throw_time *= 0.95
@@ -676,7 +683,8 @@ class AdvancedDefenseEngine:
         time_margin = runner_time - throw_time
         rec = fielder.get_record_by_level(team_level)
         
-        if throw_time < runner_time:
+        # --- 修正: アウト判定を有利に (マージン拡大) ---
+        if throw_time < (runner_time + 0.2):
             if 0 < time_margin < 0.3:
                  val = 0.2 * UZR_SCALE["ARM"]
                  rec.def_drs_raw += val; rec.uzr_arm += val

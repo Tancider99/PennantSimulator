@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-日程作成エンジン（拡張版：二軍三軍対応）
+日程作成エンジン（拡張版：二軍三軍対応 120/100試合制 + ランダム日程分散）
 """
 import random
 from dataclasses import dataclass
@@ -42,12 +42,18 @@ class LeagueScheduleEngine:
         
         # 全試合リストを生成して配置
         all_games = self.generate_all_games()
-        self._assign_games_to_dates(self.schedule, all_games)
+        # 一軍は従来通りの埋め込みロジック（連戦考慮などは今後の課題だが、今回は二軍修正が主）
+        self._assign_games_to_dates_dense(self.schedule, all_games)
         
         return self.schedule
 
     def generate_farm_schedule(self, north_teams: List[Team], south_teams: List[Team], level: TeamLevel) -> Schedule:
-        """二軍・三軍日程を生成（試合数少なめ、総当たり）"""
+        """
+        二軍・三軍日程を生成
+        二軍: 約120試合
+        三軍: 約100試合
+        バラバラに分散させる
+        """
         n_names = [t.name for t in north_teams]
         s_names = [t.name for t in south_teams]
         all_names = n_names + s_names
@@ -55,16 +61,31 @@ class LeagueScheduleEngine:
         schedule = Schedule()
         games = []
         
-        # 二軍・三軍はリーグ区分けなしで総当たりと仮定
-        # 各チームと10試合（ホーム5、アウェイ5） -> 計110試合程度
+        # 対戦回数の設定
+        if level == TeamLevel.SECOND:
+            # 11チーム相手に11試合ずつ = 121試合
+            games_vs_opponent = 11
+        else:
+            # 11チーム相手に9試合ずつ = 99試合
+            games_vs_opponent = 9
+            
+        # 総当たり戦生成
         for i, t1 in enumerate(all_names):
             for j, t2 in enumerate(all_names):
                 if i >= j: continue
-                # ホーム5, アウェイ5
-                for _ in range(5): games.append((t1, t2, False))
-                for _ in range(5): games.append((t2, t1, False))
                 
-        self._assign_games_to_dates(schedule, games)
+                count = games_vs_opponent
+                home_games = count // 2
+                away_games = count - home_games
+                
+                if (i + j) % 2 == 0:
+                    home_games, away_games = away_games, home_games
+                
+                for _ in range(home_games): games.append((t1, t2, False))
+                for _ in range(away_games): games.append((t2, t1, False))
+        
+        # 分散配置ロジックを使用
+        self._assign_games_to_dates_scattered(schedule, games, level)
         return schedule
 
     def generate_all_games(self) -> List[Tuple[str, str, bool]]:
@@ -93,90 +114,139 @@ class LeagueScheduleEngine:
                     games.append((n_team, s_team, True))
         return games
 
-    def _assign_games_to_dates(self, schedule_obj: Schedule, all_games: List[Tuple[str, str, bool]]):
-        """試合を日程に配置（共通ロジック）"""
-        random.shuffle(all_games)
-        game_number = 1
-        
-        game_dates = []
+    def _get_valid_dates(self, level: TeamLevel) -> List[datetime.date]:
+        """有効な試合開催日リストを取得"""
+        valid_dates = []
         d = self.opening_day
         while d <= self.season_end:
             if d.weekday() != 0: # 月曜休み
-                if not (self.allstar_start <= d <= self.allstar_end):
-                    game_dates.append(d)
+                # 一軍はオールスター期間休み
+                if level == TeamLevel.FIRST:
+                    if not (self.allstar_start <= d <= self.allstar_end):
+                        valid_dates.append(d)
+                else:
+                    valid_dates.append(d)
             d += datetime.timedelta(days=1)
+        return valid_dates
 
-        self._place_games(schedule_obj, all_games, game_dates, game_number)
+    def _assign_games_to_dates_dense(self, schedule_obj: Schedule, all_games: List[Tuple[str, str, bool]]):
+        """一軍用：できるだけ詰め込む配置ロジック"""
+        random.shuffle(all_games)
+        valid_dates = self._get_valid_dates(TeamLevel.FIRST)
         
-        # 日付順ソート
-        schedule_obj.games.sort(key=lambda g: (g.date, g.game_number))
+        game_number = 1
+        remaining = list(all_games)
         
-        # 番号振り直し
-        for i, game in enumerate(schedule_obj.games):
-            game.game_number = i + 1
-
-    def _place_games(self, schedule_obj: Schedule, games: List[Tuple[str, str, bool]],
-                    dates: List[datetime.date], start_number: int) -> int:
-        """試合を日程リストに配置"""
-        game_number = start_number
-        remaining = list(games)
-
-        for date in dates:
+        for date in valid_dates:
             if not remaining: break
             date_str = date.strftime("%Y-%m-%d")
-            teams_today: Set[str] = set()
-            games_today = 0
+            teams_playing = set()
             
             idx = 0
-            # 1日最大6試合（全チームが試合）
-            while games_today < 6 and idx < len(remaining):
+            while idx < len(remaining):
                 home, away, _ = remaining[idx]
-                if home not in teams_today and away not in teams_today:
+                if home not in teams_playing and away not in teams_playing:
                     schedule_obj.games.append(ScheduledGame(
                         game_number=game_number, date=date_str,
                         home_team_name=home, away_team_name=away
                     ))
-                    teams_today.add(home); teams_today.add(away)
-                    game_number += 1; games_today += 1
+                    teams_playing.add(home); teams_playing.add(away)
+                    game_number += 1
                     remaining.pop(idx)
                 else:
                     idx += 1
         
-        # 未消化分があれば、日程を再走査して空きに詰め込む（簡易処理）
-        max_iterations = 50
-        iteration = 0
-        while remaining and iteration < max_iterations:
-            iteration += 1
-            placed_any = False
-            for date in dates:
+        # 残りがあれば末尾の日程に無理やり入れるなどの処理が必要だが、
+        # ここではループで再試行して空きを探す
+        if remaining:
+            for date in valid_dates:
                 if not remaining: break
                 date_str = date.strftime("%Y-%m-%d")
-                existing = [g for g in schedule_obj.games if g.date == date_str]
-                if len(existing) >= 6: continue
-                
-                teams_today = set()
-                for g in existing:
-                    teams_today.add(g.home_team_name)
-                    teams_today.add(g.away_team_name)
+                current_games = [g for g in schedule_obj.games if g.date == date_str]
+                teams_playing = set()
+                for g in current_games:
+                    teams_playing.add(g.home_team_name)
+                    teams_playing.add(g.away_team_name)
                 
                 idx = 0
-                while idx < len(remaining) and len(existing) < 6:
+                while idx < len(remaining):
                     home, away, _ = remaining[idx]
-                    if home not in teams_today and away not in teams_today:
+                    if home not in teams_playing and away not in teams_playing:
                         schedule_obj.games.append(ScheduledGame(
                             game_number=game_number, date=date_str,
                             home_team_name=home, away_team_name=away
                         ))
-                        teams_today.add(home); teams_today.add(away)
+                        teams_playing.add(home); teams_playing.add(away)
                         game_number += 1
                         remaining.pop(idx)
-                        existing.append(None) # カウント用
-                        placed_any = True
                     else:
                         idx += 1
-            if not placed_any: break
 
-        return game_number
+        schedule_obj.games.sort(key=lambda g: (g.date, g.game_number))
+        for i, game in enumerate(schedule_obj.games): game.game_number = i + 1
+
+    def _assign_games_to_dates_scattered(self, schedule_obj: Schedule, all_games: List[Tuple[str, str, bool]], level: TeamLevel):
+        """二軍・三軍用：全期間に分散させる配置ロジック"""
+        random.shuffle(all_games)
+        valid_dates = self._get_valid_dates(level)
+        
+        # 日付ごとの対戦カード管理マップ
+        date_schedule_map = {d: set() for d in valid_dates} # date -> set of team names playing
+        scheduled_games_list = []
+        
+        game_number = 1
+        
+        # 全試合をランダムな日付に割り振る
+        # ただし、その日に既に試合が入っているチームは避ける
+        
+        # 効率化のため、日付リストをシャッフルして回す
+        # 試合ごとに「空いている日付」を探して割り当てる
+        
+        for home, away, _ in all_games:
+            # 候補日をランダムに探す
+            # 完全にランダムだと偏る可能性があるので、なるべく均等にしたいが
+            # ここではシンプルに「空いているランダムな日」を選ぶ
+            
+            candidates = []
+            # ランダムに100回試行して空きを探す（全走査は重いため）
+            # もし見つからなければ全走査
+            
+            found_date = None
+            
+            # まずはランダムピック
+            for _ in range(50):
+                d = random.choice(valid_dates)
+                teams_on_date = date_schedule_map[d]
+                if home not in teams_on_date and away not in teams_on_date:
+                    found_date = d
+                    break
+            
+            # 見つからなければ全走査
+            if found_date is None:
+                random.shuffle(valid_dates) # 走査順をランダムに
+                for d in valid_dates:
+                    teams_on_date = date_schedule_map[d]
+                    if home not in teams_on_date and away not in teams_on_date:
+                        found_date = d
+                        break
+            
+            if found_date:
+                date_str = found_date.strftime("%Y-%m-%d")
+                scheduled_games_list.append(ScheduledGame(
+                    game_number=game_number, date=date_str,
+                    home_team_name=home, away_team_name=away
+                ))
+                date_schedule_map[found_date].add(home)
+                date_schedule_map[found_date].add(away)
+                game_number += 1
+            else:
+                # どうしても入らない場合（理論上ありえないが）は無視するか、例外処理
+                print(f"Warning: Could not schedule farm game {home} vs {away}")
+
+        schedule_obj.games = scheduled_games_list
+        schedule_obj.games.sort(key=lambda g: (g.date, g.game_number))
+        for i, game in enumerate(schedule_obj.games):
+            game.game_number = i + 1
 
     def get_team_schedule(self, team_name: str) -> List[ScheduledGame]:
         return [g for g in self.schedule.games

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-ゲーム状態管理 (修正版: 怪我人のベンチ残留許可・登録抹消期間中の強制降格)
+ゲーム状態管理 (修正版: 怪我人のベンチ残留許可・登録抹消期間中の強制降格 + 低打率降格 + 成績重視の起用)
 """
 from enum import Enum
 from typing import Optional, List
@@ -156,7 +156,7 @@ class GameStateManager:
     def _perform_roster_moves(self, team: Team, stats_calc):
         """
         怪我・調子・成績に基づく1軍・2軍入れ替えロジック
-        (修正: 怪我人の即降格を廃止、抹消期間中の選手の強制降格を追加)
+        (修正: 直近成績も考慮した昇降格判定)
         """
         active_players = team.get_active_roster_players()
         farm_players = team.get_farm_roster_players()
@@ -174,8 +174,8 @@ class GameStateManager:
             # (A) 再登録待機期間中（抹消中）の選手は問答無用で降格
             if hasattr(p, 'days_until_promotion') and p.days_until_promotion > 0:
                 reason = "penalty"
-                
-            # (B) 怪我人 -> 自動降格させない（ベンチに残す）
+            
+            # (B) 怪我人 -> (仕様変更: ベンチに残す場合もあるが、ここでは一旦スキップ)
             # if hasattr(p, 'is_injured') and p.is_injured:
             #     reason = "injury"
             
@@ -183,23 +183,22 @@ class GameStateManager:
             elif p.condition <= 1 and p.salary < 50000000: 
                 reason = "condition"
             
-            # (D) 成績不振 (WARベース)
-            # 直近20日間のWARが-0.3以下なら降格
+            # (D) 成績不振 (WARベース または 打率)
             else:
                 # 直近成績の取得
                 recent_rec = p.get_recent_stats(self.current_date, days=20)
-                
-                # パークファクター取得
                 team_pf = team.stadium.pf_runs if team.stadium else 1.0
                 
-                # 直近成績レコードに対してWARを計算
                 if recent_rec and (recent_rec.plate_appearances > 0 or recent_rec.innings_pitched > 0):
-                    # 個人のWARだけ計算
+                    # WAR計算
                     stats_calc._update_single_record(p, recent_rec, league_coeffs, team_pf)
                     
                     # WAR閾値判定 (-0.3以下で降格)
-                    if recent_rec.war_val <= -0.3:
+                    if recent_rec.war_val <= -0.4:
                          reason = "stats_war"
+                    # 打率判定 (野手のみ、20打数以上で打率.180未満なら降格)
+                    elif p.position != Position.PITCHER and recent_rec.at_bats >= 20 and recent_rec.batting_average < 0.130:
+                         reason = "stats_avg"
 
             if reason:
                 demote_candidates.append((p, reason))
@@ -208,70 +207,72 @@ class GameStateManager:
         # 調子が良い、または2軍で成績が良い選手
         for p in farm_players:
             score = 0
-            # 怪我人は論外
             if hasattr(p, 'is_injured') and p.is_injured: continue
-            
-            # 育成選手は昇格不可
             if hasattr(p, 'is_developmental') and p.is_developmental: continue
-
-            # 再昇格待機期間中の選手は除外
             if hasattr(p, 'days_until_promotion') and p.days_until_promotion > 0: continue
 
             # 調子ボーナス
-            if p.condition >= 8: score += 50
-            elif p.condition <= 3: score -= 50
+            if p.condition >= 8: score += 30
+            elif p.condition <= 3: score -= 30
             
             # 能力ボーナス
-            score += p.overall_rating * 0.2
+            score += p.overall_rating * 0.03
             
-            if score > 60: # 一定基準を超えたら候補
+            # --- 直近成績ボーナス (追加) ---
+            # 2軍での直近20日間の成績が良い選手を優遇
+            recent = p.get_recent_stats(self.current_date, days=20)
+            if recent:
+                if p.position == Position.PITCHER:
+                    # 投手の評価 (ERA) - サンプル不足(5イニング未満)は除外
+                    if recent.innings_pitched >= 5:
+                        if recent.era < 1.50: score += 30
+                        elif recent.era < 2.50: score += 20
+                        elif recent.era > 4.00: score -= 20
+                else:
+                    # 野手の評価 (OPS) - 打席不足(10打席未満)は除外
+                    if recent.plate_appearances >= 10:
+                        ops = recent.ops
+                        if ops >= 0.850: score += 30
+                        elif ops >= 0.750: score += 20
+                        elif ops < 0.550: score -= 20
+            
+            if score > 50: # 一定基準を超えたら候補
                 promote_candidates.append((p, score))
         
         # 候補をスコア順にソート
         promote_candidates.sort(key=lambda x: x[1], reverse=True)
 
         # --- 3. 入れ替え実行 ---
-        # ポジションバランスを崩さないように入れ替える (投手⇔投手、野手⇔野手)
-        
         pitchers_in_active = len([x for x in active_players if x.position == Position.PITCHER])
         
         for demote_p, reason in demote_candidates:
             target_pos_type = "PITCHER" if demote_p.position == Position.PITCHER else "FIELDER"
-            
-            # ペナルティによる強制降格の場合は無条件で実行（交代相手がいなくても）
             replacement = None
             
-            # 交代相手を探す
             for cand_p, score in promote_candidates:
                 cand_pos_type = "PITCHER" if cand_p.position == Position.PITCHER else "FIELDER"
-                
-                # 同じタイプ(投手/野手)で入れ替え
                 if target_pos_type == cand_pos_type:
                     replacement = cand_p
                     break
             
-            # 投手不足回避（ただし強制降格の場合は除く）
             if reason != "penalty" and target_pos_type == "PITCHER" and pitchers_in_active <= 10 and not replacement:
                 continue 
             
-            # 入れ替え実行
             try:
                 p_idx = team.players.index(demote_p)
-                # ここでは明示的なペナルティ付与（days_until_promotion）は行わない（既に持っているか、WAR降格なら不要）
                 team.remove_from_active_roster(p_idx, TeamLevel.SECOND)
                 
                 if replacement:
                     r_idx = team.players.index(replacement)
                     team.add_to_active_roster(r_idx)
-                    promote_candidates.remove((replacement, score)) # 候補リストから削除
+                    promote_candidates.remove((replacement, score))
                     if target_pos_type == "PITCHER": pitchers_in_active += 1 
                     
                 if target_pos_type == "PITCHER": pitchers_in_active -= 1
-                
             except ValueError:
                 pass
 
-        # 枠が余っているなら埋める処理
+        # 枠埋め
         while team.get_active_roster_count() < 28 and promote_candidates:
             cand_p, score = promote_candidates.pop(0)
             try:
@@ -307,8 +308,6 @@ class GameStateManager:
                     away = next((t for t in self.all_teams if t.name == game.away_team_name), None)
                     
                     if home and away:
-                        # プレイヤーチームの手動試合は既に完了している場合が多いが、
-                        # もし未完了ならここでシミュレートされる（スキップ時など）
                         if home != self.player_team: self._ensure_valid_roster(home)
                         if away != self.player_team: self._ensure_valid_roster(away)
                         
@@ -318,18 +317,13 @@ class GameStateManager:
                             while not engine.is_game_over():
                                 engine.simulate_pitch()
                             
-                            # 成績反映
-                            engine.finalize_game_stats(date_str) # 日付を渡す
-                            
-                            # 結果記録
+                            engine.finalize_game_stats(date_str)
                             self.record_game_result(home, away, engine.state.home_score, engine.state.away_score)
                             
-                            # 修正: Enumの値を正しくセット
                             game.status = GameStatus.COMPLETED
                             game.home_score = engine.state.home_score
                             game.away_score = engine.state.away_score
                             
-                            # 登板した投手の休息日数をリセット
                             if engine.state.home_pitchers_used:
                                 for p in engine.state.home_pitchers_used:
                                     p.days_rest = 0
@@ -344,7 +338,7 @@ class GameStateManager:
             # 4. 二軍・三軍の試合シミュレーション
             simulate_farm_games_for_day(self.all_teams, date_str)
             
-            # 5. 全試合終了後に成績集計を更新（最新のWARなどを反映）
+            # 5. 全試合終了後に成績集計を更新
             update_league_stats(self.all_teams)
             
             # 日付更新
@@ -355,14 +349,8 @@ class GameStateManager:
             traceback.print_exc()
 
     def finish_day_and_advance(self):
-        """
-        その日の残り試合（他球場、二軍三軍）を消化し、日付を翌日に進める
-        （手動試合終了後に呼び出す）
-        """
-        # 当日の残り試合を消化
+        """その日の残り試合（他球場、二軍三軍）を消化し、日付を翌日に進める"""
         self.process_date(self.current_date)
-        
-        # 日付を翌日に進める
         try:
             y, m, d = map(int, self.current_date.split('-'))
             current_qdate = QDate(y, m, d)
@@ -372,22 +360,14 @@ class GameStateManager:
             pass
 
     def _manage_ai_teams(self, date_str):
-        """
-        AIチームおよび自チーム二軍三軍の管理
-        オーダー、ローテーションの自動生成など
-        """
+        """AIチームおよび自チーム二軍三軍の管理"""
         for team in self.all_teams:
-            # 1. ロースター整理 (怪我人・不調者の入れ替え) は _perform_roster_moves で実施済み
-            
-            # 2. スタメンのターンオーバー (疲労・調子による休養)
             if team.current_lineup:
                 self._rotate_lineup_based_on_condition(team)
 
-            # 3. 投手起用法の再設定
             if not team.rotation or len(team.rotation) < 6:
                 team.auto_assign_pitching_roles(TeamLevel.FIRST)
             
-            # 4. 二軍三軍のオーダー・ローテ自動生成
             team.farm_lineup = self._auto_generate_lineup(team, TeamLevel.SECOND)
             team.third_lineup = self._auto_generate_lineup(team, TeamLevel.THIRD)
             
@@ -397,7 +377,9 @@ class GameStateManager:
                 team.auto_assign_pitching_roles(TeamLevel.THIRD)
 
     def _rotate_lineup_based_on_condition(self, team: Team):
-        """調子や疲労に基づいてスタメンを入れ替える（ベストオーダー優先）"""
+        """
+        調子や疲労、そして直近成績に基づいてスタメンを入れ替える
+        """
         
         # ベストオーダーがある場合はそれをベースにする
         if hasattr(team, 'best_order') and team.best_order and len(team.best_order) >= 9:
@@ -414,13 +396,21 @@ class GameStateManager:
                 # 1. 一軍登録抹消されている
                 if p_idx not in team.active_roster:
                     needs_replacement = True
-                # 2. 怪我している (試合出場不可)
+                # 2. 怪我している
                 elif player.is_injured:
                     needs_replacement = True
                 # 3. 絶不調 (コンディション2以下)
                 elif player.condition <= 2:
                     needs_replacement = True
                     
+                # 4. 成績不振 (直近10試合の打率が.150未満など)
+                #    ※ただし、極端なサンプル不足（15打数未満）は無視
+                if not needs_replacement and not player.is_injured:
+                    recent = player.get_recent_stats(self.current_date, days=10)
+                    if recent and recent.at_bats >= 15: 
+                        if recent.batting_average < 0.150:
+                            needs_replacement = True
+
                 if needs_replacement:
                     # 代役を探す (ベンチにいる元気な選手)
                     candidates = []
@@ -434,9 +424,16 @@ class GameStateManager:
                         
                         # ポジション適性チェック
                         if bench_p.can_play_position(player.position):
-                            # スコア計算 (打撃 + 調子)
-                            score = bench_p.stats.overall_batting() + (bench_p.condition - 5) * 10
-                            candidates.append((bench_idx, score))
+                            # スコア計算: 基本は (能力 + 調子)
+                            base_score = bench_p.stats.overall_batting() + (bench_p.condition - 5) * 10
+                            
+                            # 直近成績が良い選手を優遇 (直近10日間のOPS)
+                            recent_bench = bench_p.get_recent_stats(self.current_date, days=10)
+                            if recent_bench and recent_bench.plate_appearances >= 5:
+                                if recent_bench.ops >= 0.800: base_score += 30
+                                elif recent_bench.ops < 0.500: base_score -= 20
+                                
+                            candidates.append((bench_idx, base_score))
                     
                     # 候補がいれば最高スコアの選手と交代
                     if candidates:
@@ -460,7 +457,6 @@ class GameStateManager:
                             if 0 <= p_idx < len(team.players) 
                             and team.players[p_idx].position.value != "投手"]
             
-            # スタメン再生成（怪我人は除外）
             roster_players = []
             for i in active_batters:
                 p = team.players[i]
@@ -490,21 +486,16 @@ class GameStateManager:
         """
         from models import Position
         roster = team.get_players_by_level(level)
-        # チーム内インデックスを取得
-        # 怪我人を除外する
         indices = [team.players.index(p) for p in roster if p.position != Position.PITCHER and not p.is_injured]
         
         if level == TeamLevel.FIRST:
-            # 一軍はガチ構成（能力順）
             indices.sort(key=lambda i: team.players[i].stats.overall_batting(), reverse=True)
         else:
-            # 二軍・三軍は育成優先
-            # スコア = 能力*0.4 + (30-年齢)*2 + ランダム
             def calc_farm_score(p_idx):
                 p = team.players[p_idx]
                 ovr = p.stats.overall_batting()
-                age_bonus = max(0, 30 - p.age) * 3  # 若手優遇
-                rand = random.uniform(0, 15)        # ランダム性（固定化防止）
+                age_bonus = max(0, 30 - p.age) * 3
+                rand = random.uniform(0, 15)
                 return ovr * 0.4 + age_bonus + rand
             
             indices.sort(key=calc_farm_score, reverse=True)

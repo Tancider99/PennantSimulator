@@ -34,8 +34,8 @@ class FarmGameSimulator:
         while not self.engine.is_game_over():
             self.engine.simulate_pitch()
             
-        # 成績反映 (修正: 引数なし)
-        self.engine.finalize_game_stats()
+        # 成績反映
+        self.engine.finalize_game_stats(date)
         
         return FarmGameResult(
             team_level=self.team_level,
@@ -88,12 +88,12 @@ class FarmLeagueManager:
         年齢（若手優先）・能力・ランダム性を加味して出場選手を決定
         """
         roster = team.get_players_by_level(level)
-        # 野手リスト（投手以外）
-        candidates = [p for p in roster if p.position != Position.PITCHER]
+        # 野手リスト（投手以外）- 怪我人を除く
+        candidates = [p for p in roster if p.position != Position.PITCHER and not p.is_injured]
         
         # 人数不足時は投手も含める（緊急措置）
         if len(candidates) < 9:
-            candidates = roster
+            candidates = [p for p in roster if not p.is_injured]
         
         # スコア計算関数（年齢ボーナス＋ランダム性）
         def get_score(p):
@@ -105,14 +105,20 @@ class FarmLeagueManager:
             age_bonus = max(0, 28 - p.age) * 4.0
             if p.age <= 22: age_bonus += 10
             
-            # ランダム性: 毎回大きく変動させることで固定化を防ぐ (0-40)
-            # これにより能力が低くてもチャンスが回ってくる
-            rand = random.uniform(0, 40)
+            # ランダム性: 毎回大きく変動させることで固定化を防ぐ (0-60に拡大)
+            # これにより能力が低くてもチャンスが回ってくる確率を上げる
+            rand = random.uniform(0, 60)
             
             # 調子補正: 調子が良い選手を使う
             cond = (p.condition - 5) * 4.0
             
-            return ability * 0.4 + age_bonus + rand + cond
+            # 打席数が極端に少ない選手を優先する補正（0打席防止）
+            rec = p.get_record_by_level(level)
+            pa_bonus = 0
+            if rec.plate_appearances < 5: pa_bonus = 80 # 強制的に出場させるレベルの補正
+            elif rec.plate_appearances < 20: pa_bonus = 30
+            
+            return ability * 0.4 + age_bonus + rand + cond + pa_bonus
 
         # 評価値付きリスト作成
         scored_players = []
@@ -127,19 +133,31 @@ class FarmLeagueManager:
         # スコア順にソート（起用優先度順）
         scored_players.sort(key=lambda x: x[2], reverse=True)
         
-        # 上位の選手を「本日のスタメン候補」としてピックアップ
-        # 少し多めに候補を選び、その中からポジション最適化を行う
-        candidate_count = min(len(scored_players), 13)
-        if candidate_count < 9: candidate_count = len(scored_players)
+        # スタメン候補として上位から選出
+        # 確実に試合に出すため、generate_best_lineupに渡す人数を絞る
+        # ただし、捕手が含まれていないとエラーや不整合の原因になるため、捕手を必ず1名は含める
+        top_candidates_objects = []
         
-        top_candidates = [x[1] for x in scored_players[:candidate_count]]
-        
+        # まず捕手を確保
+        catchers = [x for x in scored_players if x[1].position == Position.CATCHER]
+        if catchers:
+            top_candidates_objects.append(catchers[0][1])
+            # 選んだ捕手をリストから除外して重複防止（後でセットにするので）
+            scored_players.remove(catchers[0])
+            
+        # 残りの枠を埋める (合計11人程度渡して、generate_best_lineupに9人選ばせる)
+        # 枠を絞ることで、スコア上位（＝出場させたい若手や0打席の選手）が確実に使われるようにする
+        needed = 11 - len(top_candidates_objects)
+        for x in scored_players[:needed]:
+            top_candidates_objects.append(x[1])
+            
         # 万が一9人に満たない場合は全員リストに戻す
-        if len(top_candidates) < 9:
-            top_candidates = [x[1] for x in scored_players]
+        if len(top_candidates_objects) < 9:
+            top_candidates_objects = [x[1] for x in scored_players]
             
         # 選抜メンバーで最適なポジション配置を行う
-        final_lineup = generate_best_lineup(team, top_candidates)
+        # generate_best_lineupは渡されたリストの中から最適な9人を選ぶ
+        final_lineup = generate_best_lineup(team, top_candidates_objects)
         
         # 生成したラインナップをセット
         if level == TeamLevel.SECOND:
