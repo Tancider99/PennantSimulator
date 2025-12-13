@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-ゲーム状態管理 (修正版: 怪我人のベンチ残留許可・登録抹消期間中の強制降格 + 低打率降格 + 成績重視の起用)
+ゲーム状態管理 (NPB準拠版: 天候システム・延期試合・ポストシーズン・オフシーズン対応)
 """
 from enum import Enum
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from models import Team, Player, DraftProspect, TeamLevel, Position, generate_best_lineup, GameStatus
 from stats_records import update_league_stats
 import traceback
@@ -99,20 +99,32 @@ class GameStateManager:
         self.playoff_teams = []
         self.game_history: List[dict] = []
 
+        # NPB準拠シーズン管理
+        self.season_manager = None
+        self.weather_enabled = True
+        self.cancelled_games_today: List = []  # 今日の中止試合
+        self.postseason_schedule = None
+        self.japan_series_schedule = None
+
     def initialize_schedule(self):
         """全軍の日程を初期化"""
-        from league_schedule_engine import LeagueScheduleEngine
+        from league_schedule_engine import LeagueScheduleEngine, SeasonManager
         from models import League
 
         self.schedule_engine = LeagueScheduleEngine(self.current_year)
+        self.schedule_engine.weather_enabled = self.weather_enabled
+
         north = [t for t in self.all_teams if t.league == League.NORTH]
         south = [t for t in self.all_teams if t.league == League.SOUTH]
 
         self.schedule = self.schedule_engine.generate_schedule(north, south)
         self.current_date = self.schedule_engine.opening_day.strftime("%Y-%m-%d")
-        
+
         self.farm_schedule = self.schedule_engine.generate_farm_schedule(north, south, TeamLevel.SECOND)
         self.third_schedule = self.schedule_engine.generate_farm_schedule(north, south, TeamLevel.THIRD)
+
+        # シーズン管理の初期化
+        self.season_manager = SeasonManager(self.current_year)
 
     def _update_player_status_daily(self):
         """日付変更時の全選手ステータス更新（回復・怪我・調子）"""
@@ -285,68 +297,168 @@ class GameStateManager:
         """
         指定された日付の全試合をシミュレート
         （手動試合の場合も、残りの他球場試合を消化するためにこれを呼ぶ）
+        天候による中止・コールドも処理
         """
         from live_game_engine import LiveGameEngine
         from farm_game_simulator import simulate_farm_games_for_day
-        
+        from league_schedule_engine import WeatherSystem, SeasonPhase
+
         try:
-            # 0. 全選手のステータス更新 (怪我回復、疲労回復、調子変動)
+            # 0. シーズンフェーズチェック
+            if self.season_manager:
+                phase = self.season_manager.get_current_phase(date_str)
+                if phase == SeasonPhase.OFF_SEASON:
+                    # オフシーズンは試合なし
+                    self.current_date = date_str
+                    return
+                elif phase == SeasonPhase.ALLSTAR_BREAK:
+                    # オールスター期間は試合なし（オールスターゲーム自体は別処理）
+                    self._update_player_status_daily()
+                    self.current_date = date_str
+                    return
+
+            # 1. 全選手のステータス更新 (怪我回復、疲労回復、調子変動)
             self._update_player_status_daily()
 
-            # 1. チーム編成の自動調整 (怪我人対応、調子による入れ替え)
+            # 2. チーム編成の自動調整 (怪我人対応、調子による入れ替え)
             self._manage_all_teams_rosters()
 
-            # 2. AIチーム運用（ロースター・オーダー調整の続き：2軍3軍など）
+            # 3. AIチーム運用（ロースター・オーダー調整の続き：2軍3軍など）
             self._manage_ai_teams(date_str)
 
-            # 3. 一軍試合シミュレーション
+            # 4. 天候による試合中止判定
+            self.cancelled_games_today = []
+            if self.schedule_engine and self.weather_enabled:
+                self.cancelled_games_today = self.schedule_engine.process_weather_for_date(date_str)
+                if self.cancelled_games_today:
+                    # 中止試合があれば振替日程を組む
+                    rescheduled = self.schedule_engine.reschedule_postponed_games()
+                    for game, old_date in rescheduled:
+                        print(f"雨天中止: {game.home_team_name} vs {game.away_team_name} ({old_date}) → {game.date}に振替")
+
+            # 5. 一軍試合シミュレーション
             if self.schedule:
                 todays_games = [g for g in self.schedule.games if g.date == date_str and not g.is_completed]
-                
+
                 for game in todays_games:
                     home = next((t for t in self.all_teams if t.name == game.home_team_name), None)
                     away = next((t for t in self.all_teams if t.name == game.away_team_name), None)
-                    
+
                     if home and away:
                         if home != self.player_team: self._ensure_valid_roster(home)
                         if away != self.player_team: self._ensure_valid_roster(away)
-                        
+
                         try:
                             # 試合実行
                             engine = LiveGameEngine(home, away)
                             while not engine.is_game_over():
                                 engine.simulate_pitch()
-                            
+
                             engine.finalize_game_stats(date_str)
                             self.record_game_result(home, away, engine.state.home_score, engine.state.away_score)
-                            
+
                             game.status = GameStatus.COMPLETED
                             game.home_score = engine.state.home_score
                             game.away_score = engine.state.away_score
-                            
+
                             if engine.state.home_pitchers_used:
                                 for p in engine.state.home_pitchers_used:
                                     p.days_rest = 0
                             if engine.state.away_pitchers_used:
                                 for p in engine.state.away_pitchers_used:
                                     p.days_rest = 0
-                            
+
                         except Exception as e:
                             print(f"Error simulating game {home.name} vs {away.name}: {e}")
                             traceback.print_exc()
 
-            # 4. 二軍・三軍の試合シミュレーション
+            # 6. 二軍・三軍の試合シミュレーション
             simulate_farm_games_for_day(self.all_teams, date_str)
-            
-            # 5. 全試合終了後に成績集計を更新
+
+            # 7. 全試合終了後に成績集計を更新
             update_league_stats(self.all_teams)
-            
+
+            # 8. レギュラーシーズン終了チェック
+            if self.schedule_engine and self.schedule_engine.is_regular_season_complete():
+                self._on_regular_season_complete()
+
             # 日付更新
             self.current_date = date_str
-            
+
         except Exception as e:
             print(f"Critical error in process_date: {e}")
             traceback.print_exc()
+
+    def _on_regular_season_complete(self):
+        """レギュラーシーズン終了時の処理"""
+        if self.season_manager and not hasattr(self, '_regular_season_ended'):
+            self._regular_season_ended = True
+            print("レギュラーシーズン終了！ポストシーズンに突入します。")
+            # ポストシーズン日程の生成はUI側で行う
+
+    def get_current_season_phase(self) -> str:
+        """現在のシーズンフェーズを取得"""
+        if self.season_manager:
+            from league_schedule_engine import SeasonPhase
+            phase = self.season_manager.get_current_phase(self.current_date)
+            return phase.value
+        return "レギュラーシーズン"
+
+    def is_regular_season_complete(self) -> bool:
+        """レギュラーシーズンが終了したか"""
+        if self.schedule_engine:
+            return self.schedule_engine.is_regular_season_complete()
+        return False
+
+    def start_postseason(self) -> bool:
+        """ポストシーズンを開始"""
+        from league_schedule_engine import PostseasonScheduleEngine
+        from models import League
+
+        if not self.is_regular_season_complete():
+            return False
+
+        # 順位を取得
+        north_standings = self._get_league_standings(League.NORTH)
+        south_standings = self._get_league_standings(League.SOUTH)
+
+        # ポストシーズン日程生成
+        start_date = self.schedule_engine.get_postseason_start_date()
+        ps_engine = PostseasonScheduleEngine(self.current_year, start_date)
+        self.postseason_schedule = ps_engine.generate_climax_series_schedule(
+            north_standings, south_standings
+        )
+
+        return True
+
+    def _get_league_standings(self, league) -> List[Tuple[str, int]]:
+        """リーグの順位を取得"""
+        teams = [t for t in self.all_teams if t.league == league]
+        teams.sort(key=lambda t: (t.winning_percentage, t.wins), reverse=True)
+        return [(t.name, i+1) for i, t in enumerate(teams)]
+
+    def mark_postseason_complete(self):
+        """ポストシーズン終了をマーク → オフシーズンに移行"""
+        if self.season_manager:
+            self.season_manager.mark_postseason_complete()
+            print("全日程終了！オフシーズンに突入します。")
+
+    def is_off_season(self) -> bool:
+        """オフシーズンかどうか"""
+        if self.season_manager:
+            return self.season_manager.is_off_season(self.current_date)
+        return False
+
+    def get_today_weather(self) -> str:
+        """今日の天候を取得"""
+        from league_schedule_engine import WeatherSystem
+        import datetime
+        try:
+            d = datetime.datetime.strptime(self.current_date, "%Y-%m-%d").date()
+            weather = WeatherSystem.get_weather(d)
+            return weather.value
+        except:
+            return "晴れ"
 
     def finish_day_and_advance(self):
         """その日の残り試合（他球場、二軍三軍）を消化し、日付を翌日に進める"""
@@ -548,7 +660,11 @@ class GameStateManager:
             self.current_state = self.previous_state
             self.previous_state = None
     
-    def is_season_complete(self) -> bool: return self.current_game_number >= 143
+    def is_season_complete(self) -> bool:
+        """シーズン全体（レギュラー+ポストシーズン）が終了したか"""
+        if self.season_manager:
+            return self.season_manager.postseason_complete
+        return self.current_game_number >= 143
     
     def get_difficulty_multiplier(self) -> float:
         return {DifficultyLevel.EASY: 1.3, DifficultyLevel.NORMAL: 1.0, DifficultyLevel.HARD: 0.8, DifficultyLevel.VERY_HARD: 0.6}.get(self.difficulty, 1.0)

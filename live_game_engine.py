@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-ライブ試合エンジン (修正版: BABIP抑制・ポテンヒット激減・内野安打抑制・ゴロ増加)
+ライブ試合エンジン (修正版: ボール球スイング増・コンタクト率低下・リーグ実データ対応)
 """
 import random
 import math
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Tuple, List, Optional, Dict
+from typing import Tuple, List, Optional, Dict, Any
 from enum import Enum
 from models import Position, Player, Team, PlayerRecord, PitchType, TeamLevel, generate_best_lineup, Stadium
 
@@ -44,16 +44,19 @@ RUN_VALUES = {
     "Error": 0.50, 
     "SB": 0.20,
     "CS": -0.40,
-    "DP": -0.80
+    "DP": -0.80,
+    "WildPitch": 0.30,
+    "PassedBall": 0.30
 }
 
+# 守備指標のスケール係数 (年間換算での見栄えを調整)
 UZR_SCALE = {
-    "RngR": 0.50,
-    "ErrR": 0.50,
-    "ARM": 0.25,
-    "DPR": 0.25,
-    "rSB": 0.15,
-    "rBlk": 0.50
+    "RngR": 0.70, # 範囲貢献
+    "ErrR": 0.40, # 失策抑止
+    "ARM": 0.60,  # 補殺貢献
+    "DPR": 0.30,  # 併殺貢献
+    "rSB": 0.90,  # 盗塁阻止
+    "rBlk": 0.40   # ブロッキング
 }
 
 def get_rank(value: int) -> str:
@@ -487,8 +490,8 @@ class BattedBallGenerator:
         
         traj_bias = 5 + (trajectory * 5)
         angle_center = traj_bias - (p_gb_tendency - 50) * 0.2
-        # --- 修正: ポップフライ過多抑制 (角度を少し下げる) ---
-        angle_center -= 6.0  # 3.0 -> 6.0
+        # --- 修正: ポップフライ増加 (角度を上げる) ---
+        angle_center += 3.0  # -2.0 -> +3.0 (ポップフライ増加)
         
         if pitch.location.z < 0.5: angle_center -= 5
         if pitch.location.z > 0.9: angle_center += 5
@@ -508,12 +511,12 @@ class BattedBallGenerator:
         velo = max(40, base_v + random.gauss(0, 5))
         if quality == "hard": velo = max(velo, 138)
         
-        gb_limit = 16 + (140 - velo) * 0.08
-        ld_limit = 22 - (140 - velo) * 0.05
+        gb_limit = 17 + (140 - velo) * 0.08 # 16 -> 17
+        ld_limit = 20 - (140 - velo) * 0.05 # 22 -> 20
         
         if angle < gb_limit: htype = BattedBallType.GROUNDBALL
         elif angle < ld_limit: htype = BattedBallType.LINEDRIVE
-        elif angle < 50: htype = BattedBallType.FLYBALL
+        elif angle < 43: htype = BattedBallType.FLYBALL # 46 -> 43 (ポップフライ判定拡大)
         else: htype = BattedBallType.POPUP
         
         v_ms = velo / 3.6
@@ -545,8 +548,9 @@ class BattedBallGenerator:
         return BattedBallData(velo, angle, spray, htype, dist, hang_time, land_x, land_y, [], quality)
 
 class AdvancedDefenseEngine:
-    def judge(self, ball: BattedBallData, defense_team: Team, team_level: TeamLevel = TeamLevel.FIRST, stadium: Stadium = None, current_pitcher: Player = None):
+    def judge(self, ball: BattedBallData, defense_team: Team, team_level: TeamLevel = TeamLevel.FIRST, stadium: Stadium = None, current_pitcher: Player = None, league_stats: Dict[str, float] = None):
         abs_spray = abs(ball.spray_angle)
+        self.league_stats = league_stats or {}
         
         base_fence = 122 - (abs_spray / 45.0) * (122 - 100)
         pf_hr = stadium.pf_hr if stadium else 1.0
@@ -562,18 +566,93 @@ class AdvancedDefenseEngine:
             if abs_spray > 45: return PlayResult.FOUL
             return PlayResult.SINGLE 
 
+        # --- 捕球確率計算 ---
+        # 実際の捕球確率（選手能力あり）
+        actual_catch_prob = self._calculate_catch_prob(ball, target_pos, initial_pos, best_fielder, stadium, is_average=False)
+        # 平均的な野手（リーグ平均データ使用）の捕球確率（UZR基準用）
+        avg_catch_prob = self._calculate_catch_prob(ball, target_pos, initial_pos, best_fielder, stadium, is_average=True)
+        
+        is_caught = random.random() < actual_catch_prob
+        
+        if abs_spray > 45:
+            if is_caught and ball.hit_type in [BattedBallType.FLYBALL, BattedBallType.POPUP]: return PlayResult.FLYOUT
+            else: return PlayResult.FOUL
+
+        potential_hit_result = self._judge_hit_type_potential(ball, target_pos, stadium)
+        
+        # --- UZR計算用の得点価値設定 ---
+        # 捕ればアウト、落とせばヒット。この価値の差分がプレーの価値。
+        run_value_out = RUN_VALUES["Out"]
+        run_value_hit = RUN_VALUES["Single"]
+        if potential_hit_result == PlayResult.DOUBLE: run_value_hit = RUN_VALUES["Double"]
+        elif potential_hit_result == PlayResult.TRIPLE: run_value_hit = RUN_VALUES["Triple"]
+        
+        # プレー価値 = ヒット時の得点期待値 - アウト時の得点期待値 (約1.2点前後)
+        play_value = run_value_hit - run_value_out
+
+        if best_fielder.position != Position.CATCHER:
+            self._update_defensive_metrics(best_fielder, team_level, avg_catch_prob, is_caught, play_value)
+
+        if is_caught:
+            # エラー判定 (ErrR)
+            rec = best_fielder.get_record_by_level(team_level)
+            pos_err_rate = 0.015 if best_fielder.position in [Position.FIRST, Position.LEFT, Position.RIGHT] else 0.025
+            error_rating = get_effective_stat(best_fielder, 'error')
+            
+            # エラー発生確率
+            error_prob = max(0.001, (pos_err_rate * 2.0) - (error_rating * 0.0005))
+            
+            # 平均的なエラー率 (リーグ実績データを使用)
+            # 例: league_stats['error_rate_SHORTSTOP']
+            pos_name = best_fielder.position.name
+            avg_error_prob = self.league_stats.get(f'error_rate_{pos_name}', max(0.001, (pos_err_rate * 2.0) - (50.0 * 0.0005)))
+
+            # ErrRの価値基準: エラー1つにつき約0.8点相当の損失とする
+            error_run_value = 0.8 
+
+            if random.random() < error_prob:
+                # エラー発生: 平均的な選手ならエラーしない確率 * 損失
+                loss = (1.0 - avg_error_prob) * error_run_value
+                rec.uzr_errr -= (loss * UZR_SCALE["ErrR"])
+                rec.def_drs_raw -= (loss * UZR_SCALE["ErrR"])
+                return PlayResult.ERROR
+            else:
+                # エラー回避: 平均的な選手がエラーする確率 * 利得 (ごくわずかだが積み重なる)
+                gain = avg_error_prob * error_run_value
+                rec.uzr_errr += (gain * UZR_SCALE["ErrR"])
+                rec.def_drs_raw += (gain * UZR_SCALE["ErrR"])
+            
+            if ball.hit_type == BattedBallType.FLYBALL: return PlayResult.FLYOUT
+            if ball.hit_type == BattedBallType.POPUP: return PlayResult.POPUP_OUT
+            if ball.hit_type == BattedBallType.LINEDRIVE: return PlayResult.LINEOUT
+            
+            return self._judge_grounder_throw(best_fielder, ball, team_level)
+        else:
+            return potential_hit_result
+
+    def _calculate_catch_prob(self, ball, target_pos, initial_pos, fielder, stadium, is_average=False):
+        """捕球確率を計算する共通メソッド"""
         dist_to_ball = math.sqrt((target_pos[0] - initial_pos[0])**2 + (target_pos[1] - initial_pos[1])**2)
         
-        range_stat = best_fielder.stats.get_defense_range(getattr(Position, fielder_type))
-        adjusted_range = 50 + (range_stat - 50) * 0.1 
-        adjusted_range = adjusted_range * (1.0 + (best_fielder.condition - 5) * 0.005)
+        if is_average:
+            # リーグ平均データを使用 (存在しない場合は50)
+            avg_def = self.league_stats.get('avg_defense', 50.0)
+            avg_spd = self.league_stats.get('avg_speed', 50.0)
+            
+            adjusted_range = 50 + (avg_def - 50) * 0.1
+            max_speed = 7.8 + (avg_spd - 50) * 0.01
+            # 補正は同じようにかける
+            max_speed *= 1.02
+        else:
+            range_stat = fielder.stats.get_defense_range(getattr(Position, fielder.position.name, Position.DH))
+            adjusted_range = 50 + (range_stat - 50) * 0.1 
+            adjusted_range = adjusted_range * (1.0 + (fielder.condition - 5) * 0.005)
+            
+            speed_stat = get_effective_stat(fielder, 'speed')
+            max_speed = 7.8 + (speed_stat - 50) * 0.01
+            # --- 修正: 守備範囲の微増 (BABIP抑制) ---
+            max_speed *= 1.02 
 
-        speed_stat = get_effective_stat(best_fielder, 'speed')
-        max_speed = 7.8 + (speed_stat - 50) * 0.01
-        
-        # --- 修正: 守備範囲の微増 (BABIP抑制) ---
-        max_speed *= 1.08 
-        
         reaction_delay = 0.40 - (adjusted_range / 1500.0) 
         time_needed = reaction_delay + (dist_to_ball / max_speed)
         
@@ -590,7 +669,7 @@ class AdvancedDefenseEngine:
         time_diff = time_available - time_needed
         catch_prob = 0.0
         
-        # --- 修正: 捕球確率のベースアップ (ポテンヒット抑制) ---
+        # --- 修正: 捕球確率のベースアップ ---
         if time_diff >= 0.5: catch_prob = 0.99 
         elif time_diff >= 0.0: catch_prob = 0.75 + (time_diff / 0.5) * 0.24 
         elif time_diff > -0.3:
@@ -598,7 +677,8 @@ class AdvancedDefenseEngine:
              catch_prob = ratio * 0.65
         else: catch_prob = 0.0
         
-        luck_factor = 0.50; base_prob = 0.25
+        luck_factor = 0.50 if is_average else 0.50
+        base_prob = 0.25
         if catch_prob > 0.89: luck_factor = 0.01 
         catch_prob = catch_prob * (1 - luck_factor) + base_prob * luck_factor
         
@@ -607,41 +687,10 @@ class AdvancedDefenseEngine:
         
         # --- 修正: 弱いフライのヒット確率を激減させる ---
         if ball.contact_quality == "soft" and ball.hit_type in [BattedBallType.FLYBALL, BattedBallType.LINEDRIVE]:
-            catch_prob = 0.9 + (catch_prob * 0.1) # ほぼ捕れるようにする
+            catch_prob = 0.9 + (catch_prob * 0.1) 
 
         if stadium: catch_prob /= stadium.pf_1b
-        catch_prob = max(0.0, min(0.99, catch_prob))
-        
-        is_caught = random.random() < catch_prob
-        
-        if abs_spray > 45:
-            if is_caught and ball.hit_type in [BattedBallType.FLYBALL, BattedBallType.POPUP]: return PlayResult.FLYOUT
-            else: return PlayResult.FOUL
-
-        potential_hit_result = self._judge_hit_type_potential(ball, target_pos, stadium)
-        play_value = 0 
-        
-        if best_fielder.position != Position.CATCHER:
-            self._update_defensive_metrics(best_fielder, team_level, catch_prob, is_caught, play_value)
-
-        if is_caught:
-            rec = best_fielder.get_record_by_level(team_level)
-            pos_err_rate = 0.015 if best_fielder.position in [Position.FIRST, Position.LEFT, Position.RIGHT] else 0.025
-            error_rating = get_effective_stat(best_fielder, 'error')
-            error_prob = max(0.001, (pos_err_rate * 2.0) - (error_rating * 0.0005))
-            
-            if random.random() < error_prob:
-                rec.uzr_errr -= (RUN_VALUES["Error"] * UZR_SCALE["ErrR"])
-                rec.def_drs_raw -= (RUN_VALUES["Error"] * UZR_SCALE["ErrR"])
-                return PlayResult.ERROR
-            
-            if ball.hit_type == BattedBallType.FLYBALL: return PlayResult.FLYOUT
-            if ball.hit_type == BattedBallType.POPUP: return PlayResult.POPUP_OUT
-            if ball.hit_type == BattedBallType.LINEDRIVE: return PlayResult.LINEOUT
-            
-            return self._judge_grounder_throw(best_fielder, ball, team_level)
-        else:
-            return potential_hit_result
+        return max(0.0, min(0.99, catch_prob))
 
     def _find_nearest_fielder(self, ball_pos, team, team_level, current_pitcher):
         min_dist = 999.0; best_f = None; best_type = ""; best_init = (0,0)
@@ -683,16 +732,30 @@ class AdvancedDefenseEngine:
         time_margin = runner_time - throw_time
         rec = fielder.get_record_by_level(team_level)
         
+        # 内野安打阻止のARM貢献計算 (平均的なタイムとの差分で評価)
+        # リーグ平均データを使用 (なければ50相当)
+        avg_arm = self.league_stats.get('avg_arm', 50.0)
+        avg_speed = 38 + (avg_arm / 100.0) * 16
+        # エラー耐性の平均も考慮
+        avg_error = self.league_stats.get('avg_error', 50.0)
+        avg_transfer = 0.65 - (avg_error / 250.0)
+        
+        avg_throw_time = (avg_transfer + (dist_to_1b / avg_speed)) * 0.95
+        
+        # マージンが際どい場合のみ評価対象
+        is_close_play = abs(runner_time - avg_throw_time) < 0.5
+        
+        if is_close_play:
+             # タイム短縮秒数 * 価値 (0.1秒あたり約0.1点と仮定)
+             time_saved = avg_throw_time - throw_time
+             arm_val = time_saved * 1.0 * UZR_SCALE["ARM"]
+             rec.def_drs_raw += arm_val
+             rec.uzr_arm += arm_val
+
         # --- 修正: アウト判定を有利に (マージン拡大) ---
         if throw_time < (runner_time + 0.2):
-            if 0 < time_margin < 0.3:
-                 val = 0.2 * UZR_SCALE["ARM"]
-                 rec.def_drs_raw += val; rec.uzr_arm += val
             return PlayResult.GROUNDOUT
         else:
-            if -0.3 < time_margin < 0:
-                 val = -0.1 * UZR_SCALE["ARM"]
-                 rec.def_drs_raw += val; rec.uzr_arm += val
             return PlayResult.SINGLE 
 
     def _judge_hit_type_potential(self, ball, ball_pos, stadium):
@@ -727,39 +790,89 @@ class AdvancedDefenseEngine:
         
         return PlayResult.SINGLE
 
-    def _update_defensive_metrics(self, fielder, team_level, catch_prob, is_caught, play_value):
+    def _update_defensive_metrics(self, fielder, team_level, avg_catch_prob, is_caught, play_value):
+        """UZR (RngR) の計算: 平均的な選手との差分を積み上げる"""
         rec = fielder.get_record_by_level(team_level)
         rec.def_opportunities += 1
-        rec.def_difficulty_sum += (1.0 - catch_prob)
+        
+        # 難易度（平均的な選手が捕れない確率）を加算
+        rec.def_difficulty_sum += (1.0 - avg_catch_prob)
+        
         rng_r = 0.0
+        
+        # UZRの基本原理: (実際に捕ったか[1or0] - 平均的な選手が捕る確率) * プレーの価値
+        # これにより、平均的な選手なら期待値通りの結果になり、プラスマイナス0に収束する
+        
         if is_caught:
-            rng_r = (1.0 - catch_prob) * play_value
+            # 捕った場合: (1 - 平均確率) * 価値 = プラス評価
+            # 例: 確率30%の球を捕ったら 0.7 * 価値 のプラス
             rec.def_plays_made += 1
+            rng_r = (1.0 - avg_catch_prob) * play_value
         else:
-            rng_r = (0.0 - catch_prob) * play_value
+            # 落とした(ヒットになった)場合: (0 - 平均確率) * 価値 = マイナス評価
+            # 例: 確率90%の球を落としたら -0.9 * 価値 のマイナス
+            rng_r = (0.0 - avg_catch_prob) * play_value
+            
         rng_r *= UZR_SCALE["RngR"]
         rec.def_drs_raw += rng_r; rec.uzr_rngr += rng_r
 
     def judge_arm_opportunity(self, ball: BattedBallData, fielder: Player, runner: Player, base_from: int, team_level):
+        """外野手の補殺・進塁抑止評価"""
         arm = get_effective_stat(fielder, 'arm')
         runner_speed = get_effective_stat(runner, 'speed')
+        
+        # 刺せる確率 (平均50vs50なら30%)
         kill_prob = 0.3 + (arm - 50) * 0.01 - (runner_speed - 50) * 0.01
         kill_prob = max(0.05, min(0.8, kill_prob))
+        
+        # 平均的な野手の刺せる確率 (リーグ平均能力を使用)
+        avg_arm = self.league_stats.get('avg_arm', 50.0)
+        avg_kill_prob = 0.3 + (avg_arm - 50) * 0.01 - (runner_speed - 50) * 0.01
+        avg_kill_prob = max(0.05, min(0.8, avg_kill_prob))
+        
+        # もしリーグの実績データがあればそちらを優先 (kill_rate)
+        if 'kill_rate' in self.league_stats:
+             avg_kill_prob = self.league_stats['kill_rate']
+
         rec = fielder.get_record_by_level(team_level)
-        if random.random() < 0.3: 
+        
+        # ランナーが突っ込むかどうか (肩が強いと突っ込みにくい)
+        attempt_threshold = 0.3 - (arm - 50) * 0.005
+        is_attempt = random.random() < attempt_threshold
+        
+        # 価値定義
+        run_val_out = 0.8 # 補殺の価値 (アウト増 + 進塁阻止)
+        run_val_safe = -0.4 # 進塁許容の損失
+        
+        if is_attempt:
+            # ランナーが走った
             if random.random() < kill_prob:
-                val = 0.8 * UZR_SCALE["ARM"]; rec.uzr_arm += val; rec.def_drs_raw += val
-                return True
+                # 補殺成功 (Kill)
+                # 平均的な選手よりどれだけ確率が高かったか？というよりは、
+                # 結果責任として (1 - 平均成功率) * 価値 を与えるのがUZR的
+                val = (1.0 - avg_kill_prob) * run_val_out
+                val *= UZR_SCALE["ARM"]
+                rec.uzr_arm += val; rec.def_drs_raw += val
+                return True # Out
             else:
-                val = -0.4 * UZR_SCALE["ARM"]; rec.uzr_arm += val; rec.def_drs_raw += val
-                return False
+                # 補殺失敗 (Safe)
+                val = (0.0 - avg_kill_prob) * abs(run_val_safe) # マイナス
+                val *= UZR_SCALE["ARM"]
+                rec.uzr_arm += val; rec.def_drs_raw += val
+                return False # Safe
         else:
-            hold_bonus = 0.02 * (arm / 100.0) * UZR_SCALE["ARM"]
-            rec.uzr_arm += hold_bonus; rec.def_drs_raw += hold_bonus
+            # ランナー自重 (Hold)
+            # 肩が強いことによる抑止効果（本来走られる確率 - 実際に走られた確率）
+            # 簡易的に、平均より肩が強ければプラスを与える
+            avg_attempt_threshold = 0.3
+            deterrence_val = (avg_attempt_threshold - attempt_threshold) * 0.5 # 係数は調整
+            if deterrence_val > 0:
+                 rec.uzr_arm += deterrence_val * UZR_SCALE["ARM"]
+                 rec.def_drs_raw += deterrence_val * UZR_SCALE["ARM"]
             return False
 
 class LiveGameEngine:
-    def __init__(self, home: Team, away: Team, team_level: TeamLevel = TeamLevel.FIRST):
+    def __init__(self, home: Team, away: Team, team_level: TeamLevel = TeamLevel.FIRST, league_stats: Dict[str, float] = None):
         self.home_team = home; self.away_team = away
         self.team_level = team_level; self.state = GameState()
         self.pitch_gen = PitchGenerator(); self.bat_gen = BattedBallGenerator()
@@ -767,6 +880,7 @@ class LiveGameEngine:
         self.game_stats = defaultdict(lambda: defaultdict(int))
         self.stadium = getattr(self.home_team, 'stadium', None)
         if not self.stadium: self.stadium = Stadium(name=f"{home.name} Stadium")
+        self.league_stats = league_stats or {}
         self._init_starters()
         self._ensure_valid_lineup(self.home_team); self._ensure_valid_lineup(self.away_team)
 
@@ -897,7 +1011,51 @@ class LiveGameEngine:
         
         res, ball = self._resolve_contact(batter, pitcher, pitch, strategy)
         final_res = self.process_pitch_result(res, pitch, ball, strategy)
+        
+        # --- rBlk (ブロッキング指標) の判定 ---
+        if final_res in [PitchResult.BALL, PitchResult.STRIKE_SWINGING]:
+             self._check_blocking(pitcher, catcher, pitch)
+
         return final_res, pitch, ball
+
+    def _check_blocking(self, pitcher, catcher, pitch):
+        """ワイルドピッチ/パスボール判定とrBlk計算"""
+        if not self.state.is_runner_on(): return
+        
+        # 低めの変化球やワンバウンド性の球 (z < 0.2 または 縦変化が大きい)
+        # --- 修正: 判定基準を少し緩める (機会を増やす) ---
+        is_difficult = pitch.location.z < 0.25 or abs(pitch.vertical_break) > 20
+        if not is_difficult: return
+
+        # 平均的な逸逸率 (難球の場合) - リーグ平均があれば使用
+        # --- 修正: 平均阻止率を少し上げて、成功時のプラスを増やす ---
+        avg_pass_prob = self.league_stats.get('pass_rate', 0.12)
+        
+        # 捕手の能力 (errorが高いほど捕逸しにくいと仮定)
+        block_skill = get_effective_stat(catcher, 'error') if catcher else 50
+        pass_prob = avg_pass_prob * (1.0 - (block_skill - 50) * 0.02)
+        pass_prob = max(0.01, pass_prob)
+        
+        # 逸らしたか？
+        is_passed = random.random() < pass_prob
+        
+        # UZR (rBlk) 計算
+        run_val_advance = 0.25 # 進塁の価値（適当）
+        
+        if is_passed:
+            # 逸らした: マイナス評価 (0 - (1-avg)) = -(1-avg)
+            val = (0.0 - (1.0 - avg_pass_prob)) * run_val_advance * UZR_SCALE["rBlk"]
+            if catcher:
+                self.game_stats[catcher]['uzr_rblk'] += val
+                self.game_stats[catcher]['def_drs_raw'] += val
+            # 進塁処理
+            self._advance_runners(1, None, is_walk=False) # ワイルドピッチ/パスボール進塁
+        else:
+            # 止めた: プラス評価 (1 - (1-avg)) = avg
+            val = avg_pass_prob * run_val_advance * UZR_SCALE["rBlk"]
+            if catcher:
+                self.game_stats[catcher]['uzr_rblk'] += val
+                self.game_stats[catcher]['def_drs_raw'] += val
 
     def _resolve_contact(self, batter, pitcher, pitch, strategy):
         if not pitch.location.is_strike:
@@ -921,7 +1079,7 @@ class LiveGameEngine:
             swing_prob = 0.78 + (eye-50)*0.001
         else:
             if is_obvious_ball: swing_prob = 0.005 
-            else: swing_prob = 0.30 - (eye-50)*0.004 
+            else: swing_prob = 0.40 - (eye-50)*0.004 # 0.30 -> 0.40 (ボール球スイング率UP)
 
         if self.state.strikes == 2: swing_prob += 0.18
         if strategy == "POWER": swing_prob += 0.1 
@@ -932,13 +1090,13 @@ class LiveGameEngine:
             
         contact = get_effective_stat(batter, 'contact', opponent=pitcher)
         stuff = pitcher.stats.get_pitch_stuff(pitch.pitch_type)
-        base_contact = 0.63
-        hit_prob = base_contact + ((contact - stuff) * 0.0035)
+        base_contact = 0.58 # 0.67 -> 0.58 (コンタクト率DOWN)
+        hit_prob = base_contact + ((contact - stuff) * 0.0065)
         
         if pitch.location.is_strike: hit_prob += 0.08
-        else: hit_prob -= 0.12
+        else: hit_prob -= 0.17 # -0.12 -> -0.15 (ボール球コンタクト率DOWN)
         if self.stadium: hit_prob /= max(0.5, self.stadium.pf_so)
-        hit_prob = max(0.40, min(0.88, hit_prob))
+        hit_prob = max(0.35, min(0.95, hit_prob)) # 0.93 -> 0.85 (上限DOWN)
 
         if self.state.strikes == 2:
             avoid_k = get_effective_stat(batter, 'avoid_k')
@@ -959,17 +1117,34 @@ class LiveGameEngine:
         if not runner: return False
         runner_spd = get_effective_stat(runner, 'speed')
         catcher_arm = get_effective_stat(catcher, 'arm') if catcher else 50
+        
         success_prob = 0.70 + (runner_spd - 50)*0.01 - (catcher_arm - 50)*0.01
         self._check_injury_occurrence(runner, "RUN")
-        if random.random() < success_prob:
+        
+        is_success = random.random() < success_prob
+        
+        # --- rSB (盗塁阻止) UZR計算 (平均差分方式) ---
+        # リーグ平均阻止率を使用 (なければ0.25) -- デフォルトを下げてプラスが出やすくする
+        avg_stop_prob = self.league_stats.get('cs_rate', 0.25)
+        run_value_diff = 0.75 # 阻止の価値概算 (引き上げ)
+        
+        if is_success:
             self.state.runner_2b = runner; self.state.runner_1b = None
             self.game_stats[runner]['stolen_bases'] += 1
-            if catcher: self.game_stats[catcher]['uzr_rsb'] -= (0.15 * UZR_SCALE["rSB"])
+            # 阻止失敗: マイナス評価 (0 - avg)
+            if catcher:
+                val = (0.0 - avg_stop_prob) * run_value_diff * UZR_SCALE["rSB"]
+                self.game_stats[catcher]['uzr_rsb'] += val
+                self.game_stats[catcher]['def_drs_raw'] += val
             return True
         else:
             self.state.runner_1b = None; self.state.outs += 1
             self.game_stats[runner]['caught_stealing'] += 1
-            if catcher: self.game_stats[catcher]['uzr_rsb'] += (0.45 * UZR_SCALE["rSB"])
+            # 阻止成功: プラス評価 (1 - avg)
+            if catcher:
+                val = (1.0 - avg_stop_prob) * run_value_diff * UZR_SCALE["rSB"]
+                self.game_stats[catcher]['uzr_rsb'] += val
+                self.game_stats[catcher]['def_drs_raw'] += val
             return True
 
     def process_pitch_result(self, res, pitch, ball, strategy="NORMAL"):
@@ -1019,7 +1194,7 @@ class LiveGameEngine:
         elif res == PitchResult.IN_PLAY:
             defense_team = self.home_team if self.state.is_top else self.away_team
             # ★修正: judgeに現在の投手を渡す
-            play = self.def_eng.judge(ball, defense_team, self.team_level, self.stadium, current_pitcher=pitcher)
+            play = self.def_eng.judge(ball, defense_team, self.team_level, self.stadium, current_pitcher=pitcher, league_stats=self.league_stats)
             
             if ball.contact_quality == "hard": self.game_stats[batter]['hard_hit_balls'] += 1; self.game_stats[pitcher]['hard_hit_balls'] += 1
             elif ball.contact_quality == "medium": self.game_stats[batter]['medium_hit_balls'] += 1; self.game_stats[pitcher]['medium_hit_balls'] += 1
@@ -1138,19 +1313,29 @@ class LiveGameEngine:
                 p = defense_team.players[pid]
                 if p.position in [Position.SECOND, Position.SHORTSTOP]: dp_skill += get_effective_stat(p, 'turn_dp'); count += 1
             if count > 0: dp_skill /= count
+            
+            # 平均的な野手(50)の併殺確率
+            # 実際のリーグデータがあればそれを使用 (デフォルトを少し上げて、失敗のマイナスを出しやすくする)
+            avg_dp_prob = self.league_stats.get('dp_rate', 0.60)
+            
+            # 実際の併殺確率
             dp_prob = 0.4 + (dp_skill - 50) * 0.01; dp_prob = max(0.1, min(0.9, dp_prob))
+            
+            # DPR評価: 成功時は(1-平均確率)*価値、失敗時は(0-平均確率)*価値
+            dpr_value = 0.8 # 併殺の価値 (アウト1つ追加 + ランナー消滅)
+            
             if random.random() < dp_prob:
                 is_double_play = True
-                dpr_val = 0.32 * UZR_SCALE["DPR"] 
+                val = (1.0 - avg_dp_prob) * dpr_value * UZR_SCALE["DPR"]
                 for pid in defense_team.current_lineup:
                     p = defense_team.players[pid]
-                    if p.position in [Position.SECOND, Position.SHORTSTOP]: self.game_stats[p]['uzr_dpr'] += (dpr_val / 2)
+                    if p.position in [Position.SECOND, Position.SHORTSTOP]: self.game_stats[p]['uzr_dpr'] += (val / 2)
                 self.state.runner_1b = None
             else:
-                dpr_val = -0.48 * UZR_SCALE["DPR"]
+                val = (0.0 - avg_dp_prob) * dpr_value * UZR_SCALE["DPR"] # マイナス
                 for pid in defense_team.current_lineup:
                     p = defense_team.players[pid]
-                    if p.position in [Position.SECOND, Position.SHORTSTOP]: self.game_stats[p]['uzr_dpr'] += (dpr_val / 2)
+                    if p.position in [Position.SECOND, Position.SHORTSTOP]: self.game_stats[p]['uzr_dpr'] += (val / 2)
         elif strategy == "BUNT" and play == PlayResult.GROUNDOUT:
              if self.state.is_runner_on(): is_sac_bunt = True; scored = self._advance_runners_bunt()
         
