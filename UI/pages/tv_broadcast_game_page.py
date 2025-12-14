@@ -745,6 +745,26 @@ class TVBroadcastGamePage(QWidget):
         self.sim_timer = QTimer(self)
         self.sim_timer.timeout.connect(self._on_pitch)
 
+        # ★追加: アニメーションタイムアウト用タイマー（5秒でタイムアウト）
+        self.anim_timeout_timer = QTimer(self)
+        self.anim_timeout_timer.setSingleShot(True)
+        self.anim_timeout_timer.timeout.connect(self._on_animation_timeout)
+
+    def _on_animation_timeout(self):
+        """アニメーションがタイムアウトした場合の処理"""
+        if self.is_animating:
+            # 強制的にアニメーションを停止
+            self.zone_widget.is_animating = False
+            self.zone_widget.anim_timer.stop()
+            self.field_widget.is_animating = False
+            self.field_widget.anim_timer.stop()
+            self.is_animating = False
+            self.btn_pitch.setEnabled(True)
+            self.btn_skip.setEnabled(True)
+            self._update_display()
+            if self.live_engine and self.live_engine.is_game_over():
+                self._finish()
+
     def start_game(self, home, away, date_str="2027-01-01"):
         self.date_str = date_str
         from live_game_engine import LiveGameEngine
@@ -810,6 +830,8 @@ class TVBroadcastGamePage(QWidget):
             self.is_animating = True
             self.btn_pitch.setEnabled(False)
             self.btn_skip.setEnabled(False)
+            # ★追加: タイムアウトタイマー開始（5秒）
+            self.anim_timeout_timer.start(5000)
 
             if pitch:
                 self.zone_widget.set_pitcher_hand(getattr(pitcher, 'throws', '右'))
@@ -874,13 +896,23 @@ class TVBroadcastGamePage(QWidget):
         return False
 
     def _on_animation_step_finished(self):
-        if self.zone_widget.is_animating or self.field_widget.is_animating: return
-        self.is_animating = False
-        self.btn_pitch.setEnabled(True)
-        self.btn_skip.setEnabled(True)
-        self._update_display()
-        
-        if self.live_engine.is_game_over(): self._finish()
+        try:
+            if self.zone_widget.is_animating or self.field_widget.is_animating: return
+            # ★追加: タイムアウトタイマー停止
+            self.anim_timeout_timer.stop()
+            self.is_animating = False
+            self.btn_pitch.setEnabled(True)
+            self.btn_skip.setEnabled(True)
+            self._update_display()
+
+            if self.live_engine.is_game_over(): self._finish()
+        except Exception as e:
+            traceback.print_exc()
+            # ★修正: 例外発生時もフリーズしないようにリカバリー
+            self.anim_timeout_timer.stop()
+            self.is_animating = False
+            self.btn_pitch.setEnabled(True)
+            self.btn_skip.setEnabled(True)
 
     def _update_display(self):
         st = self.live_engine.state

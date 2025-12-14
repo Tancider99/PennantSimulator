@@ -1145,6 +1145,9 @@ class LiveGameEngine:
                 val = (1.0 - avg_stop_prob) * run_value_diff * UZR_SCALE["rSB"]
                 self.game_stats[catcher]['uzr_rsb'] += val
                 self.game_stats[catcher]['def_drs_raw'] += val
+            # ★修正: 盗塁死で3アウトになった場合はイニングチェンジ
+            if self.state.outs >= 3:
+                self._change_inning()
             return True
 
     def process_pitch_result(self, res, pitch, ball, strategy="NORMAL"):
@@ -1405,12 +1408,16 @@ class LiveGameEngine:
             if self.state.runner_3b: scored_players.append(self.state.runner_3b); self.state.runner_3b = None
             if self.state.runner_2b:
                 if bases >= 2: scored_players.append(self.state.runner_2b); self.state.runner_2b = None
-                elif bases == 1: 
+                elif bases == 1:
                     spd = get_effective_stat(self.state.runner_2b, 'speed'); br = get_effective_stat(self.state.runner_2b, 'baserunning')
                     if random.random() < 0.40 + (spd - 50) * 0.015:
                         if random.random() < 0.05:
                             self.game_stats[self.state.runner_2b]['ubr_val'] += UBR_FAIL_2BH
-                            self.state.runner_2b = None; self.state.outs += 1 
+                            self.state.runner_2b = None; self.state.outs += 1
+                            # ★修正: 走塁死で3アウトになった場合はイニングチェンジ
+                            if self.state.outs >= 3:
+                                self._change_inning()
+                                return scored_players
                         else:
                             scored_players.append(self.state.runner_2b); self.game_stats[self.state.runner_2b]['ubr_val'] += UBR_SUCCESS_2BH
                             self.state.runner_2b = None
@@ -1419,24 +1426,32 @@ class LiveGameEngine:
                         self.state.runner_2b = None
             if self.state.runner_1b:
                 if bases >= 3: scored_players.append(self.state.runner_1b); self.state.runner_1b = None
-                elif bases == 2: 
+                elif bases == 2:
                     spd = get_effective_stat(self.state.runner_1b, 'speed'); br = get_effective_stat(self.state.runner_1b, 'baserunning')
                     if random.random() < 0.35 + (spd - 50) * 0.015:
-                        if random.random() < 0.05: 
+                        if random.random() < 0.05:
                             self.game_stats[self.state.runner_1b]['ubr_val'] += UBR_FAIL_1BH
                             self.state.runner_1b = None; self.state.outs += 1
+                            # ★修正: 走塁死で3アウトになった場合はイニングチェンジ
+                            if self.state.outs >= 3:
+                                self._change_inning()
+                                return scored_players
                         else:
                             scored_players.append(self.state.runner_1b); self.game_stats[self.state.runner_1b]['ubr_val'] += UBR_SUCCESS_1BH
                             self.state.runner_1b = None
                     else:
                         self.state.runner_3b = self.state.runner_1b; self.game_stats[self.state.runner_1b]['ubr_val'] += UBR_HOLD_1B3B
                         self.state.runner_1b = None
-                elif bases == 1: 
+                elif bases == 1:
                     spd = get_effective_stat(self.state.runner_1b, 'speed'); br = get_effective_stat(self.state.runner_1b, 'baserunning')
                     if self.state.runner_3b is None and random.random() < 0.25 + (spd - 50) * 0.015:
-                        if random.random() < 0.05: 
+                        if random.random() < 0.05:
                             self.game_stats[self.state.runner_1b]['ubr_val'] += UBR_FAIL_1B3B
                             self.state.runner_1b = None; self.state.outs += 1
+                            # ★修正: 走塁死で3アウトになった場合はイニングチェンジ
+                            if self.state.outs >= 3:
+                                self._change_inning()
+                                return scored_players
                         else:
                             self.state.runner_3b = self.state.runner_1b; self.game_stats[self.state.runner_1b]['ubr_val'] += UBR_SUCCESS_1B3B
                             self.state.runner_1b = None
