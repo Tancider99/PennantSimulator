@@ -902,6 +902,7 @@ class Player:
     condition: int = 5
     
     days_rest: int = 6
+    rotation_interval: int = 6 # 先発登板間隔 (中n日)
     
     bats: str = "右"
     throws: str = "右"
@@ -913,6 +914,10 @@ class Player:
     # スタミナは球数ベース（20〜120球）
     # 実際の最大値は calc_max_pitches() で計算
     current_stamina: int = 100  # 現在の残り球数
+    
+    # 疲労システム
+    fatigue: int = 0  # 疲労度 (0-100, 100=限界)
+    consecutive_days: int = 0  # 連投日数（投手用）
 
     def __post_init__(self):
         if self.team_level is None:
@@ -1008,17 +1013,7 @@ class Player:
             if self.injury_days == 0:
                 self.injury_name = ""
         
-        if self.position == Position.PITCHER:
-            self.days_rest += 1
-            # スタミナ回復ロジック
-            recovery = 0
-            if self.days_rest >= 4: recovery = 100
-            elif self.days_rest == 3: recovery = 60
-            elif self.days_rest == 2: recovery = 30
-            elif self.days_rest == 1: recovery = 5
-            else: recovery = 0 # 連投時
-            
-            self.current_stamina = min(100, self.current_stamina + recovery)
+
             
         if self.days_until_promotion > 0:
             self.days_until_promotion -= 1
@@ -1072,6 +1067,50 @@ class Player:
         if value == 2: return "△"
         return "ー"
 
+    def add_game_fatigue(self, at_bats: int = 0, defensive_innings: float = 0.0, pitches_thrown: int = 0):
+        """試合中の疲労蓄積
+        
+        打者: 打席数×1 + 守備イニング×0.5
+        投手: 投球数×0.3
+        """
+        if self.position == Position.PITCHER:
+            # 投手は投球数ベース
+            self.fatigue += int(pitches_thrown * 0.3)
+            if pitches_thrown > 0:
+                self.consecutive_days += 1
+        else:
+            # 野手は打席+守備
+            self.fatigue += at_bats + int(defensive_innings * 0.5)
+        
+        self.fatigue = min(100, self.fatigue)
+
+    def check_injury_risk(self) -> bool:
+        """ケガリスクチェック（疲労と耐久力に基づく）
+        
+        Returns: True if player gets injured
+        """
+        import random
+        
+        # 基本リスク: 1プレイあたり0.0001 (0.01%)
+        base_risk = 0.0001
+        
+        # 疲労補正: 疲労度50で2倍、100で3倍
+        fatigue_mult = 1.0 + (self.fatigue / 50)
+        
+        # 耐久力補正: 耐久50で1倍、100で0.5倍、1で2倍
+        durability = getattr(self.stats, 'durability', 50)
+        durability_mult = 100 / max(50, durability)
+        
+        final_risk = base_risk * fatigue_mult * durability_mult
+        
+        if random.random() < final_risk:
+            # ケガ発生
+            injury_days = random.randint(7, 60)
+            injury_names = ["肉離れ", "捻挫", "打撲", "張り", "疲労骨折", "腱炎"]
+            self.apply_injury(random.choice(injury_names), injury_days)
+            return True
+        return False
+
     def recover_daily(self):
         """日次ステータス更新 (疲労回復・怪我回復・調子変動)"""
         import random 
@@ -1113,6 +1152,15 @@ class Player:
                 day_bonus = int(self.days_rest * (3 + recovery_stat * 0.05))
                 total_recovery = base_recovery + day_bonus
                 self.current_stamina = min(max_pitches, self.current_stamina + total_recovery)
+            
+            # 連投日数リセット（休養した場合）
+            if self.days_rest >= 1:
+                self.consecutive_days = 0
+        
+        # 5. 疲労回復（全選手）
+        recovery_stat = getattr(self.stats, 'recovery', 50)
+        fatigue_recovery = int(15 + (recovery_stat - 50) * 0.3)  # 10-20/日
+        self.fatigue = max(0, self.fatigue - fatigue_recovery)
 
 
 @dataclass(eq=False)
@@ -1205,8 +1253,9 @@ class Team:
                     p_idx = valid_rotation[idx_ptr]
                     
                     p = self.players[p_idx]
-                    # 条件: 怪我していない かつ 中3日以上 (スタミナ回復考慮)
-                    if not p.is_injured and p.days_rest >= 3:
+                    # 条件: 怪我していない かつ 指定間隔以上 (スタミナ回復考慮)
+                    required_rest = getattr(p, 'rotation_interval', 6)
+                    if not p.is_injured and p.days_rest >= required_rest:
                         return p
             except Exception:
                 pass
@@ -1217,7 +1266,8 @@ class Team:
         for idx in self.active_roster:
             if 0 <= idx < len(self.players):
                 p = self.players[idx]
-                if p.position.value == "投手" and not p.is_injured and p.days_rest >= 3:
+                required_rest = getattr(p, 'rotation_interval', 6)
+                if p.position.value == "投手" and not p.is_injured and p.days_rest >= required_rest:
                     # スコア付け: 適性 > スタミナ > 能力
                     score = 0
                     if p.starter_aptitude >= 4: score += 1000
@@ -1566,7 +1616,7 @@ TEAM_ABBRS = {
     "Kobe Buffaloes": "KB",
 }
 
-def generate_best_lineup(team: Team, roster_players: List[Player], ignore_restriction: bool = False) -> List[int]:
+def generate_best_lineup(team: Team, roster_players: List[Player], ignore_restriction: bool = False, current_date: str = None) -> List[int]:
     def_priority = [
         (Position.CATCHER, "捕手", 1.5),
         (Position.SHORTSTOP, "遊撃手", 1.4),
@@ -1590,6 +1640,22 @@ def generate_best_lineup(team: Team, roster_players: List[Player], ignore_restri
     selected_starters = {} 
     used_indices = set()
     
+    def calculate_ops_penalty(player) -> float:
+        """直近30日のOPSが.500未満の場合にペナルティを適用"""
+        if not current_date:
+            return 0.0
+        try:
+            recent = player.get_recent_stats(current_date, days=30)
+            if recent and recent.plate_appearances >= 20:
+                ops = recent.ops
+                if ops < 0.600:
+                    # OPSが.600未満なら評価を下げる
+                    penalty = (0.600 - ops) * 300
+                    return -penalty
+        except:
+            pass
+        return 0.0
+    
     def calculate_score(player, pos_name, weight):
         pos_enum_key = None
         for p_enum in Position:
@@ -1604,7 +1670,15 @@ def generate_best_lineup(team: Team, roster_players: List[Player], ignore_restri
         if pos_name == "中堅手": def_bonus = player.stats.speed * 0.5
         if pos_name == "右翼手": def_bonus = player.stats.arm * 0.5
         def_score = (aptitude * 1.5 + player.stats.error * 0.5 + player.stats.arm * 0.5 + def_bonus)
-        return bat_score + (def_score * weight) + condition_bonus
+        
+        # 直近30日OPSペナルティを適用
+        ops_penalty = calculate_ops_penalty(player)
+        
+        # 疲労ペナルティ: 疲労度60以上で起用スコア減少
+        fatigue = getattr(player, 'fatigue', 0)
+        fatigue_penalty = max(0, (fatigue - 60) * 0.5) if fatigue > 60 else 0
+        
+        return bat_score + (def_score * weight) + condition_bonus + ops_penalty - fatigue_penalty
 
     for pos_enum, pos_name, weight in def_priority:
         best_idx = -1; best_score = -9999.0
@@ -1617,17 +1691,26 @@ def generate_best_lineup(team: Team, roster_players: List[Player], ignore_restri
     dh_best_idx = -1; dh_best_score = -9999.0
     for idx, p in candidates.items():
         if idx in used_indices: continue
-        if p.position == Position.PITCHER: continue 
-        score = p.stats.overall_batting() + (p.condition - 5) * 8.0 
+        if p.position == Position.PITCHER: continue
+        fatigue = getattr(p, 'fatigue', 0)
+        fatigue_pen = max(0, (fatigue - 60) * 0.5) if fatigue > 60 else 0
+        score = p.stats.overall_batting() + (p.condition - 5) * 8.0 + calculate_ops_penalty(p) - fatigue_pen
         if score > dh_best_score: dh_best_score = score; dh_best_idx = idx
     if dh_best_idx != -1: selected_starters["DH"] = dh_best_idx; used_indices.add(dh_best_idx)
 
     lineup_candidates = []
     for pos, idx in selected_starters.items(): lineup_candidates.append(idx)
-    lineup_candidates.sort(key=lambda i: team.players[i].stats.overall_batting() + (team.players[i].condition - 5) * 10, reverse=True)
+    
+    def get_sort_score(i):
+        p = team.players[i]
+        fatigue = getattr(p, 'fatigue', 0)
+        fatigue_pen = max(0, (fatigue - 60) * 0.5) if fatigue > 60 else 0
+        return p.stats.overall_batting() + (p.condition - 5) * 10 + calculate_ops_penalty(p) - fatigue_pen
+    
+    lineup_candidates.sort(key=get_sort_score, reverse=True)
     if len(lineup_candidates) < 9:
         remaining = [i for i in candidates.keys() if i not in used_indices]
-        remaining.sort(key=lambda i: team.players[i].stats.overall_batting(), reverse=True)
+        remaining.sort(key=get_sort_score, reverse=True)
         lineup_candidates.extend(remaining[:9 - len(lineup_candidates)])
     
     return lineup_candidates[:9]

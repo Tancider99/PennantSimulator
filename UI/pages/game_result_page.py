@@ -17,13 +17,13 @@ class ScoreResultCard(Card):
 
     def _setup_content(self):
         layout = QVBoxLayout()
-        layout.setSpacing(20)
+        layout.setSpacing(5) # Minimal spacing
 
         # Big Score Area
         score_container = QWidget()
         score_layout = QHBoxLayout(score_container)
-        score_layout.setSpacing(40)
-        score_layout.setContentsMargins(0, 10, 0, 10)
+        score_layout.setSpacing(10)
+        score_layout.setContentsMargins(0, 5, 0, 5)
         score_layout.setAlignment(Qt.AlignCenter)
 
         # Away Team
@@ -32,7 +32,7 @@ class ScoreResultCard(Card):
 
         # Separator (VS or -)
         sep = QLabel("-")
-        sep.setStyleSheet(f"font-size: 40px; color: {self.theme.text_secondary}; font-weight: 300;")
+        sep.setStyleSheet(f"font-size: 24px; color: {self.theme.text_secondary}; font-weight: 300;")
         score_layout.addWidget(sep)
 
         # Home Team
@@ -43,9 +43,7 @@ class ScoreResultCard(Card):
 
         # Line Score Table Container
         self.line_score_table = LineScoreTable()
-        self.line_score_table.setFixedHeight(95)
-        # Remove default styling of table to blend with card if needed, 
-        # but LineScoreTable has its own strong style. We keep it as is.
+        self.line_score_table.setFixedHeight(75) # Robust height (60 was too small)
         layout.addWidget(self.line_score_table)
 
         self.add_layout(layout)
@@ -53,17 +51,18 @@ class ScoreResultCard(Card):
     def _create_team_score_widget(self):
         w = QWidget()
         l = QVBoxLayout(w)
-        l.setSpacing(5)
+        l.setSpacing(2)
         
         name = QLabel("TEAM")
         name.setObjectName("name")
         name.setAlignment(Qt.AlignCenter)
-        name.setStyleSheet(f"font-size: 20px; font-weight: 700; color: {self.theme.text_secondary}; letter-spacing: 1px;")
+        name.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {self.theme.text_secondary}; letter-spacing: 1px;")
         
         score = QLabel("0")
         score.setObjectName("score")
         score.setAlignment(Qt.AlignCenter)
-        score.setStyleSheet(f"font-size: 64px; font-weight: 900; color: {self.theme.text_primary}; font-family: 'Consolas';")
+        # Reduced from 48->36->32
+        score.setStyleSheet(f"font-size: 32px; font-weight: 900; color: {self.theme.text_primary}; font-family: 'Consolas';")
         
         l.addWidget(name)
         l.addWidget(score)
@@ -86,14 +85,13 @@ class ScoreResultCard(Card):
         
         if h_score > a_score:
             sc_h.setStyleSheet(sc_h.styleSheet().replace(base_color, win_color))
-            sc_a.setStyleSheet(sc_a.styleSheet().replace(win_color, base_color)) # Reset loser
+            sc_a.setStyleSheet(sc_a.styleSheet().replace(win_color, base_color)) 
         elif a_score > h_score:
             sc_a.setStyleSheet(sc_a.styleSheet().replace(base_color, win_color))
             sc_h.setStyleSheet(sc_h.styleSheet().replace(win_color, base_color))
         else:
             sc_h.setStyleSheet(sc_h.styleSheet().replace(win_color, base_color))
             sc_a.setStyleSheet(sc_a.styleSheet().replace(win_color, base_color))
-
 
 class PitchingResultCard(Card):
     """Win/Loss/Save Display"""
@@ -104,7 +102,7 @@ class PitchingResultCard(Card):
 
     def _setup_content(self):
         grid = QGridLayout()
-        grid.setSpacing(15)
+        grid.setSpacing(10) # Reduced
 
         self.win_lbl = self._create_row(grid, 0, "WIN", "胜利投手")
         self.loss_lbl = self._create_row(grid, 1, "LOSS", "敗戦投手")
@@ -115,17 +113,16 @@ class PitchingResultCard(Card):
     def _create_row(self, layout, row, label_en, label_jp):
         # Tag
         tag = QLabel(label_en)
-        tag.setStyleSheet(f"font-size: 10px; font-weight: 800; color: {self.theme.text_muted}; background: {self.theme.bg_input}; padding: 4px 8px; border-radius: 4px;")
-        tag.setFixedWidth(50)
+        tag.setStyleSheet(f"font-size: 10px; font-weight: 800; color: {self.theme.text_muted}; background: {self.theme.bg_input}; padding: 2px 6px; border-radius: 4px;")
+        tag.setFixedWidth(40)
         tag.setAlignment(Qt.AlignCenter)
         layout.addWidget(tag, row, 0)
 
         # Name
         name = QLabel("---")
-        name.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {self.theme.text_primary};")
+        name.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {self.theme.text_primary};")
         layout.addWidget(name, row, 1)
 
-        # Stat (e.g. W-L or S) - Optional, here we stick to simple replacement
         return name
 
     def set_pitchers(self, win, loss, save):
@@ -150,7 +147,7 @@ class HighlightsCard(Card):
         self.hr_container = QWidget()
         self.hr_layout = QVBoxLayout(self.hr_container)
         self.hr_layout.setContentsMargins(0,0,0,0)
-        self.hr_layout.setSpacing(4)
+        self.hr_layout.setSpacing(2)
         self.add_widget(self.hr_container)
         
         # Placeholder for empty
@@ -170,16 +167,22 @@ class HighlightsCard(Card):
             return
 
         self.empty_lbl.setVisible(False)
-        for name, count, team in hrs:
+        
+        # Max limit to prevent layout explosion
+        MAX_ITEMS = 5
+        visible_items = hrs[:MAX_ITEMS]
+        remaining = len(hrs) - MAX_ITEMS
+        
+        for name, count, team in visible_items:
             row = QHBoxLayout()
             n = QLabel(name)
-            n.setStyleSheet(f"font-size: 13px; color: {self.theme.text_primary}; font-weight: 600;")
+            n.setStyleSheet(f"font-size: 12px; color: {self.theme.text_primary}; font-weight: 600;")
             
             c = QLabel(f"({count}号)")
-            c.setStyleSheet(f"font-size: 12px; color: {self.theme.text_secondary};")
+            c.setStyleSheet(f"font-size: 11px; color: {self.theme.text_secondary};")
 
             t = QLabel(team)
-            t.setStyleSheet(f"font-size: 10px; color: {self.theme.text_muted}; background: {self.theme.bg_input}; padding: 2px 6px; border-radius: 3px;")
+            t.setStyleSheet(f"font-size: 10px; color: {self.theme.text_muted}; background: {self.theme.bg_input}; padding: 1px 4px; border-radius: 3px;")
 
             row.addWidget(n)
             row.addWidget(c)
@@ -189,9 +192,15 @@ class HighlightsCard(Card):
             w = QWidget()
             w.setLayout(row)
             self.hr_layout.addWidget(w)
+            
+        if remaining > 0:
+            more_lbl = QLabel(f"... 他 {remaining} 本")
+            more_lbl.setAlignment(Qt.AlignCenter)
+            more_lbl.setStyleSheet(f"font-size: 10px; color: {self.theme.text_muted}; margin-top: 2px;")
+            self.hr_layout.addWidget(more_lbl)
 
 class BoxScoreCard(Card):
-    """Full Box Score with Tabs for Teams"""
+    """Full Box Score with Separate Tabs for Batting/Pitching (Side-by-Side)"""
     def __init__(self, parent=None):
         super().__init__(title="BOX SCORE", parent=parent)
         self.theme = get_theme()
@@ -202,119 +211,116 @@ class BoxScoreCard(Card):
         self.tabs.setStyleSheet(f"""
             QTabWidget::pane {{ border: none; }}
             QTabBar::tab {{
-                background: {self.theme.bg_card};
+                background: {self.theme.bg_input};
                 color: {self.theme.text_secondary};
-                padding: 8px 16px;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
+                padding: 8px 16px; 
+                margin-right: 2px;
+                border-radius: 0px; /* Angular */
                 font-weight: bold;
             }}
             QTabBar::tab:selected {{
-                background: {self.theme.bg_card_elevated};
-                color: {self.theme.accent_orange};
-                border-bottom: 2px solid {self.theme.accent_orange};
+                background: #FFFFFF;
+                color: #000000;
             }}
         """)
         self.add_widget(self.tabs)
 
     def set_data(self, h_team, a_team, game_stats):
         self.tabs.clear()
-        self.tabs.addTab(self._create_team_stats(a_team, game_stats), a_team.name)
-        self.tabs.addTab(self._create_team_stats(h_team, game_stats), h_team.name)
+        
+        # 1. Batting Tab
+        bat_widget = QWidget()
+        bat_layout = QHBoxLayout(bat_widget)
+        bat_layout.setContentsMargins(0, 10, 0, 0)
+        bat_layout.setSpacing(20)
+        
+        # Side-by-side batting panels (Visitor Left, Home Right)
+        bat_layout.addWidget(self._create_stats_panel(a_team, game_stats, is_home=False, mode="batting"), stretch=1)
+        bat_layout.addWidget(self._create_stats_panel(h_team, game_stats, is_home=True, mode="batting"), stretch=1)
+        
+        self.tabs.addTab(bat_widget, "Batting Stats")
+        
+        # 2. Pitching Tab
+        pit_widget = QWidget()
+        pit_layout = QHBoxLayout(pit_widget)
+        pit_layout.setContentsMargins(0, 10, 0, 0)
+        pit_layout.setSpacing(20)
+        
+        pit_layout.addWidget(self._create_stats_panel(a_team, game_stats, is_home=False, mode="pitching"), stretch=1)
+        pit_layout.addWidget(self._create_stats_panel(h_team, game_stats, is_home=True, mode="pitching"), stretch=1)
+        
+        self.tabs.addTab(pit_widget, "Pitching Stats")
 
-    def _create_team_stats(self, team, game_stats):
-        w = QWidget()
-        l = QVBoxLayout(w)
-        l.setContentsMargins(0, 10, 0, 0)
-        l.setSpacing(15)
+    def _create_stats_panel(self, team, game_stats, is_home, mode):
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        
+        # Team Header
+        header = QLabel(f"{team.name} ({'HOME' if is_home else 'VISITOR'})")
+        header.setStyleSheet(f"color: {self.theme.primary}; font-size: 13px; font-weight: bold; border-bottom: 2px solid {self.theme.primary}; padding-bottom: 4px;")
+        layout.addWidget(header)
 
-        # Split stats into Batters and Pitchers
+        # Extract stats
+        batters, pitchers = self._extract_stats(team, game_stats)
+        
+        if mode == "batting":
+            layout.addWidget(self._create_batter_table(batters))
+        else:
+            layout.addWidget(self._create_pitcher_table(pitchers))
+        
+        return container
+
+    def _extract_stats(self, team, game_stats):
         batters = []
         pitchers = []
         
-        # Filter stats for this team
-        team_players = set(team.players)
+        # 1. Batters (Starters + Subs)
+        processed_pids = set()
         
-        # Sort by lineup order for batters?
-        # A simple approach: Iterate team.current_lineup for starters, then others
-        # But game_stats only has players who played.
-        
-        # Batters:
-        # First, starters in order
+        # Starters
         for pid in team.current_lineup:
-            p = team.players[pid]
-            s = self._get_player_stats(p, game_stats)
-            if s.get('pa', 0) > 0 or s.get('games_pitched', 0) == 0: # Ensure fielders show up even if 0 PA but played? Or just PA > 0
-                if s.get('pa', 0) > 0: # Only show if they had PA
+            if 0 <= pid < len(team.players):
+                p = team.players[pid]
+                if p not in processed_pids:
+                    s = self._get_player_stats(p, game_stats)
+                    # Include even if no plate app for starters
                     batters.append((p, s))
-        
-        # Then substitutes (search all players in team)
+                    processed_pids.add(p)
+
+        # Subs (Anyone else with stats)
         for p in team.players:
-            # Skip if already added
-            if any(b[0].name == p.name and b[0].uniform_number == p.uniform_number for b in batters):
-                continue
-            
+            if p in processed_pids: continue
             s = self._get_player_stats(p, game_stats)
-            if s.get('pa', 0) > 0:
+            if s.get('plate_appearances', 0) > 0:
                 batters.append((p, s))
+                processed_pids.add(p)
                 
-        # Pitchers:
-        # Include anyone who pitched (ip_outs > 0 or games_pitched > 0)
+        # Pitchers (Anyone with pitching stats)
         for p in team.players:
             s = self._get_player_stats(p, game_stats)
-            if s.get('ip_outs', 0) > 0 or s.get('games_pitched', 0) > 0:
+            if s.get('innings_pitched', 0) > 0 or s.get('games_pitched', 0) > 0:
                 pitchers.append((p, s))
-        
-        # Also check game_stats for players who might not be in the current team object list?
-        # (Rare case: trade/release mid-game? Unlikely in this sim scope)
-        # But we should iterate game_stats keys to find any missed "phantom" players just in case
-        for p_key, stats in game_stats.items():
-            # Check if this player belongs to this team (by name match?)
-            # This is hard without team ref in p_key. 
-            # Skipping for now as team.players iteration covers 99% cases.
-            pass
                 
-        # Batting Table
-        l.addWidget(self._create_section_label("BATTING"))
-        l.addWidget(self._create_batter_table(batters))
-        
-        # Pitching Table
-        l.addWidget(self._create_section_label("PITCHING"))
-        l.addWidget(self._create_pitcher_table(pitchers))
-        
-        return w
+        return batters, pitchers
 
     def _get_player_stats(self, player, game_stats):
-        """Robust lookup for player stats"""
-        # 1. Direct lookup
-        if player in game_stats:
-            return game_stats[player]
-        
-        # 2. Fallback: Match by Name + Number
-        # Game stats keys might be different instances (due to copy/pickle?)
-        for p_key, stats in game_stats.items():
-            if p_key.name == player.name and p_key.uniform_number == player.uniform_number:
-                return stats
+        if player in game_stats: return game_stats[player]
         return {}
 
-    def _create_section_label(self, text):
-        lbl = QLabel(text)
-        lbl.setStyleSheet(f"color: {self.theme.text_muted}; font-size: 11px; font-weight: 700; border-bottom: 1px solid {self.theme.border}; padding-bottom: 4px;")
-        return lbl
-
     def _create_batter_table(self, player_stats_pairs):
-        cols = ["NAME", "AVG", "AB", "R", "H", "RBI", "HR", "SO", "BB"]
+        cols = ["NAME", "AVG", "AB", "H", "HR", "RBI", "SO", "BB"]
         t = self._create_base_table(cols)
         t.setRowCount(len(player_stats_pairs))
         
         for i, (p, s) in enumerate(player_stats_pairs):
-            # s is already the stats dictionary
-            record = p.record # Seasonal record for AVG
-            avg = f"{record.batting_average:.3f}"
+            avg = f"{p.record.batting_average:.3f}"
             row_data = [
                 p.name, avg, 
-                str(s.get('ab', 0)), str(s.get('run', 0)), str(s.get('h', 0)),
-                str(s.get('rbi', 0)), str(s.get('hr', 0)), str(s.get('so', 0)), str(s.get('bb', 0))
+                str(s.get('at_bats', 0)), str(s.get('hits', 0)),
+                str(s.get('home_runs', 0)), str(s.get('rbis', 0)),
+                str(s.get('strikeouts', 0)), str(s.get('walks', 0))
             ]
             for c, val in enumerate(row_data):
                 item = QTableWidgetItem(val)
@@ -323,22 +329,20 @@ class BoxScoreCard(Card):
         return t
 
     def _create_pitcher_table(self, player_stats_pairs):
-        cols = ["NAME", "ERA", "IP", "H", "R", "ER", "SO", "BB"]
+        cols = ["NAME", "ERA", "IP", "H", "R", "SO", "BB"]
         t = self._create_base_table(cols)
         t.setRowCount(len(player_stats_pairs))
         
         for i, (p, s) in enumerate(player_stats_pairs):
-            # s is already the stats dictionary
-            record = p.record
-            era = f"{record.era:.2f}"
-            
-            outs = s.get('ip_outs', 0)
+            era = f"{p.record.era:.2f}"
+            ip_val = s.get('innings_pitched', 0.0)
+            outs = int(round(ip_val * 3))
             ip = f"{outs // 3}.{outs % 3}"
             
             row_data = [
                 p.name, era, ip, 
-                str(s.get('p_h', 0)), str(s.get('p_run', 0)), str(s.get('er', 0)),
-                str(s.get('p_so', 0)), str(s.get('p_bb', 0))
+                str(s.get('hits_allowed', 0)), str(s.get('runs_allowed', 0)),
+                str(s.get('strikeouts_pitched', 0)), str(s.get('walks_allowed', 0))
             ]
             for c, val in enumerate(row_data):
                 item = QTableWidgetItem(val)
@@ -357,13 +361,15 @@ class BoxScoreCard(Card):
         t.setFocusPolicy(Qt.NoFocus)
         t.setStyleSheet(f"""
             QTableWidget {{ background: transparent; border: none; }}
-            QHeaderView::section {{ background: transparent; color: {self.theme.text_secondary}; font-size: 10px; font-weight: bold; border: none; }}
-            QTableWidget::item {{ color: {self.theme.text_primary}; padding: 4px; border-bottom: 1px solid {self.theme.border_muted}; }}
+            QHeaderView::section {{ background: transparent; color: {self.theme.text_secondary}; font-size: 10px; font-weight: bold; border: none; padding: 2px; }}
+            QTableWidget::item {{ color: {self.theme.text_primary}; padding: 2px; border-bottom: 1px solid {self.theme.border_muted}; font-size: 12px; }}
         """)
         t.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        t.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        # Calculate height roughly
-        t.setFixedHeight(300) # Fixed height or dynamic?
+        t.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch) # Name stretches
+        
+        # Compact rows for "Single Screen"
+        t.verticalHeader().setDefaultSectionSize(24)
+        t.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding) # Flexible height
         return t
 
 
@@ -380,153 +386,121 @@ class GameResultPage(ContentPanel):
 
     def _setup_ui(self):
         # Main Layout
-        self.content_layout.setContentsMargins(40, 30, 40, 30)
-        self.content_layout.setSpacing(20)
+        self.content_layout.setContentsMargins(20, 20, 20, 20)
+        self.content_layout.setSpacing(15)
 
-        # Scroll Area for result content (Box score can be long)
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setStyleSheet("background: transparent; border: none;")
-        self.scroll_content = QWidget()
-        self.scroll_layout = QVBoxLayout(self.scroll_content)
-        self.scroll_layout.setSpacing(20)
-        self.scroll.setWidget(self.scroll_content)
-        
-        # Header Section
-        self._create_header()
+        # Dashboard Container
+        dashboard = QVBoxLayout()
+        dashboard.setSpacing(15)
+        self.content_layout.addLayout(dashboard)
 
-        # Dashboard Grid
-        grid = QGridLayout()
-        grid.setSpacing(20)
-        
-        # Main Score Card (Top Full Width)
+        # 1. Top Section: Score Result & Line Score
         self.score_card = ScoreResultCard()
-        grid.addWidget(self.score_card, 0, 0, 1, 2) # Row 0, Col 0, Span 1x2
+        # Slightly reduce height impact
+        # self.score_card.setFixedHeight(220) 
+        dashboard.addWidget(self.score_card)
 
-        # Pitching Decisions (Row 1, Left)
-        self.pitching_card = PitchingResultCard()
-        self.pitching_card.setFixedHeight(200) # Fixed height for aesthetics
-        grid.addWidget(self.pitching_card, 1, 0)
+        # 2. Bottom Section: Split Left (Box) vs Right (Pitcher/Highlights)
+        bottom_row = QHBoxLayout()
+        bottom_row.setSpacing(15)
+        dashboard.addLayout(bottom_row, stretch=1)
 
-        # Highlights (Row 1, Right)
-        self.highlights_card = HighlightsCard()
-        self.highlights_card.setFixedHeight(200)
-        grid.addWidget(self.highlights_card, 1, 1)
-
-        self.scroll_layout.addLayout(grid)
-
-        # Box Score (Full Width, below grid)
+        # Left: Box Score
         self.box_score_card = BoxScoreCard()
-        self.scroll_layout.addWidget(self.box_score_card)
+        bottom_row.addWidget(self.box_score_card, stretch=6)
 
-        self.add_widget(self.scroll)
-
-        # Footer Actions
-        self._create_footer()
-
-    def _create_header(self):
-        header_widget = QWidget()
-        layout = QHBoxLayout(header_widget)
-        layout.setContentsMargins(0, 0, 0, 20)
+        # Right: Pitching & Highlights
+        right_col = QVBoxLayout()
+        right_col.setSpacing(15)
         
-        title = QLabel("GAME RESULT")
-        title.setStyleSheet(f"""
-            font-size: 24px; 
-            font-weight: 800; 
-            color: {self.theme.text_primary}; 
-            letter-spacing: 2px;
-        """)
+        self.pitcher_card = PitchingResultCard()
+        # self.pitcher_card.setFixedHeight(180)
+        right_col.addWidget(self.pitcher_card)
         
-        self.date_label = QLabel("2027-04-01")
-        self.date_label.setStyleSheet(f"font-size: 14px; color: {self.theme.text_muted}; font-weight: 600;")
+        self.highlight_card = HighlightsCard()
+        right_col.addWidget(self.highlight_card, stretch=1)
         
-        layout.addWidget(title)
-        layout.addStretch()
-        layout.addWidget(self.date_label)
+        bottom_row.addLayout(right_col, stretch=4)
         
-        self.content_layout.addWidget(header_widget) # Add directly to main layout (fixed header)
-
-    def _create_footer(self):
-        footer = QWidget()
-        layout = QHBoxLayout(footer)
-        layout.setAlignment(Qt.AlignCenter)
-        
-        btn = QPushButton("RETURN TO HOME")
-        btn.setCursor(Qt.PointingHandCursor)
-        btn.setFixedSize(280, 50)
-        btn.setStyleSheet(f"""
+        # Footer: Return Button
+        btn_box = QHBoxLayout()
+        btn_box.addStretch()
+        self.btn_home = QPushButton("BACK TO HOME")
+        self.btn_home.setCursor(Qt.PointingHandCursor)
+        self.btn_home.setStyleSheet(f"""
             QPushButton {{
-                background-color: {self.theme.text_primary};
-                color: {self.theme.bg_dark};
-                border: none;
+                background-color: #FFFFFF;
+                color: #000000;
+                font-weight: 700;
+                padding: 12px 40px;
+                border: 1px solid #CCCCCC;
                 border-radius: 0px;
                 font-size: 14px;
-                font-weight: 700;
-                letter-spacing: 1px;
+                letter-spacing: 2px;
             }}
             QPushButton:hover {{
-                background-color: {self.theme.text_secondary};
+                background-color: #F0F0F0;
+                border: 1px solid #AAAAAA;
             }}
         """)
-        btn.clicked.connect(self.return_home.emit)
+        self.btn_home.clicked.connect(self.return_home.emit)
+        btn_box.addWidget(self.btn_home)
+        btn_box.addStretch()
         
-        layout.addWidget(btn)
-        self.content_layout.addWidget(footer)
+        dashboard.addLayout(btn_box)
 
-    def set_result(self, result_data):
-        if not result_data: return
-        d = result_data
+    def set_result(self, data):
+        # Unpack Data
+        if not data: return
         
-        h_team = d['home_team']
-        a_team = d['away_team']
+        h_team = data["home_team"]
+        a_team = data["away_team"]
+        h_score = data["home_score"]
+        a_score = data["away_score"]
         
-        # Update Header
-        self.date_label.setText(d.get('date', 'Today'))
-
-        # Update Score Card
-        self.score_card.set_score(h_team.name, a_team.name, d['home_score'], d['away_score'])
+        # Score Card
+        self.score_card.set_score(h_team.name, a_team.name, h_score, a_score)
         
-        # Score History Logic
-        hist = d.get('score_history', {'top': [], 'bot': []})
-        top_scores = hist.get('top', [])
-        bot_scores = hist.get('bot', [])
+        # Line Score
+        score_hist = data.get("score_history", {"top": [], "bot": []})
+        top_scores = score_hist["top"]
+        bot_scores = score_hist["bot"]
         
-        # Determine strict max inning based on data presence
-        # Filter out trailing/placeholder None/0 if not needed?
-        # Typically we want at least 9, unless it's a cold game.
-        # But user requested "hide unplayed". So we count innings with actual data.
-        # In PennantSimulator, empty innings might be None or 0.
-        # We assume len(top_scores) is the number of innings started.
-        
+        # Determine max inning (remove trailing zeros/nones?)
+        # Use actual length
         max_inn = max(len(top_scores), len(bot_scores))
-        
-        # Update Line Score Columns
+        if max_inn < 9: max_inn = 9 # Minimum 9
+            
         self.score_card.line_score_table.set_inning_count(max_inn)
         self.score_card.line_score_table.update_names(h_team.name, a_team.name)
         
-        for i in range(max_inn):
-            s_top = top_scores[i] if i < len(top_scores) else ""
-            s_bot = bot_scores[i] if i < len(bot_scores) else ""
-            self.score_card.line_score_table.set_inning_score(i+1, True, s_top)
-            self.score_card.line_score_table.set_inning_score(i+1, False, s_bot)
-            
-        hits = d.get('hits', (0,0))
-        errs = d.get('errors', (0,0))
+        # Set innings
+        for i in range(len(top_scores)):
+             if top_scores[i] is not None:
+                self.score_card.line_score_table.set_inning_score(i+1, True, top_scores[i])
+        for i in range(len(bot_scores)):
+             if bot_scores[i] is not None:
+                self.score_card.line_score_table.set_inning_score(i+1, False, bot_scores[i])
+                
+        # Total Stats (R, H, E)
+        hits = data.get("hits", (0, 0))
+        errs = data.get("errors", (0, 0))
         self.score_card.line_score_table.update_score_data(
-            d['home_score'], d['away_score'],
-            hits[0], hits[1],
-            errs[0], errs[1]
+            h_score, a_score, hits[0], hits[1], errs[0], errs[1]
         )
 
-        # Update Pitching
-        pres = d.get('pitcher_result', {})
-        self.pitching_card.set_pitchers(pres.get('win'), pres.get('loss'), pres.get('save'))
-
-        # Update Highlights
-        self.highlights_card.set_homeruns(d.get('home_runs', []))
+        # Pitching Result
+        p_res = data.get("pitcher_result", {})
+        self.pitcher_card.set_pitchers(p_res.get("win"), p_res.get("loss"), p_res.get("save"))
         
-        # Update Box Score
-        if 'game_stats' in d:
-            self.box_score_card.set_data(h_team, a_team, d['game_stats'])
-        else:
-            self.box_score_card.setVisible(False)
+        # Highlights
+        hrs = data.get("home_runs", [])
+        self.highlight_card.set_homeruns(hrs)
+        
+        # Box Score
+        g_stats = data.get("game_stats", {})
+        self.box_score_card.set_data(h_team, a_team, g_stats)
+
+        
+
+

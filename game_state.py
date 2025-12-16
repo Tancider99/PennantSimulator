@@ -157,8 +157,34 @@ class GameStateManager:
             # 常にロースター枠を補充（投手15人/野手16人を維持）
             self._fill_roster_gaps(team)
             
-            # 自動オーダー編成＋保存（デイリー処理）
-            self._auto_fill_and_save_order(team)
+            # 自動オーダー編成＋保存（AIチームのみ。プレイヤーチームはスキップ）
+            if team != self.player_team:
+                self._auto_fill_and_save_order(team)
+            
+            # 全チーム共通: ベンチ枠の整合性確保 (ローテ投手がベンチに入らないように)
+            self._cleanup_roster_consistency(team)
+
+    def _cleanup_roster_consistency(self, team):
+        """ロースター、役割、ベンチの整合性を確保"""
+        # Pitchers
+        active_pitchers = [i for i in team.active_roster if 0 <= i < len(team.players) and team.players[i].position.value == "投手"]
+        used_pitchers = set()
+        for i in team.rotation: 
+            if i != -1: used_pitchers.add(i)
+        for i in team.closers:
+            if i != -1: used_pitchers.add(i)
+        for i in team.setup_pitchers:
+            if i != -1: used_pitchers.add(i)
+        
+        team.bench_pitchers = [i for i in active_pitchers if i not in used_pitchers]
+
+        # Batters
+        active_batters = [i for i in team.active_roster if 0 <= i < len(team.players) and team.players[i].position.value != "投手"]
+        used_batters = set()
+        for i in team.current_lineup:
+            if i != -1: used_batters.add(i)
+            
+        team.bench_batters = [i for i in active_batters if i not in used_batters]
 
     def _auto_fill_and_save_order(self, team: Team):
         """スマート自動オーダー編成AI
@@ -297,13 +323,36 @@ class GameStateManager:
             closers[0] = closer_pool[0]
             used_pitchers.add(closer_pool[0])
         
-        # 中継ぎ: 中継ぎ適性≥3
+        # 中継ぎ: 中継ぎ適性≥3を優先
         setup_pool = [i for i in pitchers if i not in used_pitchers and team.players[i].middle_aptitude >= 3]
         setup_pool.sort(key=lambda i: get_pitcher_score(team.players[i], 'relief'), reverse=True)
         
         setup_pitchers = [-1] * 8
         for i in range(min(8, len(setup_pool))):
             setup_pitchers[i] = setup_pool[i]
+            used_pitchers.add(setup_pool[i])
+        
+        # 補充: 枠が余っている場合、適性2以上の投手で補充
+        empty_slots = [i for i, x in enumerate(setup_pitchers) if x == -1]
+        if empty_slots:
+            fallback_pool = [i for i in pitchers if i not in used_pitchers and team.players[i].middle_aptitude >= 2]
+            fallback_pool.sort(key=lambda i: get_pitcher_score(team.players[i], 'relief'), reverse=True)
+            for slot_idx in empty_slots:
+                if fallback_pool:
+                    p_idx = fallback_pool.pop(0)
+                    setup_pitchers[slot_idx] = p_idx
+                    used_pitchers.add(p_idx)
+        
+        # 最終補充: まだ枠が余っていれば残りの投手で埋める
+        empty_slots = [i for i, x in enumerate(setup_pitchers) if x == -1]
+        if empty_slots:
+            remaining = [i for i in pitchers if i not in used_pitchers]
+            remaining.sort(key=lambda i: get_pitcher_score(team.players[i], 'relief'), reverse=True)
+            for slot_idx in empty_slots:
+                if remaining:
+                    p_idx = remaining.pop(0)
+                    setup_pitchers[slot_idx] = p_idx
+                    used_pitchers.add(p_idx)
 
         # ========== 野手編成 ==========
         

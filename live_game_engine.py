@@ -74,7 +74,36 @@ def get_rank(value: int) -> str:
     if value >= 30: return "F"
     return "G"
 
-def get_effective_stat(player: Player, stat_name: str, opponent: Optional[Player] = None, is_risp: bool = False, is_close_game: bool = False, aptitude_val: int = 4) -> float:
+def calculate_double_play_success(fielder: Player, runner_speed: int = 50) -> float:
+    """併殺成功率を計算（turn_dp能力使用）
+    
+    Returns: 0.0-1.0の成功確率
+    """
+    turn_dp = getattr(fielder.stats, 'turn_dp', 50)
+    # 基本成功率60%、turn_dp99で80%、turn_dp1で40%
+    base_rate = 0.60
+    dp_bonus = (turn_dp - 50) / 250  # ±0.2
+    runner_penalty = (runner_speed - 50) / 500  # 速いランナーで-0.1
+    return max(0.3, min(0.9, base_rate + dp_bonus - runner_penalty))
+
+def calculate_bunt_success(batter: Player, is_sacrifice: bool = True) -> float:
+    """バント成功率を計算
+    
+    Returns: 0.0-1.0の成功確率
+    """
+    if is_sacrifice:
+        bunt_stat = getattr(batter.stats, 'bunt_sac', 50)
+        # 犠牲バント: 基本70%、bunt_sac99で95%、bunt_sac1で45%
+        base_rate = 0.70
+    else:
+        bunt_stat = getattr(batter.stats, 'bunt_hit', 50)
+        # セーフティ: 基本10%、bunt_hit99で45%、bunt_hit1で5%
+        base_rate = 0.1
+    
+    bonus = (bunt_stat - 50) / 200  # ±0.25
+    return max(0.1, min(0.95, base_rate + bonus))
+
+def get_effective_stat(player: Player, stat_name: str, opponent: Optional[Player] = None, is_risp: bool = False, is_close_game: bool = False, aptitude_val: int = 4, catcher_lead: int = 50) -> float:
     if not hasattr(player.stats, stat_name):
         return 50.0
 
@@ -86,6 +115,11 @@ def get_effective_stat(player: Player, stat_name: str, opponent: Optional[Player
     condition_multiplier = 1.0 + (condition_diff * 0.015)
     
     value = base_value * condition_multiplier
+    
+    # 疲労ペナルティ: 疲労度50で-10%、100で-20%
+    fatigue = getattr(player, 'fatigue', 0)
+    fatigue_penalty = 1.0 - (fatigue / 500)  # 0-20%減少
+    value *= fatigue_penalty
     
     # Aptitude Penalty
     if player.position == Position.PITCHER and aptitude_val < 4:
@@ -111,7 +145,17 @@ def get_effective_stat(player: Player, stat_name: str, opponent: Optional[Player
         if is_close_game:
             mental = getattr(player.stats, 'mental', 50)
             value += (mental - 50) * 0.3
+        
+        # 野球脳: 走塁・守備状況判断に影響
+        if stat_name in ['speed', 'baserunning', 'steal']:
+            intelligence = getattr(player.stats, 'intelligence', 50)
+            value += (intelligence - 50) * 0.2
     else:
+        # 捕手リード補正: 投手の球威・コントロールに影響
+        if stat_name in ['stuff', 'control', 'movement']:
+            lead_bonus = (catcher_lead - 50) * 0.1  # 最大+/-5
+            value += lead_bonus
+            
         if opponent and opponent.position != Position.PITCHER:
             vs_left = getattr(player.stats, 'vs_left_pitcher', 50)
             bats = getattr(opponent, 'bats', '右')
@@ -124,12 +168,17 @@ def get_effective_stat(player: Player, stat_name: str, opponent: Optional[Player
             pinch = getattr(player.stats, 'vs_pinch', 50)
             if stat_name in ['stuff', 'movement', 'control']:
                 value += (pinch - 50) * 0.5
+        
+        # 投手もプレッシャー時にメンタル適用
+        if is_close_game:
+            mental = getattr(player.stats, 'mental', 50)
+            value += (mental - 50) * 0.25
+            
         if stat_name == 'control':
             stability = getattr(player.stats, 'stability', 50)
             if condition_diff < 0:
                 mitigation = (stability - 50) * 0.2
                 value += max(0, mitigation)
-            # Low Aptitude affects control more? Already reduced global value, so covered.
 
     return max(20.0, min(120.0, value))
 
@@ -1018,11 +1067,11 @@ class AdvancedDefenseEngine:
         if is_average:
             avg_def = self.league_stats.get('avg_defense', 50.0)
             avg_spd = self.league_stats.get('avg_speed', 50.0)
-            adjusted_range = 50 + (avg_def - 50) * 0.1
+            adjusted_range = avg_def  # 守備範囲をそのまま使用（能力値を反映）
             max_speed = 7.8 + (avg_spd - 50) * 0.01
         else:
             range_stat = fielder.stats.get_defense_range(getattr(Position, fielder.position.name, Position.DH))
-            adjusted_range = 50 + (range_stat - 50) * 0.1 
+            adjusted_range = range_stat  # 守備範囲をそのまま使用（能力値を反映）
             adjusted_range = adjusted_range * (1.0 + (fielder.condition - 5) * 0.005)
             speed_stat = get_effective_stat(fielder, 'speed')
             max_speed = 7.8 + (speed_stat - 50) * 0.01
@@ -2269,6 +2318,18 @@ class LiveGameEngine:
             for key, val in stats.items():
                 if hasattr(temp_rec, key): setattr(temp_rec, key, val)
             player.add_game_record(date_str, temp_rec)
+            
+            # 疲労蓄積: 打者は打席+守備イニング、投手は投球数ベース
+            if player.position == Position.PITCHER:
+                pitches = stats.get('pitches_thrown', 0)
+                if pitches > 0:
+                    player.add_game_fatigue(pitches_thrown=pitches)
+            else:
+                at_bats = stats.get('at_bats', 0) + stats.get('walks', 0) + stats.get('hit_by_pitch', 0)
+                # 守備イニング（スタメン野手は約9イニング想定）
+                defensive_innings = 9.0 if at_bats > 0 else 0
+                if at_bats > 0 or defensive_innings > 0:
+                    player.add_game_fatigue(at_bats=at_bats, defensive_innings=defensive_innings)
             
         return {
             "win": win_p,

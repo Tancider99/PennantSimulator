@@ -303,6 +303,14 @@ class GameController(QMainWindow):
 
         if selected_team:
             self.game_state.player_team = selected_team
+            
+            # ユーザーのリクエスト対応: ゲーム開始時に投手のオーダーを空にする
+            # (初期化時に全チーム自動編成が走ってしまうため、ここでリセット)
+            selected_team.rotation = [-1] * 8
+            selected_team.closers = [-1] * 4  # 抑え枠
+            selected_team.setup_pitchers = [-1] * 8
+            # 念のためスタメンもリセットしたければここでおこなうが、リクエストは投手のみ
+            
         else:
             # Default to first team if not found
             self.game_state.player_team = self.north_teams[0]

@@ -359,12 +359,12 @@ class PlayerDetailPage(QWidget):
             
             # ★追加: 球種タブ (球種ごとのパラメータ表示)
             pitch_types_widget = QWidget()
-            pt_layout = QHBoxLayout(pitch_types_widget)
+            pt_layout = QGridLayout(pitch_types_widget)
             pt_layout.setContentsMargins(0, 10, 0, 0)
             pt_layout.setSpacing(10)
             
             if stats.pitches:
-                for p_name in stats.pitches.keys():
+                for i, p_name in enumerate(stats.pitches.keys()):
                     qual = stats.get_pitch_quality(p_name)
                     stf = stats.get_pitch_stuff(p_name)
                     mov = stats.get_pitch_movement(p_name)
@@ -387,10 +387,13 @@ class PlayerDetailPage(QWidget):
                     h_bars.addWidget(VerticalStatBar("変化", mov, 99))
                     vb.addLayout(h_bars)
                     
-                    pt_layout.addWidget(p_box)
-                pt_layout.addStretch()
+                    row = i // 3
+                    col = i % 3
+                    pt_layout.addWidget(p_box, row, col)
+                    
+                for c in range(3): pt_layout.setColumnStretch(c, 1)
             else:
-                pt_layout.addWidget(QLabel("変化球なし", styleSheet="color:#666;"))
+                pt_layout.addWidget(QLabel("変化球なし", styleSheet="color:#666;"), 0, 0)
                 
             bottom_tabs.addTab(pitch_types_widget, "PITCHES")
             
@@ -437,13 +440,24 @@ class PlayerDetailPage(QWidget):
 
     def _create_full_tab(self, items):
         tab_widget = QWidget()
-        tab_layout = QHBoxLayout(tab_widget)
+        tab_layout = QGridLayout(tab_widget)
         tab_layout.setContentsMargins(0, 10, 0, 0)
         tab_layout.setSpacing(10)
         
-        for lbl, val, max_v in items:
+        # アイテム数に応じて列数を決定（常に1行で表示）
+        num_items = len(items)
+        max_cols = num_items # No wrapping
+
+        
+        for i, (lbl, val, max_v) in enumerate(items):
+            row = i // max_cols
+            col = i % max_cols
             bar = VerticalStatBar(lbl, val, max_v)
-            tab_layout.addWidget(bar)
+            tab_layout.addWidget(bar, row, col)
+        
+        # すべての列をstretchで均等に広げる
+        for c in range(max_cols):
+            tab_layout.setColumnStretch(c, 1)
             
         return tab_widget
 

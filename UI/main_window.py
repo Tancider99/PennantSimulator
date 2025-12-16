@@ -246,6 +246,8 @@ class MainWindow(QMainWindow):
             page = PreGamePage(self)
             page.start_game_requested.connect(self._on_pre_game_start)
             page.edit_order_requested.connect(self._on_edit_order_requested)
+            # 詳細画面への遷移シグナルを接続
+            page.player_detail_requested.connect(self._show_player_detail)
             self.pre_game_page = page
         
         # Unimplemented pages (kept for code reference but not in sidebar)
@@ -379,31 +381,146 @@ class MainWindow(QMainWindow):
 
     def _simulate_fast_forward_game(self, home_team, away_team):
         """Simulate game headlessly and go to results"""
-        from live_game_engine import LiveGameEngine
+        from live_game_engine import LiveGameEngine, PlayResult
         
         # UIをブロックしないようにしたいが、簡単のため同期実行 (Fast forward is fast enough usually)
         from models import TeamLevel
         engine = LiveGameEngine(home_team, away_team, TeamLevel.FIRST)
         
-        # Run until game over
+        # Track Stats
+        score_history = {"top": [], "bot": []}
+        hr_list = []
+        
+        # State tracking for line score
+        prev_inning = 1
+        prev_is_top = True
+        scores_at_inning_start = { "home": 0, "away": 0 }
+        
+        def record_inning_score(inning, is_top, current_home, current_away):
+            # Previous half-inning ended. Record its score.
+            # If current is Top 2, then Bot 1 ended.
+            # If current is Bot 1, then Top 1 ended.
+            
+            # Identify which half-inning justify ended
+            if is_top: 
+                # Top of new inning -> Bottom of previous inning ended
+                # prev_inning was same as (inning - 1) usually
+                target_key = "bot"
+                # Runs scored by Home Team
+                runs = current_home - scores_at_inning_start["home"]
+                # Ensure list is long enough
+                while len(score_history["bot"]) < (inning - 1): score_history["bot"].append(0)
+                score_history["bot"].append(runs)
+                scores_at_inning_start["home"] = current_home
+            else:
+                # Bottom of inning -> Top of same inning ended
+                target_key = "top"
+                # Runs scored by Away Team
+                runs = current_away - scores_at_inning_start["away"]
+                while len(score_history["top"]) < inning: score_history["top"].append(0)
+                score_history["top"].append(runs)
+                scores_at_inning_start["away"] = current_away
+
         # 安全策: 無限ループ防止のため最大300打席程度で切る
         max_steps = 2000 
         steps = 0
+        
         while not engine.is_game_over() and steps < max_steps:
+            # Capture state before pitch
+            curr_inn = engine.state.inning
+            curr_top = engine.state.is_top
+            
+            # Detect Inning Change
+            if (curr_inn != prev_inning) or (curr_top != prev_is_top):
+                record_inning_score(curr_inn, curr_top, engine.state.home_score, engine.state.away_score)
+                prev_inning = curr_inn
+                prev_is_top = curr_top
+            
             engine.simulate_pitch()
             steps += 1
+            
+        # Finalize Last Inning
+        # If Game Over at Top 9 3 outs -> Bot 9 not played (if home winning)
+        # or Bot 9 3 outs -> End.
+        # record_inning_score needs 'next' state. 
+        # But engine.state is final.
+        # Logic: If game ended after Top 9, we need to record Top 9 score.
+        # If game ended after Bot 9, record Bot 9 score.
+        
+        # If currently Top (meaning Top ended? No, simulate_pitch ends AFTER outcome).
+        # If state.outs == 3, inning changes in engine? 
+        # engine.is_game_over checks state.
+        # If game over, verify if we recorded the last half-inning.
+        
+        # Simple approach: Calculate final runs for the last active half-inning.
+        # If is_top: Away team was batting. Record Top score.
+        # If !is_top: Home team was batting. Record Bot score.
+        
+        # But wait, if X-Game (Home leads, Bot 9 skipped)?
+        # Then we justrecord Top 9.
+        
+        # Just use total score diff
+        # Total Away - Sum(score_history['top']) -> Add to Top?
+        # Total Home - Sum(score_history['bot']) -> Add to Bot?
+        # This is safer than state tracking for the final bit.
+        
+        sum_top = sum(score_history["top"])
+        sum_bot = sum(score_history["bot"])
+        
+        rem_away = engine.state.away_score - sum_top
+        rem_home = engine.state.home_score - sum_bot
+        
+        if rem_away > 0 or len(score_history["top"]) < engine.state.inning: 
+             score_history["top"].append(rem_away)
+        
+        # Don't append if X-game and already finished?
+        # Use simple diff check.
+        # Actually simplest: Just append the diff. 
+        # If X game (9回表終了時), then Bot 9 didn't happen. rem_home should be 0 (if valid).
+        if rem_home != 0 or (not engine.state.is_top and engine.state.outs==3): 
+             # If bottom ended
+             score_history["bot"].append(rem_home)
+        elif engine.state.home_score > engine.state.away_score and engine.state.is_top and engine.state.inning >= 9:
+             # X Game: Home team didn't bat separate inning?
+             # Or if they batted earlier innings.
+             if rem_home > 0: score_history["bot"].append(rem_home)
+             else: pass 
             
         # Finalize
         current_date = self.game_state.current_date if self.game_state else "2027-01-01"
         stats_result = engine.finalize_game_stats(current_date)
         
+        # Build HR List (Format must be Tuples: Name, Count, TeamName)
+        hr_list = []
+        if stats_result and "game_stats" in stats_result:
+             for p, stats in stats_result["game_stats"].items():
+                 if stats.get('home_runs', 0) > 0:
+                     # Determine Team Name
+                     # Check if player in home/away team objects (safer than lineup indices)
+                     t_name = away_team.name # default
+                     if any(p.name == hp.name and p.uniform_number == hp.uniform_number for hp in home_team.players):
+                         t_name = home_team.name
+                     elif any(p.name == ap.name and p.uniform_number == ap.uniform_number for ap in away_team.players):
+                         t_name = away_team.name
+                     
+                     hr_list.append((p.name, stats['home_runs'], t_name))
+
         result = {
             "home_team": home_team,
             "away_team": away_team,
             "home_score": engine.state.home_score,
             "away_score": engine.state.away_score,
-            "game_result": engine.state, # 一部互換のため
-            "game_stats": stats_result.get("game_stats", {})
+            "game_result": engine.state, 
+            "game_stats": stats_result.get("game_stats", {}),
+            "score_history": score_history,
+            "home_runs": hr_list,
+            "pitcher_result": {
+                "win": stats_result.get("win"),
+                "loss": stats_result.get("loss"),
+                "save": stats_result.get("save")
+            },
+            "hits": (engine.state.home_hits, engine.state.away_hits),
+            "errors": (engine.state.home_errors, engine.state.away_errors)
         }
         
         self._on_game_finished(result)

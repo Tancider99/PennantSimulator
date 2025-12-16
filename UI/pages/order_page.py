@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QPushButton, QComboBox, QSplitter, QTabWidget,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QMessageBox, QScrollArea, QSizePolicy, QCheckBox, QStyledItemDelegate,
-    QStyle
+    QStyle, QInputDialog
 )
 from PySide6.QtCore import Qt, Signal, QMimeData, QByteArray, QDataStream, QIODevice, QPoint, QSize
 from PySide6.QtGui import QColor, QFont, QIcon, QDrag, QPixmap, QPainter, QBrush, QPen
@@ -306,19 +306,19 @@ class OrderPage(QWidget):
         table.itemDoubleClicked.connect(self._on_player_double_clicked)
 
         if mode == "lineup":
-            cols = ["順", "守", "調", "選手名", "ミ", "パ", "走", "肩", "守", "適正", "総合"]
-            widths = [30, 40, 50, 130, 35, 35, 35, 35, 35, 80, 45]
+            cols = ["順", "守", "調", "疲", "選手名", "ミ", "パ", "走", "肩", "守", "適正", "総合"]
+            widths = [30, 40, 50, 35, 120, 35, 35, 35, 35, 35, 80, 45]
             table.position_swapped.connect(self._on_pos_swapped)
+            for c in [5, 6, 7, 8, 9]:
+                table.setItemDelegateForColumn(c, self.rating_delegate)
+            table.setItemDelegateForColumn(10, self.defense_delegate)
+            
+        elif mode == "bench":
+            cols = ["適性", "調", "疲", "選手名", "ミ", "パ", "走", "肩", "守", "適正", "総合"]
+            widths = [70, 50, 35, 120, 35, 35, 35, 35, 35, 80, 45]
             for c in [4, 5, 6, 7, 8]:
                 table.setItemDelegateForColumn(c, self.rating_delegate)
             table.setItemDelegateForColumn(9, self.defense_delegate)
-            
-        elif mode == "bench":
-            cols = ["適性", "調", "選手名", "ミ", "パ", "走", "肩", "守", "適正", "総合"]
-            widths = [70, 50, 130, 35, 35, 35, 35, 35, 80, 45]
-            for c in [3, 4, 5, 6, 7]:
-                table.setItemDelegateForColumn(c, self.rating_delegate)
-            table.setItemDelegateForColumn(8, self.defense_delegate)
 
         elif mode == "farm_batter":
             cols = ["調", "選手名", "年齢", "ミ", "パ", "走", "肩", "守", "守備適正", "総合"]
@@ -327,15 +327,22 @@ class OrderPage(QWidget):
                 table.setItemDelegateForColumn(c, self.rating_delegate)
             table.setItemDelegateForColumn(8, self.defense_delegate)
 
-        elif mode == "rotation" or mode == "bullpen":
-            cols = ["役", "調", "選手名", "球速", "コ", "ス", "変", "先", "中", "抑", "総合"]
-            widths = [40, 50, 130, 50, 35, 35, 35, 35, 35, 35, 45]
-            for c in [4, 5, 6]:
+        elif mode == "rotation":
+            cols = ["役", "調", "疲", "選手名", "間隔", "球速", "コ", "ス", "変", "先", "中", "抑", "総合"]
+            widths = [40, 50, 35, 120, 50, 50, 35, 35, 35, 35, 35, 35, 45]
+            for c in [6, 7, 8]:
+                table.setItemDelegateForColumn(c, self.rating_delegate)
+            table.cellClicked.connect(self._on_rotation_cell_clicked)
+
+        elif mode == "bullpen":
+            cols = ["役", "調", "疲", "選手名", "球速", "コ", "ス", "変", "先", "中", "抑", "総合"]
+            widths = [40, 50, 35, 120, 50, 35, 35, 35, 35, 35, 35, 45]
+            for c in [5, 6, 7]:
                 table.setItemDelegateForColumn(c, self.rating_delegate)
 
         elif mode == "farm_pitcher":
             cols = ["タイプ", "調", "選手名", "年齢", "球速", "コ", "ス", "変", "先", "中", "抑", "総合"]
-            widths = [45, 50, 130, 40, 50, 35, 35, 35, 35, 35, 35, 45]
+            widths = [45, 50, 120, 40, 50, 35, 35, 35, 35, 35, 35, 45]
             for c in [5, 6, 7]:
                 table.setItemDelegateForColumn(c, self.rating_delegate)
 
@@ -714,6 +721,31 @@ class OrderPage(QWidget):
             
         return item
 
+    def _create_fatigue_item(self, player):
+        """疲労度アイテムを作成（0-100、色分け）"""
+        item = SortableTableWidgetItem()
+        item.setTextAlignment(Qt.AlignCenter)
+        
+        fatigue = getattr(player, 'fatigue', 0)
+        
+        if fatigue <= 30:
+            color = "#27ae60"  # 緑（元気）
+        elif fatigue <= 60:
+            color = "#f39c12"  # 黄（疲労）
+        else:
+            color = "#e74c3c"  # 赤（限界）
+        
+        item.setText(str(fatigue))
+        item.setForeground(QColor(color))
+        item.setData(Qt.UserRole, fatigue)
+        
+        if fatigue > 60:
+            font = QFont()
+            font.setBold(True)
+            item.setFont(font)
+        
+        return item
+
     def _format_aptitude_delegate(self, p):
         main_pos = self._short_pos_name(p.position.value)
         subs = []
@@ -760,20 +792,21 @@ class OrderPage(QWidget):
                 row_color = QColor("#95a5a6") if is_injured else None
 
                 table.setItem(i, 2, self._create_condition_item(p))
-                table.setItem(i, 3, self._create_item(p.name, Qt.AlignLeft, text_color=row_color))
+                table.setItem(i, 3, self._create_fatigue_item(p))  # 疲労
+                table.setItem(i, 4, self._create_item(p.name, Qt.AlignLeft, text_color=row_color))
                 
                 s = p.stats
-                table.setItem(i, 4, self._create_item(s.contact, rank_color=True))
-                table.setItem(i, 5, self._create_item(s.power, rank_color=True))
-                table.setItem(i, 6, self._create_item(s.speed, rank_color=True))
-                table.setItem(i, 7, self._create_item(s.arm, rank_color=True))
-                table.setItem(i, 8, self._create_item(s.fielding, rank_color=True))
+                table.setItem(i, 5, self._create_item(s.contact, rank_color=True))
+                table.setItem(i, 6, self._create_item(s.power, rank_color=True))
+                table.setItem(i, 7, self._create_item(s.speed, rank_color=True))
+                table.setItem(i, 8, self._create_item(s.arm, rank_color=True))
+                table.setItem(i, 9, self._create_item(s.fielding, rank_color=True))
                 
                 apt_data = self._format_aptitude_delegate(p)
                 p_pos_char = self._short_pos_name(p.position.value)
                 sort_val = pos_order.get(p_pos_char, 99)
-                table.setItem(i, 9, self._create_item(apt_data, sort_val=sort_val, text_color=row_color))
-                table.setItem(i, 10, self._create_item(f"★{p.overall_rating}", is_star=True))
+                table.setItem(i, 10, self._create_item(apt_data, sort_val=sort_val, text_color=row_color))
+                table.setItem(i, 11, self._create_item(f"★{p.overall_rating}", is_star=True))
                 
                 for c in range(table.columnCount()):
                     if table.item(i, c): table.item(i, c).setData(ROLE_PLAYER_IDX, p_idx)
@@ -796,20 +829,21 @@ class OrderPage(QWidget):
 
                 table.setItem(i, 0, self._create_item(main_pos, text_color=row_color))
                 table.setItem(i, 1, self._create_condition_item(p))
-                table.setItem(i, 2, self._create_item(p.name, Qt.AlignLeft, text_color=row_color))
+                table.setItem(i, 2, self._create_fatigue_item(p))  # 疲労
+                table.setItem(i, 3, self._create_item(p.name, Qt.AlignLeft, text_color=row_color))
                 
                 s = p.stats
-                table.setItem(i, 3, self._create_item(s.contact, rank_color=True))
-                table.setItem(i, 4, self._create_item(s.power, rank_color=True))
-                table.setItem(i, 5, self._create_item(s.speed, rank_color=True))
-                table.setItem(i, 6, self._create_item(s.arm, rank_color=True))
-                table.setItem(i, 7, self._create_item(s.fielding, rank_color=True))
+                table.setItem(i, 4, self._create_item(s.contact, rank_color=True))
+                table.setItem(i, 5, self._create_item(s.power, rank_color=True))
+                table.setItem(i, 6, self._create_item(s.speed, rank_color=True))
+                table.setItem(i, 7, self._create_item(s.arm, rank_color=True))
+                table.setItem(i, 8, self._create_item(s.fielding, rank_color=True))
                 
                 apt_data = self._format_aptitude_delegate(p)
                 p_pos_char = main_pos
                 sort_val = pos_order.get(p_pos_char, 99)
-                table.setItem(i, 8, self._create_item(apt_data, sort_val=sort_val, text_color=row_color))
-                table.setItem(i, 9, self._create_item(f"★{p.overall_rating}", is_star=True))
+                table.setItem(i, 9, self._create_item(apt_data, sort_val=sort_val, text_color=row_color))
+                table.setItem(i, 10, self._create_item(f"★{p.overall_rating}", is_star=True))
                 
                 for c in range(table.columnCount()):
                     if table.item(i, c): table.item(i, c).setData(ROLE_PLAYER_IDX, p_idx)
@@ -880,7 +914,7 @@ class OrderPage(QWidget):
             p_idx = -1
             if i < len(rotation):
                 p_idx = rotation[i]
-            self._fill_pitcher_row_role(table, i, "先発", p_idx)
+            self._fill_pitcher_row_role(table, i, "先発", p_idx, show_interval=True)
 
     def _refresh_bullpen_table(self):
         table = self.bullpen_table
@@ -900,11 +934,11 @@ class OrderPage(QWidget):
                 p_idx = closers[i]
             self._fill_pitcher_row_role(table, 8 + i, "抑え", p_idx)
 
-    def _fill_pitcher_row_role(self, table, row, role_lbl, p_idx):
+    def _fill_pitcher_row_role(self, table, row, role_lbl, p_idx, show_interval=False):
         table.setItem(row, 0, self._create_item(role_lbl, pos_badge=role_lbl[0]))
         if p_idx != -1 and p_idx < len(self.current_team.players):
             p = self.current_team.players[p_idx]
-            self._fill_pitcher_data(table, row, p, p_idx, start_col=1)
+            self._fill_pitcher_data(table, row, p, p_idx, start_col=1, show_interval=show_interval)
         else:
             self._clear_row(table, row, 1)
 
@@ -962,26 +996,40 @@ class OrderPage(QWidget):
         header = table.horizontalHeader()
         table.sortItems(header.sortIndicatorSection(), header.sortIndicatorOrder())
 
-    def _fill_pitcher_data(self, table, row, p, p_idx, start_col):
+    def _fill_pitcher_data(self, table, row, p, p_idx, start_col, show_interval=False):
         is_injured = hasattr(p, 'is_injured') and p.is_injured
         row_color = QColor("#95a5a6") if is_injured else None
 
         table.setItem(row, start_col, self._create_condition_item(p))
-        table.setItem(row, start_col+1, self._create_item(p.name, Qt.AlignLeft, text_color=row_color))
-        kmh = p.stats.speed_to_kmh()
-        table.setItem(row, start_col+2, self._create_item(f"{kmh}km", text_color=row_color))
+        table.setItem(row, start_col+1, self._create_fatigue_item(p))  # 疲労
+        table.setItem(row, start_col+2, self._create_item(p.name, Qt.AlignLeft, text_color=row_color))
         
-        table.setItem(row, start_col+3, self._create_item(p.stats.control, rank_color=True))
-        table.setItem(row, start_col+4, self._create_item(p.stats.stamina, rank_color=True))
-        table.setItem(row, start_col+5, self._create_item(p.stats.stuff, rank_color=True))
+        current_col = start_col + 3
+        if show_interval:
+             int_val = getattr(p, 'rotation_interval', 6)
+             item = self._create_item(f"中{int_val}日")
+             item.setForeground(QColor("#3498db"))
+             font = QFont()
+             font.setBold(True)
+             item.setFont(font)
+             item.setData(ROLE_PLAYER_IDX, p_idx) # Ensure ID is set
+             table.setItem(row, current_col, item)
+             current_col += 1
+
+        kmh = p.stats.speed_to_kmh()
+        table.setItem(row, current_col, self._create_item(f"{kmh}km", text_color=row_color))
+        
+        table.setItem(row, current_col+1, self._create_item(p.stats.control, rank_color=True))
+        table.setItem(row, current_col+2, self._create_item(p.stats.stamina, rank_color=True))
+        table.setItem(row, current_col+3, self._create_item(p.stats.stuff, rank_color=True))
         
         st = p.get_aptitude_symbol(p.starter_aptitude)
         rl = p.get_aptitude_symbol(p.middle_aptitude)
         cl = p.get_aptitude_symbol(p.closer_aptitude)
-        table.setItem(row, start_col+6, self._create_item(st, sort_val=p.starter_aptitude, text_color=row_color))
-        table.setItem(row, start_col+7, self._create_item(rl, sort_val=p.middle_aptitude, text_color=row_color))
-        table.setItem(row, start_col+8, self._create_item(cl, sort_val=p.closer_aptitude, text_color=row_color))
-        table.setItem(row, start_col+9, self._create_item(f"★{p.overall_rating}", is_star=True))
+        table.setItem(row, current_col+4, self._create_item(st, sort_val=p.starter_aptitude, text_color=row_color))
+        table.setItem(row, current_col+5, self._create_item(rl, sort_val=p.middle_aptitude, text_color=row_color))
+        table.setItem(row, current_col+6, self._create_item(cl, sort_val=p.closer_aptitude, text_color=row_color))
+        table.setItem(row, current_col+7, self._create_item(f"★{p.overall_rating}", is_star=True))
 
         for c in range(table.columnCount()):
             if table.item(row, c): table.item(row, c).setData(ROLE_PLAYER_IDX, p_idx)
@@ -991,6 +1039,33 @@ class OrderPage(QWidget):
             table.setItem(row, c, QTableWidgetItem(""))
         if start_col < table.columnCount():
             table.setItem(row, start_col, QTableWidgetItem("---"))
+
+    def _on_rotation_cell_clicked(self, row, col):
+        table = self.rotation_table
+        # Interval is at column 4
+        if col == 4:
+            item = table.item(row, col)
+            if not item: return
+            p_idx = item.data(ROLE_PLAYER_IDX)
+            
+            if p_idx is None or p_idx == -1: return
+            if p_idx >= len(self.current_team.players): return
+            
+            p = self.current_team.players[p_idx]
+            curr = getattr(p, 'rotation_interval', 6)
+            
+            curr = getattr(p, 'rotation_interval', 6)
+            
+            items = [f"中{i}日" for i in range(1, 11)]
+            current_text = f"中{curr}日"
+            current_idx = 5 # Default to 6th item (index 5)
+            if current_text in items: current_idx = items.index(current_text)
+            
+            val, ok = QInputDialog.getItem(self, "登板間隔設定", f"{p.name} の登板間隔:", items, current_idx, False)
+            if ok:
+                days = int(val.replace("中", "").replace("日", ""))
+                p.rotation_interval = days
+                self._refresh_rotation_table()
 
     def _on_table_changed(self, table):
         if not hasattr(table, 'dropped_player_idx'): return
@@ -1116,13 +1191,19 @@ class OrderPage(QWidget):
         PITCHER_TARGET = int(TOTAL_LIMIT * (13/31))
         BATTER_TARGET = TOTAL_LIMIT - PITCHER_TARGET
 
+        active_roster_set = set(t.active_roster)
+
+        def get_incumbency_mult(p_idx):
+            # Existing active roster members get 15% bonus to prevent minor churn
+            return 1.15 if p_idx in active_roster_set else 1.0
+
         def get_condition_mult(p):
             return 1.0 + (p.condition - 5) * 0.05
 
-        def get_batting_score(p):
+        def get_batting_score(p, p_idx):
             s = p.stats
             val = (s.contact * 1.0 + s.power * 1.2 + s.speed * 0.5 + s.eye * 0.5)
-            return val * get_condition_mult(p)
+            return val * get_condition_mult(p) * get_incumbency_mult(p_idx)
 
         def get_defense_score(p, pos_name_long):
             apt = p.stats.defense_ranges.get(pos_name_long, 0)
@@ -1131,7 +1212,7 @@ class OrderPage(QWidget):
             def_val = (apt * 1.5 + s.error * 0.5 + s.arm * 0.5)
             return def_val
 
-        def get_pitcher_score(p, role):
+        def get_pitcher_score(p, role, p_idx):
             s = p.stats
             base = s.overall_pitching() * 99
             apt_mult = 1.0
@@ -1143,14 +1224,15 @@ class OrderPage(QWidget):
                 base += (s.velocity - 130) * 2 + s.stuff * 0.5
             else:
                 apt_mult = p.middle_aptitude / 50.0
-            return base * apt_mult * get_condition_mult(p)
+            return base * apt_mult * get_condition_mult(p) * get_incumbency_mult(p_idx)
 
         # ★自動編成でも再登録待機中の選手は除外する
         pitchers = [i for i, p in enumerate(t.players) 
                    if p.position.value == "投手" and not p.is_developmental 
                    and (not hasattr(p, 'days_until_promotion') or p.days_until_promotion == 0)]
         
-        pitchers.sort(key=lambda i: get_pitcher_score(t.players[i], 'starter'), reverse=True)
+        
+        pitchers.sort(key=lambda i: get_pitcher_score(t.players[i], 'starter', i), reverse=True)
         
         rotation_count = 6
         rotation_candidates = pitchers[:rotation_count]
@@ -1160,10 +1242,10 @@ class OrderPage(QWidget):
             state['rotation'][i] = rotation_candidates[i]
             
         if remaining_pitchers:
-            remaining_pitchers.sort(key=lambda i: get_pitcher_score(t.players[i], 'closer'), reverse=True)
+            remaining_pitchers.sort(key=lambda i: get_pitcher_score(t.players[i], 'closer', i), reverse=True)
             state['closers'][0] = remaining_pitchers.pop(0)
             
-        remaining_pitchers.sort(key=lambda i: get_pitcher_score(t.players[i], 'relief'), reverse=True)
+        remaining_pitchers.sort(key=lambda i: get_pitcher_score(t.players[i], 'relief', i), reverse=True)
         
         used_p = len([x for x in state['rotation'] if x != -1]) + len([x for x in state['closers'] if x != -1])
         setup_limit = max(0, PITCHER_TARGET - used_p)
@@ -1201,7 +1283,7 @@ class OrderPage(QWidget):
                 
                 def_weight = 1.0
                 if short_pos in ["捕", "遊", "二"]: def_weight = 1.5
-                score = (get_batting_score(p) + get_defense_score(p, long_pos) * def_weight)
+                score = (get_batting_score(p, idx) + get_defense_score(p, long_pos) * def_weight)
                 
                 if score > best_score:
                     best_score = score
@@ -1213,7 +1295,7 @@ class OrderPage(QWidget):
         
         # DH選出（怪我人除外）
         dh_candidates = [i for i in batters if i not in used_indices and not t.players[i].is_injured]
-        dh_candidates.sort(key=lambda i: get_batting_score(t.players[i]), reverse=True)
+        dh_candidates.sort(key=lambda i: get_batting_score(t.players[i], i), reverse=True)
         if dh_candidates:
             selected_starters["DH"] = dh_candidates[0]
             used_indices.add(dh_candidates[0])
@@ -1222,7 +1304,7 @@ class OrderPage(QWidget):
         for p in missing_positions:
             remaining = [i for i in batters if i not in used_indices and not t.players[i].is_injured]
             if remaining:
-                remaining.sort(key=lambda i: get_batting_score(t.players[i]), reverse=True)
+                remaining.sort(key=lambda i: get_batting_score(t.players[i], i), reverse=True)
                 selected_starters[p] = remaining[0]
                 used_indices.add(remaining[0])
 
@@ -1241,12 +1323,12 @@ class OrderPage(QWidget):
                 return best
 
             final_order[3] = pick_best(lineup_candidates, lambda x: x['p'].stats.power)
-            final_order[2] = pick_best(lineup_candidates, lambda x: get_batting_score(x['p']))
+            final_order[2] = pick_best(lineup_candidates, lambda x: get_batting_score(x['p'], x['idx']))
             final_order[0] = pick_best(lineup_candidates, lambda x: x['p'].stats.speed)
             final_order[4] = pick_best(lineup_candidates, lambda x: x['p'].stats.power)
             final_order[1] = pick_best(lineup_candidates, lambda x: x['p'].stats.contact + x['p'].stats.bunt_sac)
             
-            lineup_candidates.sort(key=lambda x: get_batting_score(x['p']), reverse=True)
+            lineup_candidates.sort(key=lambda x: get_batting_score(x['p'], x['idx']), reverse=True)
             for i in range(len(lineup_candidates)):
                 found_slot = False
                 for slot in range(5, 9):

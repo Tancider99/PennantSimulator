@@ -65,70 +65,214 @@ class VisualStyle:
         return VisualStyle.COLOR_STRIKE
 
 class LineupDialog(QDialog):
-    """Lineup Dialog"""
+    """Lineup Dialog - Styled like Substitution Window with in-place player detail"""
+    
     def __init__(self, home_team, away_team, parent=None):
         super().__init__(parent)
         self.setWindowTitle("STARTING LINEUPS")
-        self.resize(800, 600)
+        self.resize(900, 650)
         self.theme = get_theme()
-        self.setStyleSheet(f"background-color: {self.theme.bg_dark}; color: {self.theme.text_primary};")
+        self.home_team = home_team
+        self.away_team = away_team
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {self.theme.bg_dark};
+                color: {self.theme.text_primary};
+            }}
+            QTableWidget {{
+                background-color: {self.theme.bg_card};
+                border: none;
+                gridline-color: {self.theme.border_muted};
+            }}
+            QTableWidget::item {{
+                padding: 4px;
+                border-bottom: 1px solid {self.theme.border_muted};
+            }}
+            QTableWidget::item:selected {{
+                background-color: #ffffff;
+                color: #111111;
+            }}
+            QHeaderView::section {{
+                background-color: {self.theme.bg_card_elevated};
+                color: {self.theme.text_secondary};
+                font-weight: bold;
+                padding: 6px;
+                border: none;
+            }}
+            QPushButton {{
+                background-color: {self.theme.bg_card_elevated};
+                color: {self.theme.text_primary};
+                border: 1px solid {self.theme.border};
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {self.theme.bg_hover};
+            }}
+        """)
         
-        layout = QHBoxLayout(self)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(10, 10, 10, 10)
         
-        self.away_table = self._create_table(away_team, "AWAY")
-        layout.addWidget(self.away_table)
+        # スタックウィジェット
+        self.stack = QStackedWidget()
+        main_layout.addWidget(self.stack)
         
-        self.home_table = self._create_table(home_team, "HOME")
-        layout.addWidget(self.home_table)
+        # ページ0: ラインナップ一覧
+        self.lineup_page = QWidget()
+        lineup_layout = QHBoxLayout(self.lineup_page)
+        lineup_layout.setSpacing(15)
+        
+        self.away_widget, self.away_table = self._create_table(away_team, "AWAY")
+        lineup_layout.addWidget(self.away_widget)
+        
+        self.home_widget, self.home_table = self._create_table(home_team, "HOME")
+        lineup_layout.addWidget(self.home_widget)
+        
+        self.stack.addWidget(self.lineup_page)
+        
+        # ページ1: 選手詳細
+        self.detail_page = QWidget()
+        detail_layout = QVBoxLayout(self.detail_page)
+        detail_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # 詳細ページコンテナ
+        self.detail_container = QVBoxLayout()
+        detail_layout.addLayout(self.detail_container)
+        
+        self.stack.addWidget(self.detail_page)
+        
+    def _on_double_click(self, row, col):
+        """ダブルクリックで選手詳細画面を開く"""
+        table = self.sender()
+        item = table.item(row, 0)
+        if item:
+            player = item.data(Qt.UserRole)
+            if player:
+                self._show_player_detail(player)
+    
+    def _show_player_detail(self, player):
+        """選手詳細を同じダイアログ内に表示"""
+        # 既存の詳細ページをクリア
+        while self.detail_container.count():
+            child = self.detail_container.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        
+        try:
+            detail_page = PlayerDetailPage()
+            detail_page.set_player(player, None)
+            
+            # バックボタンでラインナップに戻る
+            detail_page.back_requested.connect(lambda: self.stack.setCurrentIndex(0))
+            
+            # 詳細統計ボタン
+            detail_page.detail_stats_requested.connect(self._show_full_stats)
+            
+            self.detail_container.addWidget(detail_page)
+            self.stack.setCurrentIndex(1)
+        except Exception as e:
+            print(f"Player detail error: {e}")
+    
+    def _show_full_stats(self, player):
+        """詳細統計をポップアップで表示"""
+        try:
+            from UI.widgets.dialogs import PlayerStatsDialog
+            dialog = PlayerStatsDialog(player, self)
+            dialog.exec()
+        except Exception as e:
+            print(f"Stats dialog error: {e}")
         
     def _create_table(self, team, title):
         container = QWidget()
         l = QVBoxLayout(container)
+        l.setContentsMargins(5, 5, 5, 5)
         
+        # Title
         lbl = QLabel(f"{title}: {team.name}")
-        lbl.setStyleSheet(f"font-weight: bold; font-size: 16px; color: {self.theme.text_highlight}; margin-bottom: 10px;")
+        lbl.setStyleSheet(f"font-weight: bold; font-size: 16px; color: {self.theme.text_highlight}; margin-bottom: 8px;")
         l.addWidget(lbl)
         
+        # Table
         table = QTableWidget()
-        table.setColumnCount(4)
-        table.setHorizontalHeaderLabels(["#", "Pos", "Name", "AVG"])
+        table.setColumnCount(7)
+        table.setHorizontalHeaderLabels(["#", "調", "名前", "Pos", "打率", "HR", "打点"])
         table.verticalHeader().setVisible(False)
         table.setShowGrid(False)
-        table.setStyleSheet(f"background-color: {self.theme.bg_card}; border: none;")
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        table.setSelectionMode(QAbstractItemView.SingleSelection)
+        
+        # スクロールバー非表示
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        
+        # ダブルクリックで選手詳細
+        table.cellDoubleClicked.connect(self._on_double_click)
         
         lineup = team.current_lineup
-        pos = team.lineup_positions
-        
-        # Style Header
-        h = table.horizontalHeader()
-        h.setStyleSheet(f"background-color: {self.theme.bg_card_elevated}; color: {self.theme.text_secondary};")
+        pos = team.lineup_positions if hasattr(team, 'lineup_positions') and team.lineup_positions else [""] * 9
         
         table.setRowCount(len(lineup))
         for i, pid in enumerate(lineup):
             if pid == -1: continue
+            if pid >= len(team.players): continue
             p = team.players[pid]
+            record = p.record
             
-            # Items
-            o_it = QTableWidgetItem(str(i+1)); o_it.setTextAlignment(Qt.AlignCenter)
-            p_it = QTableWidgetItem(pos[i]); p_it.setTextAlignment(Qt.AlignCenter)
-            n_it = QTableWidgetItem(p.name)
+            # Condition
+            cond = getattr(p, 'condition', 5)
+            cond_map = {1: "絶不調", 2: "不調", 3: "不調", 4: "普通", 5: "普通", 6: "好調", 7: "好調", 8: "絶好調", 9: "絶好調"}
+            cond_text = cond_map.get(cond, "-")
             
-            avg = p.record.batting_average
-            avg_str = f".{int(avg*1000):03d}"
-            a_it = QTableWidgetItem(avg_str); a_it.setTextAlignment(Qt.AlignCenter)
+            # Data
+            avg = record.batting_average if record.at_bats > 0 else 0
+            avg_str = f".{int(avg*1000):03d}" if record.at_bats > 0 else "---"
             
-            table.setItem(i, 0, o_it)
-            table.setItem(i, 1, p_it)
-            table.setItem(i, 2, n_it)
-            table.setItem(i, 3, a_it)
+            row_data = [
+                str(i+1),
+                cond_text,
+                p.name,
+                pos[i] if i < len(pos) else p.position.value[:2],
+                avg_str,
+                str(record.home_runs),
+                str(record.rbis)
+            ]
             
+            for col, val in enumerate(row_data):
+                item = QTableWidgetItem(val)
+                item.setTextAlignment(Qt.AlignCenter if col != 2 else Qt.AlignLeft | Qt.AlignVCenter)
+                
+                # 最初のカラムに選手オブジェクトを保存
+                if col == 0:
+                    item.setData(Qt.UserRole, p)
+                
+                # Condition color
+                if col == 1:
+                    if cond >= 8:
+                        item.setForeground(QColor("#ff6b6b"))
+                    elif cond >= 6:
+                        item.setForeground(QColor("#ff9800"))
+                    elif cond <= 2:
+                        item.setForeground(QColor("#5fbcd3"))
+                    else:
+                        item.setForeground(QColor("#f0f0f0"))
+                
+                table.setItem(i, col, item)
+        
+        # Column widths
         header = table.horizontalHeader()
-        header.resizeSection(0, 40)
-        header.resizeSection(1, 50)
-        header.setStretchLastSection(True)
+        header.resizeSection(0, 35)  # #
+        header.resizeSection(1, 50)  # 調
+        header.resizeSection(2, 130) # 名前
+        header.resizeSection(3, 50)  # Pos
+        header.resizeSection(4, 55)  # 打率
+        header.resizeSection(5, 45)  # HR
+        header.setStretchLastSection(True)  # 打点
         
         l.addWidget(table)
-        return container
+        return container, table
 
 # ========================================
 # カスタムウィジェット
@@ -318,11 +462,9 @@ class TacticalField(QWidget):
         if steal_type == '3B':  # 三盗（2塁→3塁）
             start_x, start_y = cx, cy - base_dist * 2
             end_x, end_y = cx - base_dist, cy - base_dist
-            throw_target_x, throw_target_y = end_x, end_y  # 3塁への送球
         else:  # 二盗（1塁→2塁）
             start_x, start_y = cx + base_dist, cy - base_dist
             end_x, end_y = cx, cy - base_dist * 2
-            throw_target_x, throw_target_y = end_x, end_y  # 2塁への送球
         
         # ランナーの現在位置
         if success:
@@ -337,21 +479,6 @@ class TacticalField(QWidget):
         painter.setBrush(VisualStyle.COLOR_RUNNER)
         painter.setPen(QPen(Qt.white, 2))
         painter.drawEllipse(QPointF(runner_x, runner_y), 12, 12)
-        
-        # 送球線描画（キャッチャーから塁へ）
-        catcher_x, catcher_y = cx, cy + 10
-        throw_t = min(t * 1.5, 1.0)  # 送球は少し速い
-        
-        # 送球の軌跡（破線）
-        painter.setPen(QPen(QColor(255, 255, 100, 180), 2, Qt.DashLine))
-        ball_x = catcher_x + (throw_target_x - catcher_x) * throw_t
-        ball_y = catcher_y + (throw_target_y - catcher_y) * throw_t
-        painter.drawLine(int(catcher_x), int(catcher_y), int(ball_x), int(ball_y))
-        
-        # ボール描画
-        painter.setBrush(QColor(255, 255, 100))
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(QPointF(ball_x, ball_y), 5, 5)
         
         # 成功/失敗テキスト
         if t >= 0.9:
@@ -1366,7 +1493,7 @@ class TVBroadcastGamePage(QWidget):
             self.btn_skip_defense.setText("実行")
             self.btn_skip_defense.setEnabled(True)
         
-        self.score_history = {"top": [None]*20, "bot": [None]*20}
+        self.score_history = {"top": [], "bot": []}
         self.prev_state_score = (0, 0)
         self.prev_state_inning = (1, True)
         
@@ -1634,7 +1761,7 @@ class TVBroadcastGamePage(QWidget):
             self.mgr_title.setStyleSheet(f"color:#888; font-weight:bold; font-size:11px;")
         
         # Scoreboard Update
-        self.scoreboard.update_display(st, h.name, a.name, None, None)
+
         
         # Player Panels Update
         self._update_player_panels()
@@ -1645,22 +1772,36 @@ class TVBroadcastGamePage(QWidget):
         diff_a = st.away_score - self.prev_state_score[1]
         
         target_idx = prev_inn - 1
-        if target_idx < 18: # Safety check
-            if self.score_history["top"][target_idx] is None: self.score_history["top"][target_idx] = 0
-            if self.score_history["bot"][target_idx] is None: self.score_history["bot"][target_idx] = 0
-            
-            if prev_top: self.score_history["top"][target_idx] += diff_a
-            else: self.score_history["bot"][target_idx] += diff_h
+        # Dynamic extension for target_idx
+        while len(self.score_history["top"]) <= target_idx: self.score_history["top"].append(0)
+        while len(self.score_history["bot"]) <= target_idx: self.score_history["bot"].append(0)
+        
+        if prev_top: self.score_history["top"][target_idx] += diff_a
+        else: self.score_history["bot"][target_idx] += diff_h
                 
         self.prev_state_score = (st.home_score, st.away_score)
         self.prev_state_inning = (st.inning, st.is_top)
         
         curr_idx = st.inning - 1
-        if curr_idx < 18:
-            if self.score_history["top"][curr_idx] is None: self.score_history["top"][curr_idx] = 0
-            if self.score_history["bot"][curr_idx] is None: self.score_history["bot"][curr_idx] = 0
+        # Dynamic extension for current inning
+        # Only extend if we are not Game Over to avoid ghost innings (e.g. 10th inning recorded after 9th walkoff)
+        # But if inning logic actually advanced to 10th (Tie), we DO want it.
+        # The engine sets is_game_over() = True if inning>=9 and win condition met.
+        # If is_game_over(), we should typically NOT start a new empty inning column.
+        should_extend = True
+        if self.live_engine.is_game_over():
+            # If game over, only extend if strict index needs it? 
+            # If inning is 9 (game ended), curr_idx is 8. If len is 8, we append.
+            # If inning advanced to 10 (Tie end?), curr_idx 9.
+            # Usually if Game Over, we stop updating future innings.
+            # If we are strictly at the end of last played inning.
+            pass
+
+        # Append 0 for current inning if needed
+        while len(self.score_history["top"]) <= curr_idx: self.score_history["top"].append(0)
+        while len(self.score_history["bot"]) <= curr_idx: self.score_history["bot"].append(0)
  
-        for i in range(st.inning):
+        for i in range(len(self.score_history["top"])):
             val_top = self.score_history["top"][i]
             val_bot = self.score_history["bot"][i]
             if val_top is not None: self.scoreboard.line_score.set_inning_score(i+1, True, val_top)
@@ -1981,6 +2122,11 @@ class TVBroadcastGamePage(QWidget):
                  if p.position.name == "PITCHER": is_pitcher = True
             elif "PITCHER" in str(p.position).upper(): is_pitcher = True
             
+            # Rotation Filter
+            pid = team.players.index(p)
+            if pid in team.rotation:
+                continue
+
             if is_pitcher and p != current_pitcher:
                 candidates.append(p)
         

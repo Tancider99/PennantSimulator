@@ -5,15 +5,21 @@ Industrial Sci-Fi Dashboard for Game Preparation
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, 
-    QPushButton, QScrollArea, QGridLayout, QSizePolicy, QHeaderView
+    QPushButton, QScrollArea, QGridLayout, QSizePolicy, QHeaderView,
+    QAbstractItemView
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont
 
 from UI.theme import get_theme
 from UI.widgets.cards import Card, StatCard, TeamCard
-from UI.widgets.tables import DraggableTableWidget, RatingDelegate
+from UI.widgets.tables import DraggableTableWidget, RatingDelegate, SortableTableWidgetItem
 from models import Team, Player, Position
+
+class ClickableLabel(QLabel):
+    clicked = Signal()
+    def mousePressEvent(self, event):
+        self.clicked.emit()
 
 class MatchupHeader(QFrame):
     """Next Game Matchup Header"""
@@ -66,7 +72,8 @@ class MatchupHeader(QFrame):
 
 class TeamComparisonRow(QWidget):
     """Team Stats Comparison"""
-    # ... (Same as before, abbreviated for brevity in prompt, but full code will be written)
+    # Removed starter_clicked signal as starter is moved own widget
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.theme = get_theme()
@@ -86,7 +93,7 @@ class TeamComparisonRow(QWidget):
         frame = QFrame()
         frame.setStyleSheet(f"""
             background-color: {self.theme.bg_card};
-            border-left: 4px solid {self.theme.accent_gold if is_home else self.theme.accent_blue};
+            border: none;
         """)
         l = QHBoxLayout(frame)
         l.setContentsMargins(16, 12, 16, 12)
@@ -103,6 +110,7 @@ class TeamComparisonRow(QWidget):
             val = QLabel("---")
             val.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {self.theme.text_primary}; font-family: 'Consolas';")
             
+            
             container.addWidget(lbl)
             container.addWidget(val)
             l.addLayout(container)
@@ -111,16 +119,8 @@ class TeamComparisonRow(QWidget):
             
         l.addStretch()
         
-        starter_layout = QVBoxLayout()
-        s_lbl = QLabel("STARTER")
-        s_lbl.setStyleSheet(f"font-size: 10px; color: {self.theme.text_muted};")
-        s_val = QLabel("---")
-        s_val.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {self.theme.text_highlight};")
-        starter_layout.addWidget(s_lbl)
-        starter_layout.addWidget(s_val)
-        l.addLayout(starter_layout)
+        # Removed Starter info from here
         
-        target_labels["STARTER"] = s_val
         frame.labels = target_labels
         return frame
 
@@ -142,11 +142,7 @@ class TeamComparisonRow(QWidget):
             era = (total_er * 9) / total_ip if total_ip > 0 else 0.00
             lbs["ERA"].setText(f"{era:.2f}")
             
-            starter = team.get_today_starter()
-            if starter:
-                lbs["STARTER"].setText(f"{starter.name} (ERA: {starter.record.era:.2f})")
-            else:
-                lbs["STARTER"].setText("TBD")
+            # Starter info removed from here
 
         update_strip(self.home_stats, home)
         update_strip(self.away_stats, away)
@@ -158,6 +154,7 @@ class PreGamePage(QWidget):
     """
     start_game_requested = Signal(dict) # params: mode='manual'|'fast'
     edit_order_requested = Signal(object) # Pass the team object
+    player_detail_requested = Signal(object)  # Emit player for detail view
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -178,6 +175,7 @@ class PreGamePage(QWidget):
         
         # 2. Comparison Row
         self.comparison = TeamComparisonRow()
+        # Removed starter_clicked connection
         layout.addWidget(self.comparison)
         
         # 3. Lineup (Home Team Only)
@@ -188,38 +186,74 @@ class PreGamePage(QWidget):
         header_l.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {self.theme.text_muted}; letter-spacing: 1px;")
         lineup_container.addWidget(header_l)
         
-        # Recycle DraggableTableWidget logic but simplified for display or reuse it directly
-        # Since we want to display it exactly like OrderPage, we'll reuse DraggableTableWidget for consistent styling
-        # But we need to disable drag/drop if it's read-only here, or allow it?
-        # User asked to "style own lineup like Order Tab".
-        # Let's use DraggableTableWidget in 'lineup' mode.
-        
         self.lineup_table = DraggableTableWidget("lineup")
         self.lineup_table.setDragEnabled(False) # Read-only view here
         self.lineup_table.setAcceptDrops(False)
         
-        # Setup columns same as OrderPage
-        cols = ["順", "守", "調", "選手名", "ミ", "パ", "走", "肩", "守", "適正", "総合"]
-        widths = [30, 40, 30, 130, 35, 35, 35, 35, 35, 80, 45]
+        # Setup columns - Expanded Stats
+        # OBP, SLG, OPS, SB added. Overall changed to numeric.
+        # 順, 守, 調, 選手名, ミ, パ, 走, 肩, 守, 率, 本, 点, 盗, 出, 長, O, 総合(★)
+        cols = ["順", "守", "調", "選手名", "ミ", "パ", "走", "肩", "守", "率", "本", "点", "盗", "出", "長", "OPS", "総合"]
+        widths = [30, 40, 30, 100, 35, 35, 35, 35, 35, 50, 35, 35, 35, 50, 50, 50, 50]
         
         self.lineup_table.setColumnCount(len(cols))
         self.lineup_table.setHorizontalHeaderLabels(cols)
         for i, w in enumerate(widths):
             self.lineup_table.setColumnWidth(i, w)
-            
+        
         # Set Delegates
         self.rating_delegate = RatingDelegate(self)
-        from UI.pages.order_page import DefenseDelegate # Import locally to avoid circular if any
+        from UI.widgets.tables import DefenseDelegate
         self.defense_delegate = DefenseDelegate(self.theme)
         
+        # Name column is 3
+        # Stats Rating columns: 4-8. Overall (16) NO DELEGATE (Numeric)
+        
+        self.lineup_table.setItemDelegateForColumn(1, self.defense_delegate)
         for c in [4, 5, 6, 7, 8]:
              self.lineup_table.setItemDelegateForColumn(c, self.rating_delegate)
-        self.lineup_table.setItemDelegateForColumn(9, self.defense_delegate)
+        # Removed delegate for Overall column to show text
         
         # Style
         self.lineup_table.setStyleSheet(self._get_table_style())
         
+        # Double-click to view player details
+        self.lineup_table.cellDoubleClicked.connect(self._on_lineup_double_click)
+        
+        # Enforce minimum height to show all 9 rows + header
+        self.lineup_table.setMinimumHeight(400)
+        
         lineup_container.addWidget(self.lineup_table)
+        
+        # Add Starting Pitcher Table below Lineup (Label removed)
+        self.starter_table = DraggableTableWidget("starter")
+        self.starter_table.setDragEnabled(False)
+        self.starter_table.setAcceptDrops(False)
+        self.starter_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.starter_table.cellDoubleClicked.connect(self._on_starter_double_click)
+        
+        # Columns for Starter (Table format)
+        # 役割, 投, 調, 選手名, 球, コ, ス, 球種, 防, 勝, 負, 回, 三, 総合
+        s_cols = ["役割", "投", "調", "選手名", "球", "コ", "ス", "球種", "防", "勝", "負", "回", "三", "総合"]
+        s_widths = [50, 30, 30, 110, 35, 30, 30, 40, 45, 30, 30, 40, 35, 45]
+        
+        self.starter_table.setColumnCount(len(s_cols))
+        self.starter_table.setHorizontalHeaderLabels(s_cols)
+        for i, w in enumerate(s_widths):
+            self.starter_table.setColumnWidth(i, w)
+            
+        # Set height for 1 row + header
+        self.starter_table.setFixedHeight(80)
+        
+        # Apply Rating Delegate for Control (5) and Stamina (6)
+        self.starter_table.setItemDelegateForColumn(5, RatingDelegate(self))
+        self.starter_table.setItemDelegateForColumn(6, RatingDelegate(self)) 
+        
+        # Style
+        self.starter_table.setStyleSheet(self._get_table_style())
+        
+        lineup_container.addWidget(self.starter_table)
+        
         layout.addLayout(lineup_container, stretch=1)
         
         # 4. Action Footer
@@ -258,8 +292,11 @@ class PreGamePage(QWidget):
                 background-color: {self.theme.bg_card};
                 border: 1px solid {self.theme.border};
                 gridline-color: {self.theme.border_muted};
-                selection-background-color: {self.theme.bg_input};
                 outline: none;
+            }}
+            QTableWidget::item:selected {{
+                background-color: #FFFFFF;
+                color: #000000;
             }}
             QHeaderView::section {{
                 background-color: {self.theme.bg_input};
@@ -307,10 +344,91 @@ class PreGamePage(QWidget):
 
     def _refresh_lineup_table(self, team: Team):
         from PySide6.QtWidgets import QTableWidgetItem
-        from UI.widgets.tables import SortableTableWidgetItem
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QColor, QFont
+        from UI.widgets.tables import SortableTableWidgetItem, ROLE_PLAYER_IDX
         
         self.lineup_table.setRowCount(0)
+        self.starter_table.setRowCount(0)
         
+        if not team: return
+            
+        # Update Starter Table
+        starter = team.get_today_starter()
+        if starter:
+            self.starter_table.insertRow(0)
+            
+            # 0. 役割 (Role)
+            role_item = QTableWidgetItem("推奨" if team == self.home_team else "予想") # "先発" or "Starter"
+            role_item.setText("先発")
+            role_item.setTextAlignment(Qt.AlignCenter)
+            self.starter_table.setItem(0, 0, role_item)
+            
+            # 1. 投 (Hand)
+            hand_item = QTableWidgetItem(starter.throws)
+            hand_item.setTextAlignment(Qt.AlignCenter)
+            self.starter_table.setItem(0, 1, hand_item)
+            
+            # 2. 調 (Condition)
+            cond_item = QTableWidgetItem(str(starter.condition))
+            cond_item.setTextAlignment(Qt.AlignCenter)
+            self.starter_table.setItem(0, 2, cond_item)
+            
+            # 3. Name
+            name_item = QTableWidgetItem(starter.name)
+            name_item.setData(Qt.UserRole, starter)
+            self.starter_table.setItem(0, 3, name_item)
+            
+            # Stats
+            rec = starter.record
+            era = f"{rec.era:.2f}"
+            wins = str(rec.wins)
+            losses = str(rec.losses)
+            ip = f"{rec.innings_pitched:.1f}"
+            so = str(rec.strikeouts)
+            
+            # Ability Stats
+            stats = starter.stats
+            vel = f"{stats.velocity}"
+            
+            # Delegate uses UserRole for ranking
+            con_val = stats.control
+            stm_val = stats.stamina
+            pt = str(len(stats.pitches))
+            
+            # 4. Vel
+            self._set_item_starter(0, 4, vel)
+            
+            # 5. Con (Delegate)
+            self._set_item_starter(0, 5, "")
+            self.starter_table.item(0, 5).setData(Qt.UserRole, con_val)
+            
+            # 6. Stm (Delegate)
+            self._set_item_starter(0, 6, "")
+            self.starter_table.item(0, 6).setData(Qt.UserRole, stm_val)
+            
+            # 7. PitchTypes
+            self._set_item_starter(0, 7, pt)
+            
+            # 8. ERA
+            self._set_item_starter(0, 8, era)
+            # 9. Wins
+            self._set_item_starter(0, 9, wins)
+            # 10. Losses
+            self._set_item_starter(0, 10, losses)
+            # 11. IP
+            self._set_item_starter(0, 11, ip)
+            # 12. SO
+            self._set_item_starter(0, 12, so)
+            
+            # 13. Overall
+            oa = starter.stats.overall_pitching()
+            oa_item = QTableWidgetItem(f"★{oa}")
+            oa_item.setTextAlignment(Qt.AlignCenter)
+            oa_item.setForeground(QColor(self.theme.accent_gold))
+            oa_item.setFont(QFont("Arial", 10, QFont.Bold))
+            self.starter_table.setItem(0, 13, oa_item)
+
         lineup_ids = team.current_lineup
         positions = team.lineup_positions
         
@@ -332,77 +450,141 @@ class PreGamePage(QWidget):
              pos_item.setTextAlignment(Qt.AlignCenter)
              self.lineup_table.setItem(i, 1, pos_item)
              
-             if pid == -1:
-                 self.lineup_table.setItem(i, 3, QTableWidgetItem("---"))
-                 continue
-                 
-             player = team.players[pid]
-             
              # 3. Condition
-             cond_item = QTableWidgetItem(str(player.condition)) # Keep simple for now
+             cond_item = QTableWidgetItem("---") # Default if no player
+             cond_item.setTextAlignment(Qt.AlignCenter)
              self.lineup_table.setItem(i, 2, cond_item)
              
              # 4. Name
-             name_item = QTableWidgetItem(player.name)
+             name_item = QTableWidgetItem("---") # Default if no player
              self.lineup_table.setItem(i, 3, name_item)
              
-             # 5-9. Stats (Contact, Power, Speed, Arm, Defense)
-             # Use SortableTableWidgetItem with UserRole for sorting/coloring
-             stats = [
-                 player.stats.contact,
-                 player.stats.power,
-                 player.stats.speed,
-                 player.stats.arm,
-                 player.stats.get_defense_range(player.position) # Show defense for main position?? Or generic? OrderPage uses defense_range(pos) logic?
-                 # OrderPage.py lines 509 assign rating_delegate to cols 4,5,6,7,8 corresponding to these.
-             ]
-             # Note: OrderPage uses specific indices. Here cols are:
-             # 0:Ord, 1:Pos, 2:Cond, 3:Name, 4:Con, 5:Pow, 6:Spd, 7:Arm, 8:Def, 9:Aptitude, 10:Overall
+             if pid == -1:
+                 # If no player, set default values for remaining columns
+                 for col_idx in range(4, self.lineup_table.columnCount()):
+                     item = QTableWidgetItem("---")
+                     item.setTextAlignment(Qt.AlignCenter)
+                     self.lineup_table.setItem(i, col_idx, item)
+                 continue
+                 
+             player = team.players[pid]
+             player_idx = pid # Store the actual index in the team's player list
              
-             # Re-checking OrderPage logic for stats:
-             # OrderPage uses: Contact, Power, Speed, Arm, Defense
-             # Defense logic in OrderPage usually takes the stat based on position.
-             # Let's just use raw stats for now.
+             # Update Condition
+             cond_item.setText(str(player.condition))
              
+             # Update Name
+             name_item.setText(player.name)
+             name_item.setData(Qt.UserRole, player)  # Store player object for drag/drop and double-click
+             name_item.setData(ROLE_PLAYER_IDX, player_idx) # Optional, kept for compatibility
+             
+             # 4-8. Stats: ミ,パ,走,肩,守 (Indices 4,5,6,7,8)
              stat_indices = [4, 5, 6, 7, 8]
-             # 守備力はポジションに依存するが、ここでは簡易的にメインポジションの守備力を表示するか、
-             # player.stats.error / defense_range mix?
-             # OrderPage view uses:
-             # 守備力 = Stats.defense_ranges[pos] ???
-             # Let's just use Main Position defense for simplicity or generic
-             
-             # 修正: OrderPageの実装を見ると、 stats.contact 等をそのまま表示している。
-             # 守備列(8)については、OrderPageでは `player.stats.get_defense_range(position)` ではなく、特化した値を使っているか確認が必要。
-             # ひとまず一般的な守備力 (fielding skill) がないので、メインポジションの守備力を使う。
-             
-             # For simpler implementation, copy stats directly
+            
              def_val = player.stats.get_defense_range(player.position)
-             
+            
              vals = [player.stats.contact, player.stats.power, player.stats.speed, player.stats.arm, def_val]
-             
+            
              for col_idx, val in zip(stat_indices, vals):
                  it = SortableTableWidgetItem(str(val))
                  it.setData(Qt.UserRole, val)
                  it.setTextAlignment(Qt.AlignCenter)
                  self.lineup_table.setItem(i, col_idx, it)
 
-             # 9. Main/Sub Position (Defense Delegate)
-             # Format: "Main|Sub"
-             main_pos_str = player.position.value
-             # Sub positions
-             subs = []
-             for k, v in player.stats.defense_ranges.items():
-                 if v >= 20 and k != player.position.value and k != "投":
-                     subs.append(k)
-             sub_str = " ".join(subs)
-             full_pos_str = f"{main_pos_str}|{sub_str}"
+             # Stats Calculation
+             rec = player.record
+             ab = rec.at_bats
+             hits = rec.hits
+             doubles = rec.doubles
+             triples = rec.triples
+             hr = rec.home_runs
+             bb = rec.walks
+             hbp = rec.hit_by_pitch
+             sf = rec.sacrifice_flies
+             sb = rec.stolen_bases
              
-             pos_viz_item = QTableWidgetItem(full_pos_str)
-             self.lineup_table.setItem(i, 9, pos_viz_item)
+             # 9. 打率 (AVG)
+             if ab > 0:
+                 avg = f".{int(rec.batting_average * 1000):03d}"
+             else:
+                 avg = "---"
+             self._set_item(i, 9, avg)
+            
+             # 10. 本塁打 (HR)
+             self._set_item(i, 10, str(hr))
+            
+             # 11. 打点 (RBI)
+             self._set_item(i, 11, str(rec.rbis))
              
-             # 10. Overall
-             oa = player.stats.overall_batting(player.position) # Simplified
-             oa_item = QTableWidgetItem(str(oa))
+             # 12. 盗塁 (SB)
+             self._set_item(i, 12, str(sb))
+             
+             # 13. 出塁率 (OBP) = (H + BB + HBP) / (AB + BB + HBP + SF)
+             numerator = hits + bb + hbp
+             denominator = ab + bb + hbp + sf
+             obp_val = numerator / denominator if denominator > 0 else 0.0
+             self._set_item(i, 13, f".{int(obp_val * 1000):03d}")
+             
+             # 14. 長打率 (SLG) = (1B + 2*2B + 3*3B + 4*HR) / AB
+             singles = hits - doubles - triples - hr
+             total_bases = singles + 2*doubles + 3*triples + 4*hr
+             slg_val = total_bases / ab if ab > 0 else 0.0
+             self._set_item(i, 14, f".{int(slg_val * 1000):03d}")
+             
+             # 15. OPS
+             ops_val = obp_val + slg_val
+             self._set_item(i, 15, f".{int(ops_val * 1000):03d}")
+             
+             # 16. Overall (★数値)
+             oa = player.stats.overall_batting(player.position)
+             oa_item = QTableWidgetItem(f"★{oa}")
              oa_item.setTextAlignment(Qt.AlignCenter)
-             self.lineup_table.setItem(i, 10, oa_item)
+             oa_item.setForeground(QColor(self.theme.accent_gold)) # Gold color for stars
+             oa_item.setFont(QFont("Arial", 10, QFont.Bold))
+             # Remove delegate logic -> simple text
+             self.lineup_table.setItem(i, 16, oa_item)
 
+    def _set_item(self, row, col, text):
+        from PySide6.QtWidgets import QTableWidgetItem
+        from PySide6.QtCore import Qt
+        item = QTableWidgetItem(text)
+        item.setTextAlignment(Qt.AlignCenter)
+        self.lineup_table.setItem(row, col, item)
+
+    def _set_item_starter(self, row, col, text):
+        from PySide6.QtWidgets import QTableWidgetItem
+        from PySide6.QtCore import Qt
+        item = QTableWidgetItem(text)
+        item.setTextAlignment(Qt.AlignCenter)
+        self.starter_table.setItem(row, col, item)
+
+    def _on_starter_double_click(self, row, col):
+        """Handle double-click on starter table"""
+        item = self.starter_table.item(row, 3) # Name col
+        if item:
+            player = item.data(Qt.UserRole)
+            if player:
+                self.player_detail_requested.emit(player)
+
+    def _on_lineup_double_click(self, row, col):
+        """Handle double-click on lineup table to show player details"""
+        item = self.lineup_table.item(row, 3)  # Name column
+        if not item:
+            return
+        
+        # Get player from stored data
+        from PySide6.QtCore import Qt
+        player = item.data(Qt.UserRole)
+        
+        # If no player stored in item, try to find from home team
+        if not player and self.home_team:
+            try:
+                if row < len(self.home_team.current_lineup):
+                    p_idx = self.home_team.current_lineup[row]
+                    if 0 <= p_idx < len(self.home_team.players):
+                        player = self.home_team.players[p_idx]
+            except:
+                pass
+        
+        if player:
+            self.player_detail_requested.emit(player)

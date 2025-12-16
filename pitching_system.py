@@ -347,6 +347,10 @@ class PitchingDirector:
                 continue
             p = self.team.players[idx]
             
+            # ローテ投手は除外
+            if self.is_starter(p):
+                continue
+            
             if p.position.value != "投手":
                 continue
             if not self._is_available(p, used_pitchers):

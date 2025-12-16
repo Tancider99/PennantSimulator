@@ -578,10 +578,18 @@ class StatsPage(QWidget):
             # 0試合の場合は1として計算（ゼロ除算防止）
             games_for_calc = max(1, team_games)
             
-            # 規定打席: 試合数 * 3.1
-            reg_pa = games_for_calc * 3.1
+            # レベル別の規定試合数（二軍120試合、三軍100試合）
+            if level == TeamLevel.SECOND:
+                max_season_games = 120
+            elif level == TeamLevel.THIRD:
+                max_season_games = 100
+            else:
+                max_season_games = 143
+            
+            # 規定打席: 試合数 * 3.1（シーズン規定に対応）
+            reg_pa = min(games_for_calc, max_season_games) * 3.1
             # 規定投球回: 試合数 * 1.0
-            reg_ip = games_for_calc * 1.0
+            reg_ip = min(games_for_calc, max_season_games) * 1.0
 
             for player in team.players:
                 record = player.get_record_by_level(level)

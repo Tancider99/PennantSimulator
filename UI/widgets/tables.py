@@ -887,10 +887,10 @@ class DraggableTableWidget(QTableWidget):
             stream.writeInt32(row)
             mime.setData(MIME_PLAYER_DATA, data)
             
-            if self.mode == "lineup": name_col = 3 
-            elif self.mode == "bench": name_col = 2 
+            if self.mode == "lineup": name_col = 4 # 0:順 1:守 2:調 3:疲 4:名前
+            elif self.mode == "bench": name_col = 3 # 0:役割 1:調 2:疲 3:名前
             elif self.mode == "farm_batter": name_col = 1 
-            elif self.mode in ["rotation", "bullpen"]: name_col = 2 
+            elif self.mode in ["rotation", "bullpen"]: name_col = 3 # 0:役割 1:調 2:疲 3:名前
             elif self.mode == "farm_pitcher": name_col = 2 
             else: name_col = 1
             

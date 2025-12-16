@@ -24,8 +24,36 @@ class FarmGameSimulator:
         self.home_team = home_team
         self.away_team = away_team
         self.team_level = team_level
-        # 本格シミュレーションエンジンを使用
-        self.engine = LiveGameEngine(home_team, away_team, team_level)
+        
+        # 該当レベルの平均能力値を計算
+        league_stats = self._calculate_level_stats(home_team, away_team, team_level)
+        
+        # 本格シミュレーションエンジンを使用（league_statsを渡す）
+        self.engine = LiveGameEngine(home_team, away_team, team_level, league_stats=league_stats)
+
+    def _calculate_level_stats(self, home: Team, away: Team, level: TeamLevel) -> Dict[str, float]:
+        """該当レベルの選手の平均能力値を計算"""
+        all_players = home.get_players_by_level(level) + away.get_players_by_level(level)
+        fielders = [p for p in all_players if p.position != Position.PITCHER]
+        
+        if not fielders:
+            return {}  # フォールバック（デフォルト値を使用）
+        
+        # 守備範囲の平均（各選手の最大守備範囲を使用）
+        avg_defense = sum(
+            max(p.stats.defense_ranges.values()) if p.stats.defense_ranges else 1 
+            for p in fielders
+        ) / len(fielders)
+        avg_speed = sum(p.stats.speed for p in fielders) / len(fielders)
+        avg_arm = sum(p.stats.arm for p in fielders) / len(fielders)
+        avg_error = sum(p.stats.error for p in fielders) / len(fielders)
+        
+        return {
+            'avg_defense': avg_defense,
+            'avg_speed': avg_speed,
+            'avg_arm': avg_arm,
+            'avg_error': avg_error,
+        }
 
     def simulate_game(self, date: str = "") -> FarmGameResult:
         """1試合を完全にシミュレート"""
