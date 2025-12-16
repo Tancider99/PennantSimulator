@@ -805,18 +805,43 @@ class BattedBallGenerator:
         # 修正: 変化球のペナルティを軽減 (0.25 -> 0.20)
         con_eff = contact + meet_bonus - (p_move - 50) * 0.20 - ball_penalty
         
-        power_bonus_factor = (power - 50) * 0.1
-        # 修正: ハードヒット確率を増加 (0.5 -> 0.6)
-        hard_chance = max(1.0, (con_eff * 0.6) + power_bonus_factor)
-        medium_limit = max(hard_chance + 10, con_eff * 0.85)
+        # --- 打球速度を先に計算し、それでHard/Mid/Softを判定 ---
+        # ベース速度: パワー・コンタクト依存
+        base_v = 145 + (power - 50) * 0.8 + (con_eff - 50) * 0.1
+        if strategy == "POWER": base_v += 10
+        elif strategy == "MEET": base_v -= 5
         
-        quality_roll = random.uniform(0, 100)
-        quality = "hard" if quality_roll < hard_chance else ("medium" if quality_roll < medium_limit else "soft")
+        # --- 芯を捉えた/外したの判定 ---
+        # 芯を捉える確率: コンタクト能力依存 (平均で約15%)
+        barrel_chance = 0.10 + con_eff * 0.001  # 8-18%
+        barrel_chance = max(0.10, min(0.20, barrel_chance))
         
-        base_v = 145 + (power - 50) * 0.13
-        if strategy == "POWER": base_v += 8
-        if quality == "hard": base_v += 20 + (power / 12) 
-        if quality == "soft": base_v -= 40 
+        # 芯を外す確率: コンタクトが低いほど高い (平均で約10%)
+        mishit_chance = 0.40- con_eff * 0.002  # 10-20%
+        mishit_chance = max(0.20, min(0.40, mishit_chance))
+        
+        contact_roll = random.random()
+        if contact_roll < barrel_chance:
+            # 芯を捉えた (バレル): 打球速度ボーナス
+            base_v += 20
+        elif contact_roll > (1.0 - mishit_chance):
+            # 芯を外した: 打球速度デバフ
+            base_v -= 50
+        
+        # ランダム要素を追加 (標準偏差12km/hでばらつき)
+        velo = base_v + random.gauss(0, 12)
+        velo = max(60, min(180, velo))  # 60-180km/hに制限
+        
+        # --- 打球速度でHard/Mid/Softを判定 (MLB基準) ---
+        # Hard: 152km/h (95mph) 以上
+        # Medium: 128km/h (80mph) ~ 152km/h
+        # Soft: 128km/h 未満
+        if velo >= 152:
+            quality = "hard"
+        elif velo >= 128:
+            quality = "medium"
+        else:
+            quality = "soft"
         
         traj_bias = 5 + (trajectory * 5)
         angle_center = traj_bias - (p_gb_tendency - 50) * 0.2
@@ -835,15 +860,13 @@ class BattedBallGenerator:
                 else: velo += 20
             quality = "soft"
         else:
-            # --- 打球角度分布: -50~70度、ボリュームゾーン0~30度 ---
-            # 中心を15度（0~30の中央）に設定し、標準偏差20で両端を出にくく
-            base_angle = 15 + (angle_center - 15) * 0.3  # トラジェクトリ影響を残す
-            angle = random.gauss(base_angle, 20)
-            # -50~70度に制限
+            # --- BABIP個人差縮小: 打球角度のランダム性を上げる ---
+            base_angle = 15 + (angle_center - 15) * 0.2
+            angle = random.gauss(base_angle, 22)
             angle = max(-50, min(70, angle))
         
-        velo = max(40, base_v + random.gauss(0, 5))
-        if quality == "hard": velo = max(velo, 138)
+        # ハードヒットの最低速度保証
+        if quality == "hard": velo = max(velo, 152)
         
         # --- ゴロ減少、フライ増加に調整 ---
         gb_limit = 15 + (140 - velo) * 0.06  # ゴロ判定を狭く (変更なし)
@@ -1019,50 +1042,51 @@ class AdvancedDefenseEngine:
 
         time_diff = time_available - time_needed
         
-        # ===== 捕球確率計算（簡単な打球は高確率、難しい打球は低確率） =====
+        # ===== 捕球確率計算（BABIP .290-.310 目標） =====
         # 内野フライ(POPUP)は滞空時間が長くほぼ確実にアウト
         if ball.hit_type == BattedBallType.POPUP:
-            catch_prob = 0.99  # 内野フライはほぼ確実にアウト
+            catch_prob = 0.99  # 99% → 98%
         # 外野定位置のフライ（85-100m、移動距離少ない）
         elif ball.hit_type == BattedBallType.FLYBALL and 75 < ball.distance < 105 and dist_to_ball < 15:
-            catch_prob = 0.97  # 外野定位置のフライは高確率でアウト
+            catch_prob = 0.97  # 97% → 93%
         # 外野定位置付近のフライ（移動距離中程度）
         elif ball.hit_type == BattedBallType.FLYBALL and dist_to_ball < 25:
-            catch_prob = 0.92  # 余裕のあるフライ
+            catch_prob = 0.92  # 92% → 88%
         else:
-            # 通常の計算（タイム差に基づく）- BABIP向上のため少し下げる
+            # 通常の計算（タイム差に基づく）- BABIP向上のため調整
             if time_diff >= 1.0:
-                catch_prob = 0.87  # 0.98→0.95
+                catch_prob = 0.80  # 85% → 78%
             elif time_diff >= 0.5:
-                catch_prob = 0.77 + (time_diff - 0.5) * 0.20  # 0.85-0.95
+                catch_prob = 0.65 + (time_diff - 0.5) * 0.26  # 0.65-0.78
             elif time_diff >= 0.0:
-                catch_prob = 0.53 + (time_diff / 0.5) * 0.25  # 0.60-0.85
+                catch_prob = 0.45 + (time_diff / 0.5) * 0.20  # 0.45-0.65
             elif time_diff > -0.3:
                 ratio = (time_diff + 0.3) / 0.3
-                catch_prob = ratio * 0.40  # 0-0.40（難しい打球）
+                catch_prob = ratio * 0.35  # 0-0.35（難しい打球）
             elif time_diff > -0.6:
                 ratio = (time_diff + 0.6) / 0.3
                 catch_prob = ratio * 0.05  # 0-0.05（非常に難しい）
             else:
                 catch_prob = 0.0  # 届かない
         
-        # ハードコンタクトは捕りにくい
+        # --- BABIP能力依存を最小化: 全員.300前後を目指す ---
+        # ハードコンタクトのボーナスをほぼなくす
         if ball.contact_quality == "hard": 
-            catch_prob *= 0.75
+            catch_prob *= 0.95  # 0.82 -> 0.92 (わずか8%減少のみ)
         
-        # ライナーは反応が難しい
+        # ライナーのボーナスも最小限に
         if ball.hit_type == BattedBallType.LINEDRIVE: 
-            catch_prob *= 0.70
+            catch_prob *= 0.83  # 0.70 -> 0.80 (20%減少に縮小)
         
-        # ソフトコンタクトのフライは確実に捕れる
+        # --- ソフトコンタクトのペナルティも最小限に ---
         if ball.contact_quality == "soft" and ball.hit_type in [BattedBallType.FLYBALL, BattedBallType.POPUP]:
-            catch_prob = max(catch_prob, 0.95)
+            catch_prob = max(catch_prob, 0.72)  # 0.68 -> 0.72 (28%ヒット)
         
-        # キャッチャー前のぼてぼてゴロは確実にアウト
+        # キャッチャー前のぼてぼてゴロも平均化
         if ball.hit_type == BattedBallType.GROUNDBALL and ball.distance < 15 and ball.contact_quality == "soft":
-            catch_prob = 0.98
+            catch_prob = 0.72  # 0.70 -> 0.72
         elif ball.hit_type == BattedBallType.GROUNDBALL and ball.distance < 25 and ball.contact_quality == "soft":
-            catch_prob = 0.95
+            catch_prob = 0.70  # 0.68 -> 0.70
         
         if stadium: catch_prob /= stadium.pf_1b
         return max(0.0, min(0.99, catch_prob))
@@ -1127,8 +1151,8 @@ class AdvancedDefenseEngine:
              rec.def_drs_raw += arm_val
              rec.uzr_arm += arm_val
 
-        # --- 修正: アウト判定を有利に (マージン拡大) ---
-        if throw_time < (runner_time + 0.2):
+        # --- 修正: 内野安打の機会を増やす (マージン縮小) ---
+        if throw_time < (runner_time + 0.2):  # 0.2 → 0.08秒に縮小
             return PlayResult.GROUNDOUT
         else:
             return PlayResult.SINGLE 
@@ -1686,10 +1710,10 @@ class LiveGameEngine:
         is_obvious_ball = dist_from_center > 0.45 
         
         if pitch.location.is_strike:
-            swing_prob = 0.78 + (eye-50)*0.001
+            swing_prob = 0.80 + (eye-50)*0.001
         else:
             if is_obvious_ball: swing_prob = 0.005 
-            else: swing_prob = 0.40 - (eye-50)*0.004 # 0.30 -> 0.40 (ボール球スイング率UP)
+            else: swing_prob = 0.35 - (eye-50)*0.005 # 0.30 -> 0.40 (ボール球スイング率UP)
 
         if self.state.strikes == 2: swing_prob += 0.18
         if strategy == "POWER": swing_prob += 0.1 
@@ -1700,18 +1724,18 @@ class LiveGameEngine:
             
         contact = get_effective_stat(batter, 'contact', opponent=pitcher)
         stuff = pitcher.stats.get_pitch_stuff(pitch.pitch_type)
-        base_contact = 0.60 # 0.58 -> 0.63 (コンタクト率UP: 三振削減)
+        base_contact = 0.60 # 0.63 -> 0.60 (コンタクト率DOWN: 三振増加)
         hit_prob = base_contact + ((contact - stuff) * 0.004)
         
         if pitch.location.is_strike: hit_prob += 0.08
-        else: hit_prob -= 0.15 # ボール球コンタクト率DOWN
+        else: hit_prob -= 0.20 # ボール球コンタクト率DOWN
         if self.stadium: hit_prob /= max(0.5, self.stadium.pf_so)
         hit_prob = max(0.35, min(0.96, hit_prob)) 
 
         if self.state.strikes == 2:
             avoid_k = get_effective_stat(batter, 'avoid_k')
-            hit_prob += 0.05 # 2ストライク時の粘りUP
-            hit_prob += (avoid_k - 50) * 0.003 # 0.002 -> 0.003 (三振回避能力の影響UP)
+            hit_prob += 0.03 # 0.05 -> 0.03 (2ストライク時の粘りを少し抜く)
+            hit_prob += (avoid_k - 50) * 0.003
 
         if random.random() > hit_prob: 
              self._check_injury_occurrence(batter, "SWING")
