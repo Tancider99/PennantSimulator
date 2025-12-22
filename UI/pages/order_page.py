@@ -49,11 +49,12 @@ class OrderPage(QWidget):
     order_saved = Signal()
     player_detail_requested = Signal(object)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, is_best_order_mode=False):
         super().__init__(parent)
         self.theme = get_theme()
         self.game_state = None
         self.current_team = None
+        self.is_best_order_mode = is_best_order_mode
         
         self.defense_delegate = DefenseDelegate(self.theme)
         self.rating_delegate = RatingDelegate(self)
@@ -82,9 +83,19 @@ class OrderPage(QWidget):
         self.batter_page = self._create_batter_page()
         self.main_tabs.addTab(self.batter_page, "野手オーダー")
         
-        self.pitcher_page = self._create_pitcher_page()
-        self.main_tabs.addTab(self.pitcher_page, "投手オーダー")
-        
+        if not self.is_best_order_mode:
+            # ベストオーダー設定では投手は不要か、あるいは野手のみが一般的だが、
+            # ユーザー要望は「オーダー画面とほぼ全く同じUI」なので一応入れておくか？
+            # 「ベストオーダー」という言葉は通常打順を指すため、混乱を避けるなら野手のみにする手もあるが
+            # ここでは一応入れておくが、ベストオーダー＝打順固定とするなら投手タブは無視される運用にする
+            self.pitcher_page = self._create_pitcher_page()
+            self.main_tabs.addTab(self.pitcher_page, "投手オーダー")
+        else:
+             # ベストオーダーモードでも一応表示しておく（将来的なベストローテ対応のため）
+             # ただし保存対象は要検討。今回は打順のみにフォーカスするがUIは残す
+             self.pitcher_page = self._create_pitcher_page()
+             self.main_tabs.addTab(self.pitcher_page, "投手オーダー")
+
         layout.addWidget(self.main_tabs)
 
     def showEvent(self, event):
@@ -103,7 +114,11 @@ class OrderPage(QWidget):
         toolbar = ToolbarPanel()
         toolbar.setFixedHeight(50)
 
-        self.team_name_label = QLabel("チーム名")
+        if self.is_best_order_mode:
+            self.team_name_label = QLabel("ベストオーダー設定")
+        else:
+            self.team_name_label = QLabel("チーム名")
+            
         self.team_name_label.setStyleSheet(f"color: {self.theme.text_primary}; font-weight: bold; font-size: 16px; margin-left: 12px;")
         toolbar.add_widget(self.team_name_label)
         
@@ -113,41 +128,52 @@ class OrderPage(QWidget):
 
         toolbar.add_stretch()
         
-        # 自動編成優先度選択
-        priority_label = QLabel("自動編成:")
-        priority_label.setStyleSheet(f"color: {self.theme.text_secondary}; margin-right: 4px;")
-        toolbar.add_widget(priority_label)
-        
-        self.priority_combo = QComboBox()
-        self.priority_combo.addItems(["能力優先", "調子優先"])
-        self.priority_combo.setStyleSheet(f"background: {self.theme.bg_input}; color: {self.theme.text_primary}; border: 1px solid {self.theme.border}; padding: 4px 8px; min-width: 80px;")
-        self.priority_combo.currentIndexChanged.connect(self._on_priority_changed)
-        toolbar.add_widget(self.priority_combo)
-        
+        # 自動編成ボタン (ベストオーダー作成時も便利なので残す)
         auto_btn = QPushButton("自動編成")
         auto_btn.setCursor(Qt.PointingHandCursor)
         auto_btn.setStyleSheet(f"background: {self.theme.bg_card}; color: {self.theme.text_primary}; padding: 6px 12px; border: 1px solid {self.theme.border}; border-radius: 4px; margin-left: 8px;")
         auto_btn.clicked.connect(self._auto_fill)
         toolbar.add_widget(auto_btn)
 
-        self.set_best_btn = QPushButton("ベストオーダーに設定")
-        self.set_best_btn.setCursor(Qt.PointingHandCursor)
-        self.set_best_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {self.theme.accent_blue};
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 6px 12px;
-                font-weight: bold;
-                margin-right: 10px;
-            }}
-            QPushButton:hover {{
-                background-color: {self.theme.accent_blue_hover};
-            }}
-        """)
-        self.set_best_btn.clicked.connect(self._set_current_as_best)
-        toolbar.add_widget(self.set_best_btn)
+        if not self.is_best_order_mode:
+            self.open_best_btn = QPushButton("ベストオーダー設定")
+            self.open_best_btn.setCursor(Qt.PointingHandCursor)
+            self.open_best_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {self.theme.accent_blue};
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 6px 12px;
+                    font-weight: bold;
+                    margin-right: 10px;
+                }}
+                QPushButton:hover {{
+                    background-color: {self.theme.accent_blue_hover};
+                }}
+            """)
+            self.open_best_btn.clicked.connect(self._open_best_order_settings)
+            toolbar.add_widget(self.open_best_btn)
+        else:
+            self.clear_best_btn = QPushButton("ベストオーダー削除")
+            self.clear_best_btn.setCursor(Qt.PointingHandCursor)
+            self.clear_best_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {self.theme.error};
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 6px 12px;
+                    font-weight: bold;
+                    margin-right: 10px;
+                }}
+                QPushButton:hover {{
+                    background-color: {self.theme.danger_hover};
+                }}
+            """)
+            self.clear_best_btn.clicked.connect(self._clear_best_order)
+            toolbar.add_widget(self.clear_best_btn)
+
 
         self.save_btn = QPushButton("保存")
         self.save_btn.setCursor(Qt.PointingHandCursor)
@@ -435,13 +461,6 @@ class OrderPage(QWidget):
         self.game_state = game_state
         if not game_state: return
         
-        # 優先度コンボボックスをgame_stateと同期
-        if hasattr(game_state, 'auto_order_priority'):
-            if game_state.auto_order_priority == "condition":
-                self.priority_combo.setCurrentIndex(1)
-            else:
-                self.priority_combo.setCurrentIndex(0)
-        
         if game_state.player_team:
             self.current_team = game_state.player_team
             self.team_name_label.setText(self.current_team.name)
@@ -452,15 +471,12 @@ class OrderPage(QWidget):
             self._refresh_all()
         else:
             self.current_team = None
-            self.team_name_label.setText("チーム選択なし")
-    
-    def _on_priority_changed(self, index):
-        """優先度選択が変更されたときにgame_stateに反映"""
-        if self.game_state:
-            if index == 1:
-                self.game_state.auto_order_priority = "condition"
+            if self.is_best_order_mode:
+                self.team_name_label.setText("ベストオーダー設定")
             else:
-                self.game_state.auto_order_priority = "ability"
+                self.team_name_label.setText("チーム選択なし")
+    
+
 
     def _ensure_lists_initialized(self):
         team = self.current_team
@@ -479,14 +495,64 @@ class OrderPage(QWidget):
         """チームデータをローカルの編集用ステートにコピー"""
         if not self.current_team: return
         
-        self.edit_state = {
-            'current_lineup': list(self.current_team.current_lineup),
-            'lineup_positions': list(self.current_team.lineup_positions),
-            'bench_batters': list(self.current_team.bench_batters),
-            'rotation': list(self.current_team.rotation),
-            'setup_pitchers': list(self.current_team.setup_pitchers),
-            'closers': list(self.current_team.closers)
-        }
+        # ベストオーダーモードの場合、best_orderから読み込む
+        if self.is_best_order_mode:
+            bo = getattr(self.current_team, 'best_order', None)
+            # best_orderは辞書形式 {'current_lineup': [], 'lineup_positions': [], ...} を想定
+            # なければ空（-1埋め）で初期化
+            
+            empty_lineup = [-1] * 9
+            empty_pos = [""] * 9
+            # デフォルトポジション
+            def_pos = ["捕", "一", "二", "三", "遊", "左", "中", "右", "DH"]
+            
+            # ベストオーダーがなければ、現在のオーダーを初期値としてコピーするか？
+            # ユーザー体験としては、最初は現在のオーダーが入っている方が楽かもしれない。
+            # しかし「ベストオーダー設定」というからには、明示的に設定するもの。
+            # いったん現在のオーダーをコピーしてあげるのが親切。
+            
+            if not bo:
+                # コピー初期化
+                self.edit_state = {
+                    'current_lineup': list(self.current_team.current_lineup),
+                    'lineup_positions': list(self.current_team.lineup_positions),
+                    'bench_batters': list(self.current_team.bench_batters),
+                    'rotation': list(self.current_team.rotation),
+                    'setup_pitchers': list(self.current_team.setup_pitchers),
+                    'closers': list(self.current_team.closers)
+                }
+            else:
+                # 保存されたベストオーダーを展開
+                # 辞書形式でない場合（旧仕様のリストのみ）の互換性チェック
+                if isinstance(bo, list):
+                     # 旧仕様: 打順だけリストで入っている -> convert
+                     self.edit_state = {
+                        'current_lineup': list(bo),
+                        'lineup_positions': list(def_pos), # ポジション不明なのでデフォルト
+                        'bench_batters': [],
+                        'rotation': [-1]*8,
+                        'setup_pitchers': [-1]*8,
+                        'closers': [-1]*2
+                     }
+                else:
+                    self.edit_state = {
+                        'current_lineup': list(bo.get('current_lineup', [-1]*9)),
+                        'lineup_positions': list(bo.get('lineup_positions', def_pos)),
+                        'bench_batters': list(bo.get('bench_batters', [])),
+                        'rotation': list(bo.get('rotation', [-1]*8)),
+                        'setup_pitchers': list(bo.get('setup_pitchers', [-1]*8)),
+                        'closers': list(bo.get('closers', [-1]*2))
+                    }
+        else:
+            # 通常モード
+            self.edit_state = {
+                'current_lineup': list(self.current_team.current_lineup),
+                'lineup_positions': list(self.current_team.lineup_positions),
+                'bench_batters': list(self.current_team.bench_batters),
+                'rotation': list(self.current_team.rotation),
+                'setup_pitchers': list(self.current_team.setup_pitchers),
+                'closers': list(self.current_team.closers)
+            }
         
         self.has_unsaved_changes = False
         self.save_btn.setEnabled(False)
@@ -500,6 +566,36 @@ class OrderPage(QWidget):
     def _save_changes(self):
         if not self.current_team: return
         t = self.current_team
+        
+        # --- バリデーションチェック ---
+        
+        # --- ベストオーダーモードの保存処理 ---
+        if self.is_best_order_mode:
+            # バリデーションは緩くする（怪我人でも設定は可能とするのが一般的）
+            # ただし、人数等の基礎チェックはあってもいいが、未完成でも保存させたいならチェックなし
+            # ここでは「スタメン9人埋まってなくてもOK」とする（作りかけ保存OK）
+            
+            # 辞書として保存
+            best_order_data = {
+                'current_lineup': list(self.edit_state['current_lineup']),
+                'lineup_positions': list(self.edit_state['lineup_positions']),
+                'bench_batters': list(self.edit_state['bench_batters']),
+                'rotation': list(self.edit_state['rotation']),
+                'setup_pitchers': list(self.edit_state['setup_pitchers']),
+                'closers': list(self.edit_state['closers'])
+            }
+            t.best_order = best_order_data
+            
+            self.order_saved.emit()
+            self._load_team_data() # 状態リセット
+            self._refresh_all()
+            QMessageBox.information(self, "完了", "ベストオーダーを保存しました。")
+            
+            # ダイアログなら閉じる？ いったんそのまま
+            return
+
+
+        # --- 通常モードの保存処理 ---
         
         # --- バリデーションチェック ---
         
@@ -609,23 +705,41 @@ class OrderPage(QWidget):
         self._load_team_data() # リロード（変更破棄）
         self._refresh_all()
 
-    def _set_current_as_best(self):
-        if not self.current_team: return
+    def _open_best_order_settings(self):
+        """ベストオーダー設定ウィンドウを開く"""
+        from PySide6.QtWidgets import QDialog
         
-        if self.has_unsaved_changes:
-            QMessageBox.warning(self, "警告", "変更が保存されていません。先に保存してください。")
-            return
-            
-        reply = QMessageBox.question(
-            self, 'ベストオーダー設定',
-            '現在表示されているオーダーを「ベストオーダー」として設定しますか？\n'
-            '（試合スキップ時や自動編成の際、このオーダーが優先的に使用されます）',
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
-        )
+        dialog = QDialog(self)
+        dialog.setWindowTitle("ベストオーダー設定")
+        dialog.setFixedSize(1100, 800)
+        dialog.setStyleSheet(f"background-color: {self.theme.bg_dark}; color: {self.theme.text_primary};")
+        
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Create separate OrderPage instance in Best Order Mode
+        best_order_page = OrderPage(None, is_best_order_mode=True)
+        best_order_page.set_game_state(self.game_state)
+        # Ensure it shows the same team
+        best_order_page.current_team = self.current_team
+        best_order_page._ensure_lists_initialized()
+        best_order_page._load_team_data()
+        best_order_page._refresh_all()
+        
+        layout.addWidget(best_order_page)
+        
+        dialog.exec()
+        
+    def _clear_best_order(self):
+        if not self.current_team: return
+        msg = "ベストオーダー設定を削除してもよろしいですか？"
+        reply = QMessageBox.question(self, "確認", msg, QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         
         if reply == QMessageBox.Yes:
-            self.current_team.best_order = list(self.edit_state['current_lineup'])
-            QMessageBox.information(self, "設定完了", "ベストオーダーを設定しました。")
+            self.current_team.best_order = None
+            self._load_team_data()
+            self._refresh_all()
+            QMessageBox.information(self, "完了", "ベストオーダー設定を削除しました。")
 
     def _refresh_all(self):
         if not self.current_team or not self.edit_state: return
@@ -1204,6 +1318,7 @@ class OrderPage(QWidget):
         self._mark_as_changed()
         
         state = self.edit_state
+        # 初期化
         state['current_lineup'] = [-1] * 9
         state['lineup_positions'] = [""] * 9
         state['bench_batters'] = []
@@ -1219,17 +1334,21 @@ class OrderPage(QWidget):
         BATTER_TARGET = TOTAL_LIMIT - PITCHER_TARGET
 
         active_roster_set = set(t.active_roster)
+        used_indices = set()
 
+        # ヘルパー関数
         def get_incumbency_mult(p_idx):
-            # Existing active roster members get 15% bonus to prevent minor churn
             return 1.15 if p_idx in active_roster_set else 1.0
 
         def get_condition_mult(p):
+            # 調子優先選択削除により、標準的な影響度に固定
             return 1.0 + (p.condition - 5) * 0.05
 
         def get_batting_score(p, p_idx):
             s = p.stats
+            # 優先度選択削除: 能力重視（Standard）
             val = (s.contact * 1.0 + s.power * 1.2 + s.speed * 0.5 + s.eye * 0.5)
+            # コンディションも加味するが、極端には振らない
             return val * get_condition_mult(p) * get_incumbency_mult(p_idx)
 
         def get_defense_score(p, pos_name_long):
@@ -1238,7 +1357,7 @@ class OrderPage(QWidget):
             s = p.stats
             def_val = (apt * 1.5 + s.error * 0.5 + s.arm * 0.5)
             return def_val
-
+            
         def get_pitcher_score(p, role, p_idx):
             s = p.stats
             base = s.overall_pitching() * 99
@@ -1253,58 +1372,156 @@ class OrderPage(QWidget):
                 apt_mult = p.middle_aptitude / 50.0
             return base * apt_mult * get_condition_mult(p) * get_incumbency_mult(p_idx)
 
-        # ★自動編成でも再登録待機中の選手は除外する
+        def is_available(p_idx, p):
+            if p.is_injured: return False
+            if hasattr(p, 'days_until_promotion') and p.days_until_promotion > 0: return False
+            return True
+
+        # --- ベストオーダー適用 (通常モードかつ設定ある場合) ---
+        bo = getattr(t, 'best_order', None)
+        has_best_order = (bo is not None and not self.is_best_order_mode)
+        
+        if has_best_order:
+            # 辞書形式チェック
+            if isinstance(bo, list): 
+                # 旧形式互換（スタメンのみ）
+                bo_lineup = bo
+                bo_pos = [""] * 9
+                bo_rot = [-1]*8
+                bo_setup = [-1]*8
+                bo_closer = [-1]*2
+            else:
+                bo_lineup = bo.get('current_lineup', [-1]*9)
+                bo_pos = bo.get('lineup_positions', [""]*9)
+                bo_rot = bo.get('rotation', [-1]*8)
+                bo_setup = bo.get('setup_pitchers', [-1]*8)
+                bo_closer = bo.get('closers', [-1]*2)
+
+            # 1. 投手（ローテ・勝ちパ）の固定
+            # ローテーション
+            for i, p_idx in enumerate(bo_rot):
+                if i < 8 and p_idx != -1 and p_idx < len(t.players):
+                    if is_available(p_idx, t.players[p_idx]):
+                        state['rotation'][i] = p_idx
+                        used_indices.add(p_idx)
+            
+            # クローザー
+            for i, p_idx in enumerate(bo_closer):
+                if i < 2 and p_idx != -1 and p_idx < len(t.players):
+                    if is_available(p_idx, t.players[p_idx]):
+                        state['closers'][i] = p_idx
+                        used_indices.add(p_idx)
+            
+            # セットアッパー
+            for i, p_idx in enumerate(bo_setup):
+                if i < 8 and p_idx != -1 and p_idx < len(t.players):
+                    if is_available(p_idx, t.players[p_idx]):
+                        state['setup_pitchers'][i] = p_idx
+                        used_indices.add(p_idx)
+            
+            # 2. 野手スタメンの固定
+            for i, p_idx in enumerate(bo_lineup):
+                pos_str = bo_pos[i] if i < len(bo_pos) else ""
+                if i < 9 and p_idx != -1 and p_idx < len(t.players):
+                    if is_available(p_idx, t.players[p_idx]):
+                        state['current_lineup'][i] = p_idx
+                        state['lineup_positions'][i] = pos_str
+                        used_indices.add(p_idx)
+        
+        # --- 残りの枠を自動充填 ---
+        
+        # 1. 投手充填
         pitchers = [i for i, p in enumerate(t.players) 
                    if p.position.value == "投手" and not p.is_developmental 
-                   and (not hasattr(p, 'days_until_promotion') or p.days_until_promotion == 0)]
+                   and is_available(i, p) and i not in used_indices]
         
+        # Rotation gaps
+        for i in range(6): # 基本6人ローテ
+            if state['rotation'][i] == -1:
+                # Find best starter
+                cands = sorted(pitchers, key=lambda x: get_pitcher_score(t.players[x], 'starter', x), reverse=True)
+                if cands:
+                     best = cands[0]
+                     state['rotation'][i] = best
+                     used_indices.add(best)
+                     pitchers.remove(best)
         
-        pitchers.sort(key=lambda i: get_pitcher_score(t.players[i], 'starter', i), reverse=True)
+        remaining_pitchers = pitchers
         
-        rotation_count = 6
-        rotation_candidates = pitchers[:rotation_count]
-        remaining_pitchers = pitchers[rotation_count:]
+        # Closer gaps
+        for i in range(1): # Main closer
+            if state['closers'][0] == -1:
+                cands = sorted(remaining_pitchers, key=lambda x: get_pitcher_score(t.players[x], 'closer', x), reverse=True)
+                if cands:
+                    best = cands[0]
+                    state['closers'][0] = best
+                    used_indices.add(best)
+                    remaining_pitchers.remove(best)
+
+        # Setup/Relief gaps
+        # Fill rest of active limit
+        used_p_count = len([x for x in state['rotation'] if x != -1]) + len([x for x in state['closers'] if x != -1]) + len([x for x in state['setup_pitchers'] if x != -1])
+        setup_limit = max(0, PITCHER_TARGET - used_p_count)
         
-        for i in range(min(rotation_count, len(rotation_candidates))):
-            state['rotation'][i] = rotation_candidates[i]
+        current_setup_idx = 0
+        remaining_pitchers.sort(key=lambda x: get_pitcher_score(t.players[x], 'relief', x), reverse=True)
+        
+        while setup_limit > 0 and remaining_pitchers:
+            # Find empty slot
+            while current_setup_idx < 8 and state['setup_pitchers'][current_setup_idx] != -1:
+                current_setup_idx += 1
+            if current_setup_idx >= 8: break
             
-        if remaining_pitchers:
-            remaining_pitchers.sort(key=lambda i: get_pitcher_score(t.players[i], 'closer', i), reverse=True)
-            state['closers'][0] = remaining_pitchers.pop(0)
-            
-        remaining_pitchers.sort(key=lambda i: get_pitcher_score(t.players[i], 'relief', i), reverse=True)
-        
-        used_p = len([x for x in state['rotation'] if x != -1]) + len([x for x in state['closers'] if x != -1])
-        setup_limit = max(0, PITCHER_TARGET - used_p)
-        
-        for i in range(min(8, setup_limit, len(remaining_pitchers))):
-            state['setup_pitchers'][i] = remaining_pitchers[i]
-            
+            p_idx = remaining_pitchers.pop(0)
+            state['setup_pitchers'][current_setup_idx] = p_idx
+            used_indices.add(p_idx)
+            setup_limit -= 1
+
+        # 2. 野手スタメン充填
         batters = [i for i, p in enumerate(t.players) 
                   if p.position.value != "投手" and not p.is_developmental
-                  and (not hasattr(p, 'days_until_promotion') or p.days_until_promotion == 0)]
-        
+                  and is_available(i, p) and i not in used_indices]
+
+        # 埋まっていないポジションを特定
         pos_map = {
             "捕": "捕手", "遊": "遊撃手", "二": "二塁手", "中": "中堅手", 
             "三": "三塁手", "右": "右翼手", "左": "左翼手", "一": "一塁手"
         }
-        def_priority = ["捕", "遊", "二", "中", "三", "右", "左", "一"]
         
-        selected_starters = {}
-        used_indices = set()
+        # すでに埋まっているポジションの確認
+        filled_positions_count = {}
+        for p_str in state['lineup_positions']:
+            if p_str and p_str in pos_map: # Valid pos
+                # スタメンでそのポジションに選手がいるか
+                idx = state['lineup_positions'].index(p_str)
+                if state['current_lineup'][idx] != -1:
+                   filled_positions_count[p_str] = filled_positions_count.get(p_str, 0) + 1
         
-        for short_pos in def_priority:
+        # 必要なポジション (DH含む)
+        required_pos = ["捕", "遊", "二", "中", "三", "右", "左", "一", "DH"]
+        
+        # ポジションごとにベストを選出（まだ埋まってない場合）
+        selected_starters = {} # short_pos -> player_idx
+        temp_used_in_logic = set()
+
+        for short_pos in required_pos:
+            # DH is special
+            if short_pos == "DH": continue
+            
+            # Check if already satisfied in lineup
+            # Note: There could be multiple players at same position in current_lineup if Best Order set it so. (e.g. 2 catchers?). 
+            # But usually we need 1 of each field pos.
+            if filled_positions_count.get(short_pos, 0) >= 1:
+                continue
+                
             long_pos = pos_map[short_pos]
             best_idx = -1
             best_score = -1
             
             for idx in batters:
-                if idx in used_indices: continue
+                if idx in temp_used_in_logic: continue
                 p = t.players[idx]
                 
-                # ★スタメン選出では怪我人を除外
-                if p.is_injured: continue
-
                 apt = p.stats.defense_ranges.get(long_pos, 0)
                 if apt < 20: continue 
                 
@@ -1318,69 +1535,47 @@ class OrderPage(QWidget):
             
             if best_idx != -1:
                 selected_starters[short_pos] = best_idx
-                used_indices.add(best_idx)
-        
-        # DH選出（怪我人除外）
-        dh_candidates = [i for i in batters if i not in used_indices and not t.players[i].is_injured]
-        dh_candidates.sort(key=lambda i: get_batting_score(t.players[i], i), reverse=True)
-        if dh_candidates:
-            selected_starters["DH"] = dh_candidates[0]
-            used_indices.add(dh_candidates[0])
-            
-        missing_positions = [p for p in def_priority + ["DH"] if p not in selected_starters]
-        for p in missing_positions:
-            remaining = [i for i in batters if i not in used_indices and not t.players[i].is_injured]
-            if remaining:
-                remaining.sort(key=lambda i: get_batting_score(t.players[i], i), reverse=True)
-                selected_starters[p] = remaining[0]
-                used_indices.add(remaining[0])
+                temp_used_in_logic.add(best_idx)
 
-        lineup_candidates = []
-        for pos, idx in selected_starters.items():
-            if idx == -1: continue
-            lineup_candidates.append({"pos": pos, "idx": idx, "p": t.players[idx]})
-            
-        final_order = [None] * 9
-        
-        if len(lineup_candidates) >= 1:
-            def pick_best(candidates, sort_key):
-                if not candidates: return None
-                best = max(candidates, key=sort_key)
-                candidates.remove(best)
-                return best
+        # DH Selection (if empty)
+        if state['lineup_positions'].count("DH") == 0: # DH not fixed (or fixed to empty)
+             # Find empty slot that is meant for DH? Or just pick best hitter?
+             # If Best Order fixed DH, it's handled. If not, pick DH.
+             dh_candidates = [i for i in batters if i not in temp_used_in_logic]
+             dh_candidates.sort(key=lambda i: get_batting_score(t.players[i], i), reverse=True)
+             if dh_candidates:
+                 selected_starters["DH"] = dh_candidates[0]
+                 temp_used_in_logic.add(dh_candidates[0])
 
-            final_order[3] = pick_best(lineup_candidates, lambda x: x['p'].stats.power)
-            final_order[2] = pick_best(lineup_candidates, lambda x: get_batting_score(x['p'], x['idx']))
-            final_order[0] = pick_best(lineup_candidates, lambda x: x['p'].stats.speed)
-            final_order[4] = pick_best(lineup_candidates, lambda x: x['p'].stats.power)
-            final_order[1] = pick_best(lineup_candidates, lambda x: x['p'].stats.contact + x['p'].stats.bunt_sac)
-            
-            lineup_candidates.sort(key=lambda x: get_batting_score(x['p'], x['idx']), reverse=True)
-            for i in range(len(lineup_candidates)):
-                found_slot = False
-                for slot in range(5, 9):
-                    if final_order[slot] is None:
-                        final_order[slot] = lineup_candidates[i]
-                        found_slot = True
-                        break
-                if not found_slot:
-                     for slot in range(5):
-                        if final_order[slot] is None:
-                            final_order[slot] = lineup_candidates[i]
-                            break
+        # Assign selected starters to empty slots
+        # Need to determine optimal batting order for these NEWLY selected players + EXISTING players?
+        # Re-shuffling the WHOLE lineup might break Best Order's specific batting slots.
+        # Requirement: "Auto-fill should respect Best Order". Usually means "Keep Best Order players in their slots".
+        # So we only fill EMPTY slots (`-1`).
 
+        # Collect all players (Fixed + New)
+        # But we need to assign positions to the new players.
+
+        for short_pos, p_idx in selected_starters.items():
+            # Find an empty slot in lineup?
+            # Or append to a list and then assign to empty slots.
+            # We need to assign `lineup_positions[i]` too if it's empty.
+            
+            # Simple approach: Fill first available empty slot
             for i in range(9):
-                if final_order[i]:
-                    state['current_lineup'][i] = final_order[i]['idx']
-                    state['lineup_positions'][i] = final_order[i]['pos']
-
-        # ★ベンチ選出: 怪我人も含める（優先度は下げる）
-        remaining_bench = [i for i in batters if i not in used_indices]
-        # 怪我をしていない選手を優先し、その中で能力順
-        remaining_bench.sort(key=lambda i: (not t.players[i].is_injured, t.players[i].overall_rating), reverse=True)
+                if state['current_lineup'][i] == -1:
+                    state['current_lineup'][i] = p_idx
+                    state['lineup_positions'][i] = short_pos
+                    used_indices.add(p_idx)
+                    break
+        
+        # 3. ベンチ充填
+        remaining_bench = [i for i in enumerate(t.players) if i[0] not in used_indices and i[1].position.value != "投手" and not i[1].is_developmental and is_available(i[0], i[1])]
+        remaining_bench_indices = [x[0] for x in remaining_bench]
+        remaining_bench_indices.sort(key=lambda x: t.players[x].overall_rating, reverse=True)
         
         bench_limit = max(0, BATTER_TARGET - 9)
-        state['bench_batters'] = remaining_bench[:bench_limit]
+        state['bench_batters'] = remaining_bench_indices[:bench_limit]
         
         self._refresh_all()
     

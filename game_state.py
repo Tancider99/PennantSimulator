@@ -598,32 +598,124 @@ class GameStateManager:
 
         # ========== 投手編成 ==========
         
+        def is_available(p):
+            if p.is_injured: return False
+            if hasattr(p, 'days_until_promotion') and p.days_until_promotion > 0: return False
+            return True
+
+        def ensure_active_and_assign(p_idx, target_list, idx, pos_str=None):
+            """Make sure p_idx is in active roster, promote if needed, then assign to target_list"""
+            if p_idx == -1 or p_idx >= len(team.players): return
+            p = team.players[p_idx]
+            
+            if not is_available(p): return
+
+            # Promote from Farm if needed
+            if p_idx in team.farm_roster:
+                team.farm_roster.remove(p_idx)
+                if p_idx not in team.active_roster:
+                    team.active_roster.append(p_idx)
+                p.team_level = TeamLevel.FIRST
+                p.days_until_promotion = 0
+            # From Third (unlikely but possible)
+            elif p_idx in team.third_roster:
+                team.third_roster.remove(p_idx)
+                if p_idx not in team.active_roster:
+                    team.active_roster.append(p_idx)
+                p.team_level = TeamLevel.FIRST
+                p.days_until_promotion = 0
+            
+            # If not in active (e.g. was just free agent?), add
+            if p_idx not in team.active_roster:
+                team.active_roster.append(p_idx)
+                p.team_level = TeamLevel.FIRST
+
+            target_list[idx] = p_idx
+            if pos_str is not None:
+                lineup_positions[idx] = pos_str
+            
+            if p.position.value == "投手":
+                used_pitchers.add(p_idx)
+            else:
+                used_indices.add(p_idx)
+
+        # ========== Best Order Pre-fill ==========
+        # Initialize with -1
+        rotation = [-1] * 8
+        closers = [-1] * 2
+        setup_pitchers = [-1] * 8
+        
+        current_lineup = [-1] * 9
+        lineup_positions = [""] * 9
+        used_indices = set()
+        used_pitchers = set()
+
+        bo = getattr(team, 'best_order', None)
+        if bo:
+            # Normalize BO format
+            if isinstance(bo, list):
+                bo_lineup = bo
+                bo_pos = [""] * 9
+                bo_rot = [-1]*8
+                bo_setup = [-1]*8
+                bo_closer = [-1]*2
+            else:
+                bo_lineup = bo.get('current_lineup', [-1]*9)
+                bo_pos = bo.get('lineup_positions', [""]*9)
+                bo_rot = bo.get('rotation', [-1]*8)
+                bo_setup = bo.get('setup_pitchers', [-1]*8)
+                bo_closer = bo.get('closers', [-1]*2)
+
+            # Apply Pitchers
+            for i, idx in enumerate(bo_rot):
+                if i < 8: ensure_active_and_assign(idx, rotation, i)
+            
+            for i, idx in enumerate(bo_closer):
+                if i < 2: ensure_active_and_assign(idx, closers, i)
+                       
+            for i, idx in enumerate(bo_setup):
+                if i < 8: ensure_active_and_assign(idx, setup_pitchers, i)
+
+            # Apply Batters
+            for i, idx in enumerate(bo_lineup):
+                # pos_str logic
+                p_str = bo_pos[i] if i < len(bo_pos) else ""
+                if i < 9: ensure_active_and_assign(idx, current_lineup, i, p_str)
+
+        # ========== 投手編成（不足分補充） ==========
+        
         # 先発候補: 先発適性≥3のみ
-        starter_pool = [i for i in pitchers if team.players[i].starter_aptitude >= 3]
+        starter_pool = [i for i in pitchers if i not in used_pitchers and team.players[i].starter_aptitude >= 3]
         starter_pool.sort(key=lambda i: get_pitcher_score(team.players[i], 'starter'), reverse=True)
         
-        rotation = [-1] * 8
-        for i in range(min(6, len(starter_pool))):
-            rotation[i] = starter_pool[i]
-        used_pitchers = set([x for x in rotation if x != -1])
+        for i in range(6):
+            if rotation[i] == -1 and starter_pool:
+                p_idx = starter_pool.pop(0)
+                rotation[i] = p_idx
+                used_pitchers.add(p_idx)
         
-        # 抑え候補: 抑え適性≥3のみ
+        # 抑え候補
         closer_pool = [i for i in pitchers if i not in used_pitchers and team.players[i].closer_aptitude >= 3]
         closer_pool.sort(key=lambda i: get_pitcher_score(team.players[i], 'closer'), reverse=True)
         
-        closers = [-1] * 2
-        if closer_pool:
-            closers[0] = closer_pool[0]
-            used_pitchers.add(closer_pool[0])
+        if closers[0] == -1 and closer_pool:
+            p_idx = closer_pool.pop(0)
+            closers[0] = p_idx
+            used_pitchers.add(p_idx)
         
-        # 中継ぎ: 中継ぎ適性≥3を優先
+        # 中継ぎ
         setup_pool = [i for i in pitchers if i not in used_pitchers and team.players[i].middle_aptitude >= 3]
         setup_pool.sort(key=lambda i: get_pitcher_score(team.players[i], 'relief'), reverse=True)
         
-        setup_pitchers = [-1] * 8
-        for i in range(min(8, len(setup_pool))):
-            setup_pitchers[i] = setup_pool[i]
-            used_pitchers.add(setup_pool[i])
+        # setup_pitchers gap filling
+        empty_setup_slots = [i for i, x in enumerate(setup_pitchers) if x == -1]
+        pool_idx = 0
+        for slot_idx in empty_setup_slots:
+            if pool_idx < len(setup_pool):
+                p_idx = setup_pool[pool_idx]
+                setup_pitchers[slot_idx] = p_idx
+                used_pitchers.add(p_idx)
+                pool_idx += 1
         
         # 補充: 枠が余っている場合、適性2以上の投手で補充
         empty_slots = [i for i, x in enumerate(setup_pitchers) if x == -1]
@@ -636,7 +728,7 @@ class GameStateManager:
                     setup_pitchers[slot_idx] = p_idx
                     used_pitchers.add(p_idx)
         
-        # 最終補充: まだ枠が余っていれば残りの投手で埋める
+        # 最終補充
         empty_slots = [i for i, x in enumerate(setup_pitchers) if x == -1]
         if empty_slots:
             remaining = [i for i in pitchers if i not in used_pitchers]
@@ -647,14 +739,24 @@ class GameStateManager:
                     setup_pitchers[slot_idx] = p_idx
                     used_pitchers.add(p_idx)
         
+        # ========== 投手枠補充（略）は既存コードへ続く... ==========
+        
+        # ... (lines 650-681 skipped, handled by surrounding code context if possible, but replace block ends at 740, so we need to bridge) ...
+        # Since I'm replacing a large block, I must include the Farm promotion logic or ensure connection.
+        # But wait, the prompt "Instruction" says "EndLine: 740".
+        # The Farm logic starts at 650.
+        # I should probably just replace the pitching logic section (601-649) and Batting logic (683-740).
+        # But my replacement content includes initialization which must happen BEFORE.
+        # So I will replace from 601 down to 740, encompassing Pitching + Farm Pitching + Batting Logic.
+        
+        # ... Re-implementing Farm Pitcher Logic identical to original but with `used_pitchers` check ...
+        
         # ========== 投手枠補充（二軍から昇格） ==========
-        # 一軍投手枠: 15人目標
         TARGET_PITCHERS = 15
         current_pitcher_count = len(used_pitchers)
         
         if current_pitcher_count < TARGET_PITCHERS:
             needed = TARGET_PITCHERS - current_pitcher_count
-            # 二軍から投手を補充
             farm_pitchers = [i for i, p in enumerate(team.players)
                             if p.position.value == "投手"
                             and not getattr(p, 'is_developmental', False)
@@ -665,7 +767,6 @@ class GameStateManager:
             
             for i in range(min(needed, len(farm_pitchers))):
                 promoted_idx = farm_pitchers[i]
-                # Move to active roster
                 if promoted_idx in team.farm_roster:
                     team.farm_roster.remove(promoted_idx)
                 if promoted_idx not in team.active_roster:
@@ -673,97 +774,95 @@ class GameStateManager:
                 team.players[promoted_idx].team_level = TeamLevel.FIRST
                 team.players[promoted_idx].days_until_promotion = 0
                 
-                # 中継ぎ枠に追加
                 empty_setup = [j for j, x in enumerate(setup_pitchers) if x == -1]
                 if empty_setup:
                     setup_pitchers[empty_setup[0]] = promoted_idx
                     used_pitchers.add(promoted_idx)
 
-        # ========== 野手編成 ==========
+        # ========== 野手編成（不足分補充） ==========
         
         pos_map = {
             "捕": "捕手", "遊": "遊撃手", "二": "二塁手", "中": "中堅手", 
             "三": "三塁手", "右": "右翼手", "左": "左翼手", "一": "一塁手"
         }
-        # センターライン優先
-        def_priority = ["捕", "遊", "二", "中", "三", "右", "左", "一"]
+        def_priority = ["捕", "遊", "二", "中", "三", "右", "左", "一", "DH"]
         
-        current_lineup = [-1] * 9
-        lineup_positions = [""] * 9
-        used_indices = set()
-        lineup_idx = 0
+        # 埋まっているポジションをカウント
+        filled_counts = {}
+        for pos_str in lineup_positions:
+            if pos_str in pos_map or pos_str == "DH":
+                filled_counts[pos_str] = filled_counts.get(pos_str, 0) + 1
         
+        # 不足ポジションを埋める
         for short_pos in def_priority:
-            long_pos = pos_map[short_pos]
+            if short_pos == "DH" and filled_counts.get("DH", 0) >= 1: continue
+            if short_pos != "DH" and filled_counts.get(short_pos, 0) >= 1: continue
+            
+            # Select best player for this position
             candidates = []
+            long_pos = pos_map.get(short_pos, "DH") # DH has no long pos in map usually? or separate check
             
             for idx in batters:
                 if idx in used_indices: continue
                 p = team.players[idx]
                 
-                def_score = get_defense_score(p, long_pos)
-                if def_score < 0: continue  # 守備不可
+                if short_pos != "DH":
+                    def_score = get_defense_score(p, long_pos)
+                    if def_score < 0: continue
+                    def_weight = 2.0 if short_pos in ["捕", "遊", "二", "中"] else 1.0
+                    total = get_batting_score(p) + def_score * def_weight
+                else:
+                    total = get_batting_score(p)
                 
-                # センターラインは守備重視
-                def_weight = 2.0 if short_pos in ["捕", "遊", "二", "中"] else 1.0
-                total = get_batting_score(p) + def_score * def_weight
                 candidates.append((idx, total))
             
             if candidates:
                 candidates.sort(key=lambda x: x[1], reverse=True)
                 best_idx = candidates[0][0]
-                current_lineup[lineup_idx] = best_idx
-                lineup_positions[lineup_idx] = short_pos
-                used_indices.add(best_idx)
-                lineup_idx += 1
-        
-        # DH: 打撃特化
-        dh_candidates = [(i, get_batting_score(team.players[i])) 
-                         for i in batters if i not in used_indices]
-        dh_candidates.sort(key=lambda x: x[1], reverse=True)
-        if dh_candidates and lineup_idx < 9:
-            current_lineup[lineup_idx] = dh_candidates[0][0]
-            lineup_positions[lineup_idx] = "DH"
-            used_indices.add(dh_candidates[0][0])
-            lineup_idx += 1
-        
-        # 不足分を埋める
-        while lineup_idx < 9:
-            remaining = [(i, get_batting_score(team.players[i])) 
-                        for i in batters if i not in used_indices]
-            if remaining:
-                remaining.sort(key=lambda x: x[1], reverse=True)
-                current_lineup[lineup_idx] = remaining[0][0]
-                lineup_positions[lineup_idx] = "指"
-                used_indices.add(remaining[0][0])
-                lineup_idx += 1
-            else:
-                # Fallback: pull batters from farm roster if needed
-                farm_batters = [i for i, p in enumerate(team.players)
-                               if p.position.value != "投手"
-                               and not getattr(p, 'is_developmental', False)
-                               and not p.is_injured
-                               and i not in used_indices
-                               and i in team.farm_roster]
                 
-                if farm_batters:
-                    # Promote best farm batter
-                    farm_batters.sort(key=lambda i: get_batting_score(team.players[i]), reverse=True)
-                    promoted_idx = farm_batters[0]
-                    # Move to active roster
-                    if promoted_idx in team.farm_roster:
-                        team.farm_roster.remove(promoted_idx)
-                    if promoted_idx not in team.active_roster:
-                        team.active_roster.append(promoted_idx)
-                    team.players[promoted_idx].team_level = TeamLevel.FIRST
-                    team.players[promoted_idx].days_until_promotion = 0
-                    
-                    current_lineup[lineup_idx] = promoted_idx
-                    lineup_positions[lineup_idx] = "指"
-                    used_indices.add(promoted_idx)
-                    lineup_idx += 1
-                else:
-                    break  # No more players available
+                # Find empty slot
+                for i in range(9):
+                    if current_lineup[i] == -1:
+                        current_lineup[i] = best_idx
+                        lineup_positions[i] = short_pos
+                        used_indices.add(best_idx)
+                        filled_counts[short_pos] = filled_counts.get(short_pos, 0) + 1
+                        break
+        
+        # まだ空きがあればDHや適当な野手で埋める
+        # (残りポジションがない場合)
+        while -1 in current_lineup:
+             slot = current_lineup.index(-1)
+             # pick best batter left
+             rem = [(i, get_batting_score(team.players[i])) for i in batters if i not in used_indices]
+             if rem:
+                 rem.sort(key=lambda x: x[1], reverse=True)
+                 p_idx = rem[0][0]
+                 current_lineup[slot] = p_idx
+                 lineup_positions[slot] = "指" # Default to DH-like
+                 used_indices.add(p_idx)
+             else:
+                 # Farm fallback logic needed here? 
+                 # Original code had fallback. I should include it.
+                  farm_batters = [i for i, p in enumerate(team.players)
+                                   if p.position.value != "投手"
+                                   and not getattr(p, 'is_developmental', False)
+                                   and not p.is_injured
+                                   and i not in used_indices
+                                   and i in team.farm_roster]
+                  if farm_batters:
+                        farm_batters.sort(key=lambda i: get_batting_score(team.players[i]), reverse=True)
+                        promoted_idx = farm_batters[0]
+                        if promoted_idx in team.farm_roster: team.farm_roster.remove(promoted_idx)
+                        if promoted_idx not in team.active_roster: team.active_roster.append(promoted_idx)
+                        team.players[promoted_idx].team_level = TeamLevel.FIRST
+                        team.players[promoted_idx].days_until_promotion = 0
+                        
+                        current_lineup[slot] = promoted_idx
+                        lineup_positions[slot] = "指"
+                        used_indices.add(promoted_idx)
+                  else:
+                        break
 
         # ベンチ
         bench_batters = [i for i in batters if i not in used_indices]
@@ -1147,6 +1246,10 @@ class GameStateManager:
                             game.home_errors = engine.state.home_errors
                             game.away_errors = engine.state.away_errors
                             
+                            # Record pitchers used in order for viewing past results
+                            game.home_pitchers_used = list(engine.state.home_pitchers_used) if engine.state.home_pitchers_used else []
+                            game.away_pitchers_used = list(engine.state.away_pitchers_used) if engine.state.away_pitchers_used else []
+                            
                             # Use the finalized stats from the return value
                             if final_result:
                                 game.game_stats = final_result.get('game_stats', {})
@@ -1404,6 +1507,10 @@ class GameStateManager:
                         game.away_hits = engine.state.away_hits
                         game.home_errors = engine.state.home_errors
                         game.away_errors = engine.state.away_errors
+                        
+                        # Record pitchers used in order
+                        game.home_pitchers_used = list(engine.state.home_pitchers_used) if engine.state.home_pitchers_used else []
+                        game.away_pitchers_used = list(engine.state.away_pitchers_used) if engine.state.away_pitchers_used else []
                         
                         # Get detail with pitcher results, MVP, box score
                         detail = ase.game1_detail if game_num == 1 else ase.game2_detail

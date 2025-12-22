@@ -59,12 +59,14 @@ class PitchingDirector:
     STARTER_LATE_INNING_THRESHOLD = 7  # 終盤とみなす回
     STARTER_LATE_PITCH_COUNT = 115  # 終盤接戦での球数しきい値
     STARTER_CRISIS_STAMINA = 15  # ピンチ時は残り15球で交代
+    STARTER_MAX_INNINGS = 9.0  # 先発の最大イニング数
     
     # リリーフ用
     RELIEVER_STAMINA_MIN = 15  # 球数15球未満は交代
     RELIEVER_PITCH_COUNT_LIMIT = 25  # 25球で交代検討
     RELIEVER_ONE_INNING_LIMIT = 0.9  # 基本的に1イニング未満で交代
     RELIEVER_BLOWUP_RUNS = 2  # リリーフが2失点したら要交代
+    LONG_RELIEVER_MAX_INNINGS = 3.0  # ロングリリーフの最大イニング数
     
     def __init__(self, team: 'Team'):
         self.team = team
@@ -189,6 +191,10 @@ class PitchingDirector:
         if ctx.pitch_count > self.STARTER_PITCH_COUNT_LIMIT:
             return self._select_reliever(ctx, used_pitchers, next_batter)
         
+        # 先発の9イニング制限
+        if ctx.ip_pitched >= self.STARTER_MAX_INNINGS:
+            return self._select_reliever(ctx, used_pitchers, next_batter)
+        
         # (B) 早期KO (序盤大量失点)
         if ctx.inning <= 3 and ctx.runs_allowed >= self.STARTER_EARLY_HOOK_RUNS:
             return self._select_reliever(ctx, used_pitchers, next_batter)
@@ -237,34 +243,37 @@ class PitchingDirector:
             if ctx.current_stamina >= 5:
                 return None
         
-        # (B) スタミナ・球数限界
+        # (B) 全リリーフの3イニング上限（クローザーのセーブ機会を除く）
+        if ctx.ip_pitched >= self.LONG_RELIEVER_MAX_INNINGS:
+            return self._select_reliever(ctx, used_pitchers, next_batter)
+        
+        # (C) スタミナ・球数限界
         if ctx.current_stamina < self.RELIEVER_STAMINA_MIN:
             return self._select_reliever(ctx, used_pitchers, next_batter)
         
         if ctx.pitch_count > self.RELIEVER_PITCH_COUNT_LIMIT:
             return self._select_reliever(ctx, used_pitchers, next_batter)
         
-        # (C) イニングまたぎ防止 (新イニング開始時 = 3アウト取った直後)
+        # (D) イニングまたぎ防止 (新イニング開始時 = 3アウト取った直後)
         if ctx.outs == 0 and ctx.ip_pitched > 0:
             # 例外: クローザー9回以降のみ続投
             if role == PitcherRole.CLOSER and ctx.inning >= 9:
                 pass  # 続投OK
-            elif role == PitcherRole.LONG and ctx.is_blowout:
-                # ロングでも最大1.5イニング
-                if ctx.ip_pitched >= 1.5:
-                    return self._select_reliever(ctx, used_pitchers, next_batter)
+            elif role == PitcherRole.LONG:
+                # ロングリリーフは続投OK（3イニング上限は上で既にチェック済み）
+                pass
             else:
                 # 通常の中継ぎ/セットアップは新イニングで必ず交代
                 return self._select_reliever(ctx, used_pitchers, next_batter)
         
-        # (D) イニング途中でも制限
-        if ctx.ip_pitched >= self.RELIEVER_ONE_INNING_LIMIT:
+        # (E) イニング途中でも制限（ロング以外）
+        if role != PitcherRole.LONG and ctx.ip_pitched >= self.RELIEVER_ONE_INNING_LIMIT:
             if role == PitcherRole.CLOSER and is_save_situation:
                 pass  # クローザーのみ続投
             else:
                 return self._select_reliever(ctx, used_pitchers, next_batter)
         
-        # (E) 炎上中
+        # (F) 炎上中
         if ctx.runs_allowed >= self.RELIEVER_BLOWUP_RUNS:
             return self._select_reliever(ctx, used_pitchers, next_batter)
         

@@ -304,6 +304,15 @@ class BoxScoreCard(Card):
         return container
 
     def _extract_stats(self, team, game_stats, pitchers_used=None):
+        # Pre-compute name map for fast lookup
+        stats_map = {}
+        for p, s in game_stats.items():
+            stats_map[p] = s
+            # Also map by name for fallback
+            p_name = getattr(p, 'name', str(p))
+            if p_name not in stats_map: # Prioritize object match, fallback uses first name match
+                stats_map[p_name] = s
+            
         batters = []
         pitchers = []
         
@@ -315,7 +324,7 @@ class BoxScoreCard(Card):
             if 0 <= pid < len(team.players):
                 p = team.players[pid]
                 if p not in processed_pids:
-                    s = self._get_player_stats(p, game_stats)
+                    s = self._get_player_stats(p, stats_map)
                     # Include even if no plate app for starters
                     batters.append((p, s))
                     processed_pids.add(p)
@@ -323,7 +332,7 @@ class BoxScoreCard(Card):
         # Subs (Anyone else with stats)
         for p in team.players:
             if p in processed_pids: continue
-            s = self._get_player_stats(p, game_stats)
+            s = self._get_player_stats(p, stats_map)
             if s.get('plate_appearances', 0) > 0:
                 batters.append((p, s))
                 processed_pids.add(p)
@@ -331,21 +340,26 @@ class BoxScoreCard(Card):
         # Pitchers - use pitchers_used list if available for correct appearance order
         if pitchers_used:
             for p in pitchers_used:
-                s = self._get_player_stats(p, game_stats)
+                s = self._get_player_stats(p, stats_map)
                 if s.get('innings_pitched', 0) > 0 or s.get('games_pitched', 0) > 0:
                     pitchers.append((p, s))
         else:
             # Fallback: iterate through team.players (may not be in order)
             for p in team.players:
-                s = self._get_player_stats(p, game_stats)
+                s = self._get_player_stats(p, stats_map)
                 if s.get('innings_pitched', 0) > 0 or s.get('games_pitched', 0) > 0:
                     pitchers.append((p, s))
                 
         return batters, pitchers
 
-    def _get_player_stats(self, player, game_stats):
-        if player in game_stats: return game_stats[player]
-        return {}
+    def _get_player_stats(self, player, stats_map):
+        # Direct match
+        if player in stats_map: 
+            return stats_map[player]
+        
+        # Name match
+        player_name = getattr(player, 'name', str(player))
+        return stats_map.get(player_name, {})
 
     def _create_batter_table(self, player_stats_pairs):
         cols = ["NAME", "AVG", "AB", "H", "HR", "RBI", "SO", "BB"]
@@ -524,25 +538,18 @@ class GameResultPage(ContentPanel):
             top_scores = data.get("away_innings", [])
             bot_scores = data.get("home_innings", [])
         
-        # Determine actual innings played by trimming trailing zeros (for innings not played)
-        # But only for extra innings (beyond 9), 9 innings minimum should always show
-        def get_actual_innings(scores):
-            # Find last non-zero or first 9, whichever is larger
-            count = len(scores)
-            if count <= 9:
-                return count
-            # For extra innings, trim trailing zeros that weren't actually played
-            while count > 9 and scores[count-1] == 0:
-                count -= 1
-            return count
+        # Determine actual innings played: use the maximum length of both arrays
+        # since both teams play the same number of innings (except for walk-off scenarios)
+        max_innings_played = max(len(top_scores), len(bot_scores), 9)
         
-        actual_away_innings = get_actual_innings(top_scores)
-        actual_home_innings = get_actual_innings(bot_scores)
-        max_inn = max(actual_away_innings, actual_home_innings, 9)
+        # Extend arrays to match the max length if needed (for display consistency)
+        while len(top_scores) < max_innings_played:
+            top_scores.append(0)
+        while len(bot_scores) < max_innings_played:
+            bot_scores.append(None)  # None for innings not played (e.g., bottom of 9th walk-off)
         
-        # Trim the score lists to actual innings
-        top_scores = top_scores[:actual_away_innings] if len(top_scores) > actual_away_innings else top_scores
-        bot_scores = bot_scores[:actual_home_innings] if len(bot_scores) > actual_home_innings else bot_scores
+        max_inn = max_innings_played
+
             
         self.score_card.line_score_table.set_inning_count(max_inn)
         self.score_card.line_score_table.update_names(h_team.name, a_team.name)

@@ -54,9 +54,15 @@ class LineScoreTable(QTableWidget):
         self.setColumnCount(len(self.cols))
         self.setHorizontalHeaderLabels(self.cols)
         
+        # Clear all cells to prevent old values from persisting
+        for row in range(self.rowCount()):
+            for col in range(self.columnCount()):
+                self.setItem(row, col, None)
+        
         h = self.horizontalHeader()
         for i in range(len(self.cols)):
             h.setSectionResizeMode(i, QHeaderView.Stretch)
+
 
     def update_names(self, home_name, away_name):
         """Update team names in the first column"""
@@ -93,12 +99,14 @@ class LineScoreTable(QTableWidget):
         
         if inning > current_max_inning:
             diff = inning - current_max_inning
-            for _ in range(diff):
+            for i in range(diff):
                 insert_idx = self.columnCount() - 3
-                new_inning_num = self.columnCount() - 3
+                # Calculate the correct inning number for this new column
+                new_inning_num = current_max_inning + i + 1
                 self.insertColumn(insert_idx)
                 self.setHorizontalHeaderItem(insert_idx, QTableWidgetItem(str(new_inning_num)))
                 self.horizontalHeader().setSectionResizeMode(insert_idx, QHeaderView.Stretch)
+
 
         # Set score
         row = 0 if is_top else 1

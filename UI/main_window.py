@@ -454,7 +454,14 @@ class MainWindow(QMainWindow):
         
         # UIをブロックしないようにしたいが、簡単のため同期実行 (Fast forward is fast enough usually)
         from models import TeamLevel
-        engine = LiveGameEngine(home_team, away_team, TeamLevel.FIRST)
+        
+        # Enable debug mode only for player team games
+        is_player_game = False
+        if self.game_state and self.game_state.player_team:
+            is_player_game = (home_team == self.game_state.player_team or away_team == self.game_state.player_team)
+        
+        engine = LiveGameEngine(home_team, away_team, TeamLevel.FIRST, debug_mode=is_player_game)
+
         
         # Track Stats
         score_history = {"top": [], "bot": []}
@@ -470,25 +477,33 @@ class MainWindow(QMainWindow):
             # If current is Top 2, then Bot 1 ended.
             # If current is Bot 1, then Top 1 ended.
             
-            # Identify which half-inning justify ended
+            # Identify which half-inning just ended
             if is_top: 
                 # Top of new inning -> Bottom of previous inning ended
-                # prev_inning was same as (inning - 1) usually
+                target_inning = inning - 1  # Bottom (inning-1) ended
                 target_key = "bot"
                 # Runs scored by Home Team
                 runs = current_home - scores_at_inning_start["home"]
-                # Ensure list is long enough
-                while len(score_history["bot"]) < (inning - 1): score_history["bot"].append(0)
-                score_history["bot"].append(runs)
+                # Ensure list is long enough for the target inning (0-indexed, so target_inning - 1)
+                while len(score_history["bot"]) < target_inning - 1:
+                    score_history["bot"].append(0)
+                score_history["bot"].append(runs)  # Append at position target_inning - 1
                 scores_at_inning_start["home"] = current_home
+
+
             else:
                 # Bottom of inning -> Top of same inning ended
+                target_inning = inning  # Top (inning) ended
                 target_key = "top"
                 # Runs scored by Away Team
                 runs = current_away - scores_at_inning_start["away"]
-                while len(score_history["top"]) < inning: score_history["top"].append(0)
-                score_history["top"].append(runs)
+                # Ensure list is long enough for the target inning (0-indexed)
+                while len(score_history["top"]) < target_inning - 1:
+                    score_history["top"].append(0)
+                score_history["top"].append(runs)  # Append at position target_inning-1
                 scores_at_inning_start["away"] = current_away
+
+
 
         # 安全策: 無限ループ防止のため最大300打席程度で切る
         max_steps = 2000 
@@ -556,10 +571,14 @@ class MainWindow(QMainWindow):
              # Or if they batted earlier innings.
              if rem_home > 0: score_history["bot"].append(rem_home)
              else: pass 
+        
+        # DEBUG: Final score history state
+
             
         # Finalize
         current_date = self.game_state.current_date if self.game_state else "2027-01-01"
         stats_result = engine.finalize_game_stats(current_date)
+
         
         # Build HR List (Format must be Tuples: Name, Count, TeamName)
         hr_list = []
@@ -600,8 +619,11 @@ class MainWindow(QMainWindow):
                 "save": stats_result.get("save")
             },
             "hits": (engine.state.home_hits, engine.state.away_hits),
-            "errors": (engine.state.home_errors, engine.state.away_errors)
+            "errors": (engine.state.home_errors, engine.state.away_errors),
+            "home_pitchers_used": engine.state.home_pitchers_used,
+            "away_pitchers_used": engine.state.away_pitchers_used
         }
+
         
         self._on_game_finished(result)
 
@@ -683,7 +705,9 @@ class MainWindow(QMainWindow):
             'errors': (getattr(game, 'home_errors', 0), getattr(game, 'away_errors', 0)),
             'game_stats': getattr(game, 'game_stats', {}) or {},
             'pitcher_result': pitcher_result,
-            'home_runs': home_runs
+            'home_runs': home_runs,
+            'home_pitchers_used': getattr(game, 'home_pitchers_used', None),
+            'away_pitchers_used': getattr(game, 'away_pitchers_used', None)
         }
 
         

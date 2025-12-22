@@ -292,7 +292,22 @@ class NPBPitcherManager:
         if current_pitcher.is_injured:
             return self._select_reliever(team, state, score_diff, next_batter, current_pitcher)
 
-        # 3. Starter Logic
+        # 3. Winning Formula Enforcement (Start of Inning)
+        # 勝ちパターン継投の強制 (イニング頭)
+        if state.outs == 0:
+            # 9回以降: セーブシチュエーションなら守護神
+            if state.inning >= 9:
+                is_save_situation = (score_diff > 0 and score_diff <= 3) or (score_diff >= 4 and (state.runner_1b or state.runner_2b or state.runner_3b))
+                # 同点の場合はHOMEなら守護神を出す (サヨナラ勝ち狙い)
+                if score_diff == 0 and not state.is_top: is_save_situation = True
+                
+                if is_save_situation and role != PitcherRole.CLOSER:
+                     closer = team.get_closer()
+                     # If closer is available and not tired
+                     if closer and closer != current_pitcher and closer.current_stamina > 20 and not closer.is_injured:
+                         return closer
+
+        # 4. Starter Logic
         if is_starter:
             # (A) Hard Fatigue Limits
             if current_stamina < 5: return self._select_reliever(team, state, score_diff, next_batter, current_pitcher)
@@ -306,60 +321,47 @@ class NPBPitcherManager:
             if current_runs >= 8:
                 return self._select_reliever(team, state, score_diff, next_batter, current_pitcher)
                 
-            # (C) Inning Start Check (Avoid starting tired)
+            # (C) Inning Start Check (Avoid starting tired or strict inning limits for modern SP)
             if state.outs == 0:
-                # Allow pushing for Quality Start (6IP, <3 ER) if doing well
                 is_qs_pace = state.inning >= 6 and current_runs <= 3
-                stamina_threshold = 10 if is_qs_pace else 18 # Further relaxed thresholds for more starter innings
+                stamina_threshold = 10 if is_qs_pace else 18 
                 if current_stamina < stamina_threshold:
                      return self._select_reliever(team, state, score_diff, next_batter, current_pitcher)
                 
-                # Close Game (Lead/Deficit <= 2) and Inning >= 7 -> Go to bullpen if showing fatigue
+                # Close Game check
                 if state.inning >= 7 and abs(score_diff) <= 2:
-                    if float(pitch_count) > 120 or current_stamina < 25: # Further relaxed for starter innings
+                    if float(pitch_count) > 110 or current_stamina < 25: 
                         return self._select_reliever(team, state, score_diff, next_batter, current_pitcher)
                         
             # (D) Crisis Management (Mid-Inning)
-            # 6th Inning+, Close Game, Runners on base
             if state.inning >= 6 and abs(score_diff) <= 3 and (state.runner_1b or state.runner_2b):
-                if current_stamina < 15: # Tired and in trouble (further relaxed)
+                if current_stamina < 15: 
                     return self._select_reliever(team, state, score_diff, next_batter, current_pitcher)
-                if current_runs >= 6: # Giving up runs (further relaxed)
+                if current_runs >= 5: 
                     return self._select_reliever(team, state, score_diff, next_batter, current_pitcher)
 
-        # 4. Reliever Logic
+        # 5. Reliever Logic (Standard)
         else:
-            role = self._get_pitcher_role_in_game(team, current_pitcher)
-            
-            # (A) Closer special case
-            is_save_situation = (score_diff > 0 and score_diff <= 3) or (score_diff > 0 and (state.runner_1b or state.runner_2b or state.runner_3b) and score_diff == 4) 
+            # (A) Closer special case (Don't pull closer in save situation unless disaster)
+            is_save_situation = (score_diff > 0 and score_diff <= 3) 
             if role == PitcherRole.CLOSER and is_save_situation and state.inning >= 9:
-                return None # Ensure finish
+                 if current_runs >= 3: return self._select_reliever(team, state, score_diff, next_batter, current_pitcher) # Blowup
+                 return None 
                 
             # (B) Fatigue / Limits
             if current_stamina < 10: return self._select_reliever(team, state, score_diff, next_batter, current_pitcher)
             if pitch_count > 40: return self._select_reliever(team, state, score_diff, next_batter, current_pitcher)
             
-            # (C) Inning Straddle Prevention (Strict)
-            # Start of new inning
+            # (C) Inning Straddle / One Inning Limit
             if state.outs == 0 and current_pitcher_ip > 0:
-                 # Exceptions:
-                 # 1. Closer in tie game (9th-10th) or save situation
-                 # 2. Long relief in blowout
-                 # 3. Setup A (8th) finishing 8th then maybe facing 1 batter in 9th? No, usually pull.
-                 
-                if role == PitcherRole.CLOSER and state.inning >= 9:
-                     pass # Keep going
+                # Always look to refresh unless Closer or Long Relief
+                if role == PitcherRole.CLOSER and state.inning >= 9: pass
                 elif role == PitcherRole.LONG and abs(score_diff) >= 4:
-                     # Long reliever can throw multiple innings in blowout
                      if current_pitcher_ip < 2.0: pass
                      else: return self._select_reliever(team, state, score_diff, next_batter, current_pitcher)
                 else:
-                     # Setup/Middle -> Pull immediately at start of inning
                      return self._select_reliever(team, state, score_diff, next_batter, current_pitcher)
 
-            # (D) One Inning Limit (Mid-inning limit)
-            # If IP >= 1.0, look for exit (unless Closer)
             if current_pitcher_ip >= 1.0:
                 if role == PitcherRole.CLOSER and is_save_situation: pass
                 elif role == PitcherRole.LONG and abs(score_diff) >= 4: 
@@ -367,87 +369,79 @@ class NPBPitcherManager:
                 else:
                     return self._select_reliever(team, state, score_diff, next_batter, current_pitcher)
             
-            # (E) Crisis (Reliever blowing it)
+            # (E) Crisis
             if current_runs >= 2 and score_diff <= 2:
                 return self._select_reliever(team, state, score_diff, next_batter, current_pitcher)
 
-        # 5. Situational Matchups (Lefty Specialist)
-        # Winning pattern (7th+), Close game, Lefty batter coming up
+        # 6. Lefty Specialist (Specific case)
         if state.inning >= 7 and score_diff > 0 and score_diff <= 3 and next_batter.bats == "左":
             if current_pitcher.throws == "右" and not (is_starter and current_stamina > 40):
-                # Don't pull Closer/Setup A casually
                 role = self._get_pitcher_role_in_game(team, current_pitcher)
                 if role not in [PitcherRole.CLOSER, PitcherRole.SETUP_A]:
                     specialist = self._find_available_reliever(team, state, role_filter=[PitcherRole.SPECIALIST])
                     if specialist: return specialist
 
         return None
-
+    
+    # ... (Keep existing methods) ...
     def _select_reliever(self, team: Team, state: GameState, score_diff: int, next_batter: Player, current_pitcher: Player) -> Optional[Player]:
-        """
-        Select the best available reliever based on the game situation ("Winning Pattern" vs "Losing/Mop-up").
-        """
+        # ... logic as before but more robust ...
         used_pitchers = state.home_pitchers_used if state.is_top else state.away_pitchers_used
-        
-        # 1. Determine Target Role Strategy
-        target_roles = []
         is_winning = score_diff > 0
         is_close = abs(score_diff) <= 3
-        is_blowout = abs(score_diff) >= 5
+        is_tie = score_diff == 0
         
-        # (A) Victory Formula (Winning & Close)
-        if is_winning and is_close:
-            if state.inning >= 9:
+        target_roles = []
+        
+        if (is_winning and is_close) or is_tie:
+            if state.inning >= 9: 
+                # Winning or Tie in 9th+: Closer priority
                 target_roles = [PitcherRole.CLOSER, PitcherRole.SETUP_A]
-            elif state.inning == 8:
+            elif state.inning == 8: 
+                # 8th: Setup A priority, but allow Setup B/Middle
                 target_roles = [PitcherRole.SETUP_A, PitcherRole.SETUP_B, PitcherRole.MIDDLE]
-            elif state.inning == 7:
+            elif state.inning == 7: 
+                # 7th: Setup B priority, then Middle
                 target_roles = [PitcherRole.SETUP_B, PitcherRole.MIDDLE]
-            else:
+            else: 
                 target_roles = [PitcherRole.MIDDLE, PitcherRole.LONG]
-                
-        # (B) Tie Game (High Leverage)
-        elif score_diff == 0:
-            if state.inning >= 8:
-                target_roles = [PitcherRole.SETUP_A, PitcherRole.SETUP_B, PitcherRole.CLOSER] # Go for win
-            else:
-                target_roles = [PitcherRole.MIDDLE, PitcherRole.SETUP_B]
-                
-        # (C) Losing (Close)
         elif not is_winning and is_close:
-            # Keep it close using good middle relievers
-            target_roles = [PitcherRole.MIDDLE, PitcherRole.SETUP_B]
-            
-        # (D) Blowout (Win or Loss) -> Save high leverage arms
+            # Losing but close (1-3 runs): Use Middle/Long, avoid wasting Setup/Closer
+            target_roles = [PitcherRole.MIDDLE, PitcherRole.LONG]
         else:
+            # Blowout
             target_roles = [PitcherRole.LONG, PitcherRole.MIDDLE]
-
-        # 2. Find Candidates Matching Roles
-        # Flatten priority list: Start searching for the first role, then second...
-        candidate = None
-        
-        # Lefty Specialist check for High Leverage
-        if is_close and next_batter.bats == "左":
-            candidate = self._find_available_reliever(team, state, role_filter=[PitcherRole.SPECIALIST])
-            if candidate: return candidate
-
+            
         for role in target_roles:
             candidate = self._find_available_reliever(team, state, role_filter=[role])
             if candidate: return candidate
             
-        # 3. Fallback: Any available arm (sorted by appropriate ability)
-        # If we need a win, get best available. If blowout, get worst available.
-        all_available = self._get_all_available_relievers(team, state)
-        if not all_available: return None # No one left! (Should catch elsewhere)
-        
-        if is_winning and is_close:
-            # Best available
-            all_available.sort(key=lambda p: p.stats.overall_pitching(), reverse=True)
-        else:
-            # Save arms (worst first, or high stamina)
-            all_available.sort(key=lambda p: p.stats.overall_pitching(), reverse=False)
-            
-        return all_available[0]
+        # Fallback
+        all_avail = self._get_all_available_relievers(team, state)
+        if all_avail:
+             # ★修正: 勝ちパターン以外(負け試合や点差が開いた場面)では、セットアッパー/クローザーを極力出さない
+             high_leverage_roles = [PitcherRole.CLOSER, PitcherRole.SETUP_A, PitcherRole.SETUP_B]
+             
+             if not ((is_winning and is_close) or is_tie):
+                 # Filter out high leverage pitchers unless absolutely necessary (stamina management)
+                 low_leverage_avail = []
+                 for p in all_avail:
+                     p_role = self._get_pitcher_role_in_game(team, p)
+                     if p_role not in high_leverage_roles:
+                         low_leverage_avail.append(p)
+                 
+                 # If we have low leverage specialists, use them
+                 if low_leverage_avail:
+                     all_avail = low_leverage_avail
+             
+             # Sort logic
+             if is_winning and is_close: all_avail.sort(key=lambda p: p.stats.overall_pitching(), reverse=True)
+             else: all_avail.sort(key=lambda p: p.stats.overall_pitching(), reverse=False) # Save best arms
+             
+             if all_avail:
+                 return all_avail[0]
+                 
+        return None
         
     def _find_available_reliever(self, team: Team, state: GameState, role_filter: List[PitcherRole]) -> Optional[Player]:
         all_relievers = self._get_all_available_relievers(team, state)
@@ -1563,7 +1557,7 @@ class AdvancedDefenseEngine:
             return False
 
 class LiveGameEngine:
-    def __init__(self, home: Team, away: Team, team_level: TeamLevel = TeamLevel.FIRST, league_stats: Dict[str, float] = None, is_all_star: bool = False, is_postseason: bool = False):
+    def __init__(self, home: Team, away: Team, team_level: TeamLevel = TeamLevel.FIRST, league_stats: Dict[str, float] = None, is_all_star: bool = False, is_postseason: bool = False, debug_mode: bool = False):
         self.home_team = home; self.away_team = away
         self.team_level = team_level; self.state = GameState()
         self.pitch_gen = PitchGenerator(); self.bat_gen = BattedBallGenerator()
@@ -1574,9 +1568,13 @@ class LiveGameEngine:
         if not self.stadium: self.stadium = Stadium(name=f"{home.name} Stadium")
         self.league_stats = league_stats or {}
         
+        # Debug mode (only output debug prints when True)
+        self.debug_mode = debug_mode
+        
         # Check All-Star
         self.is_all_star = is_all_star or (home.name in ["ALL-NORTH", "ALL-SOUTH"] or away.name in ["ALL-NORTH", "ALL-SOUTH"])
         self.is_postseason = is_postseason
+
         
         # 新しい投手管理システム
         self.home_pitching_director = PitchingDirector(home)
@@ -1801,17 +1799,22 @@ class LiveGameEngine:
         try:
             new_idx = team.players.index(new_pitcher)
             if self.state.is_top:
-                self.state.home_pitcher_idx = new_idx; self.state.home_pitchers_used.append(new_pitcher)
+                self.state.home_pitcher_idx = new_idx
+                if new_pitcher not in self.state.home_pitchers_used:
+                    self.state.home_pitchers_used.append(new_pitcher)
                 self.state.home_pitcher_stamina = new_pitcher.stats.stamina * 2.0 * (new_pitcher.current_stamina / 100.0)
                 self.state.home_pitch_count = 0
                 self.state.home_current_pitcher_runs = 0
             else:
-                self.state.away_pitcher_idx = new_idx; self.state.away_pitchers_used.append(new_pitcher)
+                self.state.away_pitcher_idx = new_idx
+                if new_pitcher not in self.state.away_pitchers_used:
+                    self.state.away_pitchers_used.append(new_pitcher)
                 self.state.away_pitcher_stamina = new_pitcher.stats.stamina * 2.0 * (new_pitcher.current_stamina / 100.0)
                 self.state.away_pitch_count = 0
                 self.state.away_current_pitcher_runs = 0
             self.game_stats[new_pitcher]['games_pitched'] = 1
         except ValueError: pass
+
 
     def change_batter(self, new_batter: Player):
         """代打処理"""
@@ -2170,6 +2173,10 @@ class LiveGameEngine:
                 self.state.runner_1b = None
             self.state.outs += 1
             self.game_stats[runner]['caught_stealing'] += 1
+            # ★修正: 盗塁死でもIPを記録
+            pitcher, _ = self.get_current_pitcher()
+            self.game_stats[pitcher]['innings_pitched'] += (1.0/3.0)
+
             if catcher:
                 val = (1.0 - avg_stop_prob) * run_value_diff * UZR_SCALE["rSB"]
                 self.game_stats[catcher]['uzr_rsb'] += val
@@ -2177,6 +2184,7 @@ class LiveGameEngine:
             if self.state.outs >= 3:
                 self._change_inning()
             return {'success': False, 'steal_type': steal_type}
+
 
     def process_pitch_result(self, res, pitch, ball, strategy="NORMAL"):
         pitcher, _ = self.get_current_pitcher(); batter, _ = self.get_current_batter()
@@ -2275,6 +2283,10 @@ class LiveGameEngine:
         pitcher, _ = self.get_current_pitcher()
         self.state.outs += 1
         self.game_stats[pitcher]['innings_pitched'] += (1.0 / 3.0)
+        
+        # DEBUG: Track IP recording
+
+        
         defense_team = self.home_team if self.state.is_top else self.away_team
         for pid in defense_team.current_lineup:
             if 0 <= pid < len(defense_team.players) and defense_team.players[pid].position != Position.DH:
@@ -2283,9 +2295,14 @@ class LiveGameEngine:
         batter, _ = self.get_current_batter()
         self._record_pf(batter, pitcher)
         self._reset_count(); self._next_batter()
-        # Only advance inning if game is not over (prevents 10th inning score recording when game ends in 9th)
-        if self.state.outs >= 3 and not self.is_game_over():
-            self._change_inning()
+        
+        # Only advance inning if game is not over
+        if self.state.outs >= 3:
+            game_over = self.is_game_over()
+
+            if not game_over:
+                self._change_inning()
+
 
 
     def _resolve_play(self, play, strategy, ball=None):
@@ -2389,6 +2406,9 @@ class LiveGameEngine:
         self.game_stats[pitcher]['innings_pitched'] += (1.0/3.0)
         self.state.outs += 1
         
+        # DEBUG: Track IP recording in _resolve_play
+
+        
         for pid in defense_team.current_lineup:
             if 0 <= pid < len(defense_team.players) and defense_team.players[pid].position != Position.DH:
                 self.game_stats[defense_team.players[pid]]['defensive_innings'] += (1.0/3.0)
@@ -2411,9 +2431,12 @@ class LiveGameEngine:
         elif is_double_play:
             self.game_stats[batter]['at_bats'] += 1; self.game_stats[batter]['grounded_into_dp'] += 1
             self.state.outs += 1; self.game_stats[pitcher]['innings_pitched'] += (1.0/3.0)
+            # DEBUG: Track double play second out
+
             for pid in defense_team.current_lineup:
                 if 0 <= pid < len(defense_team.players) and defense_team.players[pid].position != Position.DH:
                     self.game_stats[defense_team.players[pid]]['defensive_innings'] += (1.0/3.0)
+
         else:
             self.game_stats[batter]['at_bats'] += 1
             if scored > 0: 
@@ -2491,6 +2514,10 @@ class LiveGameEngine:
                         if random.random() < 0.05:
                             self.game_stats[self.state.runner_2b]['ubr_val'] += UBR_FAIL_2BH
                             self.state.runner_2b = None; self.state.outs += 1
+                            # ★修正: 走塁死でもIPを記録
+                            pitcher, _ = self.get_current_pitcher()
+                            self.game_stats[pitcher]['innings_pitched'] += (1.0/3.0)
+
                             # ★修正: 走塁死で3アウトになった場合はイニングチェンジ
                             if self.state.outs >= 3:
                                 self._change_inning()
@@ -2509,6 +2536,10 @@ class LiveGameEngine:
                         if random.random() < 0.05:
                             self.game_stats[self.state.runner_1b]['ubr_val'] += UBR_FAIL_1BH
                             self.state.runner_1b = None; self.state.outs += 1
+                            # ★修正: 走塁死でもIPを記録
+                            pitcher, _ = self.get_current_pitcher()
+                            self.game_stats[pitcher]['innings_pitched'] += (1.0/3.0)
+
                             # ★修正: 走塁死で3アウトになった場合はイニングチェンジ
                             if self.state.outs >= 3:
                                 self._change_inning()
@@ -2525,10 +2556,15 @@ class LiveGameEngine:
                         if random.random() < 0.05:
                             self.game_stats[self.state.runner_1b]['ubr_val'] += UBR_FAIL_1B3B
                             self.state.runner_1b = None; self.state.outs += 1
+                            # ★修正: 走塁死でもIPを記録
+                            pitcher, _ = self.get_current_pitcher()
+                            self.game_stats[pitcher]['innings_pitched'] += (1.0/3.0)
+
                             # ★修正: 走塁死で3アウトになった場合はイニングチェンジ
                             if self.state.outs >= 3:
                                 self._change_inning()
                                 return scored_players
+
                         else:
                             self.state.runner_3b = self.state.runner_1b; self.game_stats[self.state.runner_1b]['ubr_val'] += UBR_SUCCESS_1B3B
                             self.state.runner_1b = None
@@ -2629,8 +2665,9 @@ class LiveGameEngine:
         # ハードリミット（13回以上は強制終了）
         if inning >= 13:
             return True
-        
+
         return False
+
 
 
     def finalize_game_stats(self, date_str: str = "2027-01-01"):
@@ -2650,6 +2687,17 @@ class LiveGameEngine:
         home_win = self.state.home_score > self.state.away_score
         away_win = self.state.away_score > self.state.home_score
         is_draw = not home_win and not away_win
+        
+        # Ensure inning scores cover all innings played (for extra innings with no runs)
+        while len(self.state.away_inning_scores) < self.state.inning:
+            self.state.away_inning_scores.append(0)
+        while len(self.state.home_inning_scores) < self.state.inning:
+            self.state.home_inning_scores.append(0)
+        
+        # DEBUG: Show pitchers used in order and their IP
+
+
+
         
         if is_draw:
             # 引き分けの場合は勝敗投手なし
@@ -2674,6 +2722,12 @@ class LiveGameEngine:
             win_team_pitchers = list(self.state.away_pitchers_used)
             loss_team_pitchers = list(self.state.home_pitchers_used)
             win_team = self.away_team
+
+        # === ゲーム出場記録補正 (バグ回避用) ===
+        # 登板した全投手について games_pitched が必ず記録されていることを保証
+        for p in win_team_pitchers + loss_team_pitchers:
+             if 'games_pitched' not in self.game_stats[p] or self.game_stats[p]['games_pitched'] == 0:
+                 self.game_stats[p]['games_pitched'] = 1
 
         # === 勝利投手判定 (NPB規則) ===
         starter = win_team_pitchers[0]
@@ -2708,14 +2762,16 @@ class LiveGameEngine:
         # より正確には、登板時スコア差と失点を追跡して判定すべき
         # 最も失点が多い投手を敗戦投手とする簡易ルール
         if len(loss_team_pitchers) > 1:
-            loss_p = max(loss_team_pitchers, 
-                key=lambda p: self.game_stats[p].get('runs_allowed', 0))
+            runs_map = {p: self.game_stats[p].get('runs_allowed', 0) for p in loss_team_pitchers}
+            max_runs = max(runs_map.values())
+            # 失点が多い投手の中で、登板順が早い投手を優先（先発など）
+            candidates = [p for p in loss_team_pitchers if runs_map[p] == max_runs]
+            loss_p = candidates[0]
 
         # === セーブ判定 (NPB規則) ===
         final_pitcher = win_team_pitchers[-1]
         if final_pitcher != win_p:
             final_ip = self.game_stats[final_pitcher]['innings_pitched']
-            final_runs = self.game_stats[final_pitcher].get('runs_allowed', 0)
             score_diff = abs(self.state.home_score - self.state.away_score)
             entry_diff = self.game_stats[final_pitcher].get('entry_score_diff', score_diff)
             
@@ -2727,40 +2783,59 @@ class LiveGameEngine:
             if final_ip >= 1/3:
                 # 特定条件のいずれか:
                 # a) 登板時3点差以内で1イニング以上
-                # b) 登板時、次2打者HRで同点(走者+2点差以下) - 簡略化して3点差以内
+                # b) 登板時、次2打者HRで同点(走者+2点差以下) 
                 # c) 3イニング以上投球
-                is_save_situation = (
-                    (entry_diff <= 3 and final_ip >= 1.0) or  # 3点差以内で1回以上
-                    (entry_diff <= 3) or  # 次2打者HRルール(簡略)
-                    (final_ip >= 3.0)  # 3回以上
-                )
+                
+                # 登板時差が3点以内
+                cond_a = (entry_diff <= 3 and final_ip >= 1.0)
+                # 3イニング以上
+                cond_c = (final_ip >= 3.0)
+                # 2打者本塁打で同点/逆転 (簡易判定: 2点差以内ならOK、ただしIP<1の場合でもOK)
+                cond_b = (entry_diff <= 2) 
+
+                is_save_situation = (cond_a or cond_b or cond_c)
                 if is_save_situation:
                     save_p = final_pitcher
 
         # === ホールド判定 (NPB規則) ===
-        for p in win_team_pitchers:
-            # 除外: 先発、勝利、敗戦、セーブ、最終投手
-            if p == starter or p == win_p or p == save_p or p == final_pitcher:
-                continue
+        # 条件:
+        # 1. 勝利・敗戦・セーブ以外
+        # 2. 1アウト(1/3回)以上
+        # 3. リード維持 または 同点維持
+        #    - リード時: セーブと同じシチュエーション条件 (3点差以内1回、2者連発圏内、3回以上)
+        #    - 同点時: 失点せず同点のまま降板 (勝ち越した場合は勝利投手になるためここには来ないが、同点のままならホールド)
+        
+        # ホールドは両チーム対象
+        all_pitchers_for_hold = []
+        all_pitchers_for_hold.extend(win_team_pitchers)
+        all_pitchers_for_hold.extend(loss_team_pitchers)
+
+        for p in all_pitchers_for_hold:
+            if p == win_p or p == loss_p or p == save_p: continue
+            if 'innings_pitched' not in self.game_stats[p]: continue
             
             ip = self.game_stats[p]['innings_pitched']
             runs = self.game_stats[p].get('runs_allowed', 0)
-            entry_diff = self.game_stats[p].get('entry_score_diff', 0)
+            entry_diff = self.game_stats[p].get('entry_score_diff', 0) 
             
-            # ホールド条件:
-            # 1. 1アウト以上(1/3イニング以上)
-            # 2. 自責点でリード(同点含む)を失っていない
-            # 3. 特定条件(セーブと同じ)を満たす
             if ip >= 1/3:
-                # 登板時リードしていた(or同点)で、降板時もリード維持
-                if entry_diff >= 0:  # 登板時リードまたは同点
-                    # 特定条件チェック
-                    is_hold_situation = (
-                        (entry_diff <= 3 and entry_diff > 0 and ip >= 1.0) or  # 3点差リード内で1回以上
-                        (entry_diff == 0 and runs == 0) or  # 同点登板で無失点
-                        (ip >= 3.0)  # 3回以上
-                    )
-                    if is_hold_situation:
+                # 登板時リード (entry_diff > 0)
+                if entry_diff > 0:
+                    # 降板時もリード (簡易: 逆転許さず)
+                    lead_kept = (entry_diff - runs > 0)
+                    if lead_kept:
+                        # 条件判定
+                        is_hold = False
+                        if entry_diff <= 3 and ip >= 1.0: is_hold = True
+                        elif entry_diff <= 2: is_hold = True # 2点差以内なら1アウトでOK
+                        elif ip >= 3.0: is_hold = True
+                        
+                        if is_hold: hold_ps.append(p)
+                
+                # 登板時同点 (entry_diff == 0)
+                elif entry_diff == 0:
+                    # 失点0なら「同点を維持」
+                    if runs == 0:
                         hold_ps.append(p)
 
         # 記録を反映
@@ -2832,40 +2907,48 @@ class LiveGameEngine:
         # home_inning_scores should be 1 shorter than away_inning_scores
         # For normal games ending in bottom half, both are same length
         
-        # Away team (top) always completes their final inning
-        away_completed_innings = final_inning
+        # Determine actual completed innings with improved logic for Draw and X-games
         
-        # Home team (bottom) might not bat in final inning (X-game)
-        if self.state.is_top:
-            # Game ended after top half = X-game, home didn't bat this inning
-            home_completed_innings = final_inning - 1
+        # 1. Draw Game Correction
+        # If inning > 12 (NPB rules), game ended after 12th bottom.
+        # State would be inning=13, is_top=True.
+        MAX_INNINGS = 12
+        if self.state.inning > MAX_INNINGS:
+            away_completed_innings = MAX_INNINGS
+            home_completed_innings = MAX_INNINGS
         else:
-            # Game ended during/after bottom half
-            home_completed_innings = final_inning
+            final_inning = self.state.inning
+            away_completed_innings = final_inning
+            
+            # 2. X-Game / Called Game Logic
+            # If it's bottom of inning but 0 outs and Home leads -> X-game (Home didn't bat)
+            if not self.state.is_top and self.state.outs == 0 and self.state.home_score > self.state.away_score:
+                home_completed_innings = final_inning - 1
+            elif self.state.is_top:
+                # Game ended during top half (should be rare/called game) or after top half
+                home_completed_innings = final_inning - 1
+            else:
+                # Game ended during or after bottom half
+                home_completed_innings = final_inning
         
         # Strict trimming: only keep actually played innings
         # Minimum 9 innings unless game was shorter (impossible in normal play)
         away_completed_innings = max(9, away_completed_innings)
         home_completed_innings = max(8, home_completed_innings)  # X-game in 9th = 8 batting innings for home
         
-        # Trim arrays
+        # Extend arrays to match completed innings (fill with 0 for scoreless innings)
+        # This ensures that scoreless innings (especially in extra innings) are recorded
+        while len(self.state.home_inning_scores) < home_completed_innings:
+            self.state.home_inning_scores.append(0)
+        while len(self.state.away_inning_scores) < away_completed_innings:
+            self.state.away_inning_scores.append(0)
+
+        # Trim arrays (if longer than needed)
         if len(self.state.home_inning_scores) > home_completed_innings:
             self.state.home_inning_scores = self.state.home_inning_scores[:home_completed_innings]
         if len(self.state.away_inning_scores) > away_completed_innings:
             self.state.away_inning_scores = self.state.away_inning_scores[:away_completed_innings]
         
-        # Also remove trailing zeros beyond 9 innings that were never actually played
-        while len(self.state.home_inning_scores) > 9 and self.state.home_inning_scores[-1] == 0:
-            # Only trim if this inning wasn't actually played (no scoring AND beyond regulation)
-            if len(self.state.home_inning_scores) > home_completed_innings:
-                self.state.home_inning_scores.pop()
-            else:
-                break
-        while len(self.state.away_inning_scores) > 9 and self.state.away_inning_scores[-1] == 0:
-            if len(self.state.away_inning_scores) > away_completed_innings:
-                self.state.away_inning_scores.pop()
-            else:
-                break
 
 
         return {
