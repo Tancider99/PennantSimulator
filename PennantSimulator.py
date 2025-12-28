@@ -140,12 +140,17 @@ class GameController(QMainWindow):
         # Import and create edit screen
         from UI.screens.edit_screen import EditScreen
         self.edit_screen = EditScreen()
+        
+        # Import and create save/load screen
+        from UI.pages.save_load_page import SaveLoadPage
+        self.save_load_screen = SaveLoadPage()
 
         # Add screens to stack
         self.stack.addWidget(self.loading_screen)      # Index 0
         self.stack.addWidget(self.title_screen)         # Index 1
         self.stack.addWidget(self.team_select_screen)   # Index 2
         self.stack.addWidget(self.edit_screen)          # Index 3
+        self.stack.addWidget(self.save_load_screen)     # Index 4
 
         # Robustly ensure no frame on stack
         from PySide6.QtWidgets import QFrame
@@ -163,6 +168,8 @@ class GameController(QMainWindow):
         self.team_select_screen.back_clicked.connect(self._on_team_select_back)
         self.team_select_screen.confirm_clicked.connect(self._on_team_confirmed)
         self.edit_screen.back_clicked.connect(self._on_edit_back)
+        self.save_load_screen.load_completed.connect(self._on_load_completed)
+        self.save_load_screen.back_clicked.connect(self._on_save_load_back)
 
     def _start_loading(self):
         """Start the loading sequence"""
@@ -217,6 +224,7 @@ class GameController(QMainWindow):
             "Kobe Thunders",
             "Nagoya Sparks",
             "Hiroshima Phoenix",
+            
             "Yokohama Mariners",
             "Shinjuku Spirits"
         ]
@@ -294,11 +302,25 @@ class GameController(QMainWindow):
         self._start_main_game()
 
     def _on_load_game(self):
-        """Handle load game button click"""
-        print("  Opening load game dialog...")
-        # Show load game dialog
-        # For now, just start a new game
-        self._on_new_game()
+        """Handle load game button click (title screen - load only, no save)"""
+        print("  Opening save/load screen (load-only mode)...")
+        # Initialize save/load page with load-only mode and back button visible
+        if hasattr(self, 'game_state') and self.game_state:
+            self.save_load_screen.set_game_state(self.game_state)
+        else:
+            # Create temporary game state for loading
+            from game_state import GameStateManager
+            self.game_state = GameStateManager()
+            self.save_load_screen.set_game_state(self.game_state)
+        
+        # Title screen mode: load-only (no save), show back button
+        self.save_load_screen.set_mode(allow_save=False, show_back=True)
+        self.stack.setCurrentWidget(self.save_load_screen)
+    
+    def _on_load_completed(self):
+        """Handle successful load from save/load page"""
+        print("  Load complete, starting main game...")
+        self._start_main_game()
 
     def _on_settings(self):
         """Handle settings button click from title screen"""
@@ -314,6 +336,10 @@ class GameController(QMainWindow):
     
     def _on_edit_back(self):
         """Handle back from edit screen"""
+        self.stack.setCurrentIndex(1)  # Return to title screen
+    
+    def _on_save_load_back(self):
+        """Handle back from save/load screen"""
         self.stack.setCurrentIndex(1)  # Return to title screen
 
     def _on_exit(self):

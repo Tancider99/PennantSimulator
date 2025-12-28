@@ -1538,6 +1538,10 @@ class PostseasonEngine:
                 if new_game:
                     print(f"追加試合生成: {new_game.date} {new_game.away_team_name} vs {new_game.home_team_name}")
         
+        # 勝者が決まった場合、残りの未実施試合を削除
+        if series.winner:
+            series.schedule = [g for g in series.schedule if g.status != GameStatus.SCHEDULED]
+        
         # チャレンジャーシリーズ終了チェック → リーグファイナル開始
         if series.winner and series.stage == PostseasonStage.CS_FIRST:
             self._check_and_start_cs_final()
@@ -1700,6 +1704,42 @@ class PostseasonEngine:
         if self.japan_series:
             return self.japan_series.winner
         return None
+
+    def reschedule_cancelled_game(self, cancelled_game: ScheduledGame, series: 'PostseasonSeries') -> Optional[ScheduledGame]:
+        """雨天中止のポストシーズン試合を翌日に振替
+        
+        Args:
+            cancelled_game: 中止された試合
+            series: 所属するシリーズ
+            
+        Returns:
+            新しく生成された振替試合, または None
+        """
+        if series is None or series.winner is not None:
+            return None
+        
+        try:
+            old_date = datetime.datetime.strptime(cancelled_game.date, "%Y-%m-%d").date()
+            new_date = old_date + datetime.timedelta(days=1)
+            new_date_str = new_date.strftime("%Y-%m-%d")
+            
+            # 中止された試合と同じホーム/アウェイで振替試合を生成
+            new_game = ScheduledGame(
+                game_number=cancelled_game.game_number,
+                date=new_date_str,
+                home_team_name=cancelled_game.home_team_name,
+                away_team_name=cancelled_game.away_team_name
+            )
+            
+            # スケジュールに追加
+            series.schedule.append(new_game)
+            
+            print(f"ポストシーズン振替: {cancelled_game.home_team_name} vs {cancelled_game.away_team_name} ({cancelled_game.date}) → {new_date_str}")
+            
+            return new_game
+        except Exception as e:
+            print(f"振替試合生成エラー: {e}")
+            return None
 
 
 # ========================================

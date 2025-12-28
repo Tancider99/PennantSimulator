@@ -761,6 +761,15 @@ class DraftScoutingPage(QWidget):
         """ゲーム状態を設定し、スカウトを同期"""
         self.game_state = game_state
         
+        # Sync draft scouting data from GameStateManager
+        if game_state:
+            # Load saved draft data if exists
+            if hasattr(game_state, 'draft_scouting_data') and game_state.draft_scouting_data:
+                self.prospects = game_state.draft_scouting_data
+            else:
+                # First time: store local data to game_state
+                game_state.draft_scouting_data = self.prospects
+        
         # Sync domestic scouts from team.staff
         if game_state and game_state.player_team:
             domestic_scouts = get_scouts_from_team(game_state.player_team, "domestic")
@@ -768,6 +777,8 @@ class DraftScoutingPage(QWidget):
                 self.scouts = domestic_scouts
                 self._update_scout_combo()
                 self._update_scout_status()
+        
+        self._refresh_table()
 
     def _generate_dummy_data(self):
         """データ生成 (300人)"""
@@ -1329,6 +1340,26 @@ class ForeignPlayerScoutingPage(QWidget):
         """ゲーム状態を設定"""
         self.game_state = game_state
         
+        # Sync foreign scouting data from GameStateManager
+        if game_state:
+            # Load saved foreign data if exists
+            if hasattr(game_state, 'foreign_scouting_data') and game_state.foreign_scouting_data:
+                saved_data = game_state.foreign_scouting_data
+                if isinstance(saved_data, dict):
+                    self.main_roster_candidates = saved_data.get('main_roster', [])
+                    self.developmental_candidates = saved_data.get('developmental', [])
+                # Update current display list
+                if self.current_tab_mode == "main_roster":
+                    self.candidates = self.main_roster_candidates
+                else:
+                    self.candidates = self.developmental_candidates
+            else:
+                # First time: store local data to game_state
+                game_state.foreign_scouting_data = {
+                    'main_roster': self.main_roster_candidates,
+                    'developmental': self.developmental_candidates
+                }
+        
         # Sync international scouts from team.staff
         if game_state and game_state.player_team:
             international_scouts = get_scouts_from_team(game_state.player_team, "international")
@@ -1337,6 +1368,7 @@ class ForeignPlayerScoutingPage(QWidget):
                 self._update_scout_combo()
                 self._update_scout_status()
         
+        self._refresh_table()
         self._update_detail_panel()
 
     def _generate_dummy_data(self):
@@ -1949,7 +1981,7 @@ class ForeignPlayerScoutingPage(QWidget):
             shihaika_count = len([p for p in team.players if not p.is_developmental])
             if shihaika_count >= 70:
                 QMessageBox.warning(self, "支配下枚いっぱい", 
-                    "支配下登録選手が70人に達しているため、\n新たな外国人選手との交渉を開始できません。\n先に選手を解雇または育成枚に降格してください。")
+                    "支配下登録選手が70人に達しているため、\n新たな外国人選手との交渉を開始できません。\n先に選手を解雇してください。")
                 return
 
         # Check negotiation limit

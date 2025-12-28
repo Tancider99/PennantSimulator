@@ -49,7 +49,10 @@ class MainWindow(QMainWindow):
         self.persistent_pages = {}
         # ★追加: 自動生成されたページのキャッシュ用セット
         # インスタンスを保持するように辞書に変更
-        self.cached_pages = {} 
+        self.cached_pages = {}
+        
+        # オートセーブカウンター
+        self.games_since_save = 0 
 
         self._setup_window()
         self._setup_ui()
@@ -318,8 +321,13 @@ class MainWindow(QMainWindow):
             page = FinancePage(self)
             self.finance_page = page
 
-        # New sidebar items (farm_swap, contract_changes, reinforcement, staff, finance, save_load)
-        # are currently unimplemented and return None.
+        elif section == "save_load":
+            from UI.pages.save_load_page import SaveLoadPage
+            page = SaveLoadPage(self)
+            page.load_completed.connect(self._on_save_load_completed)
+            self.save_load_page = page
+
+        # New sidebar items are now implemented above.
 
         return page
 
@@ -619,7 +627,7 @@ class MainWindow(QMainWindow):
         if self.game_state and self.game_state.player_team:
             is_player_game = (home_team == self.game_state.player_team or away_team == self.game_state.player_team)
         
-        engine = LiveGameEngine(home_team, away_team, TeamLevel.FIRST, debug_mode=is_player_game)
+        engine = LiveGameEngine(home_team, away_team, TeamLevel.FIRST, debug_mode=is_player_game, game_state_manager=self.game_state)
 
         
         # Track Stats
@@ -931,6 +939,57 @@ class MainWindow(QMainWindow):
     def _on_training_saved(self):
         """Handle training saved"""
         self.status.show_message("トレーニング設定を保存しました", 3000)
+    
+    def _on_save_load_completed(self):
+        """Handle successful game load from save file"""
+        # Refresh all cached pages with new game state
+        for page in self.cached_pages.values():
+            if hasattr(page, 'set_game_state') and self.game_state:
+                page.set_game_state(self.game_state)
+        
+        # Navigate to home
+        self._navigate_to("home")
+        self.status.show_message("ゲームをロードしました", 3000)
+    
+    def _on_settings_changed(self, settings: dict):
+        """Handle settings changed from settings page"""
+        # Settings are already synced to game_state by the settings page
+        # Just show confirmation message
+        print(f"Settings applied: {settings}")
+        self.status.show_message("設定を適用しました", 3000)
+    
+    def _check_autosave(self):
+        """オートセーブチェック"""
+        if not self.game_state:
+            return
+        
+        if not getattr(self.game_state, 'autosave_enabled', True):
+            return
+        
+        self.games_since_save += 1
+        interval = getattr(self.game_state, 'autosave_interval', 5)
+        
+        if self.games_since_save >= interval:
+            self._trigger_autosave()
+    
+    def _trigger_autosave(self):
+        """オートセーブ実行"""
+        try:
+            # Save to autosave slot
+            if hasattr(self, 'save_load_page') and self.save_load_page:
+                self.save_load_page._save_to_slot(0, auto=True)  # Slot 0 = autosave
+            else:
+                # Create save_load_page if needed
+                from UI.pages.save_load_page import SaveLoadPage
+                save_page = SaveLoadPage(self)
+                save_page.set_game_state(self.game_state)
+                save_page._save_to_slot(0, auto=True)
+            
+            self.games_since_save = 0
+            self.status.show_message("オートセーブ完了", 2000)
+            print("[Autosave] Game saved automatically")
+        except Exception as e:
+            print(f"[Autosave] Failed: {e}")
 
     def _on_game_finished_post(self, result):
         """Post-game processing after user saw result"""
@@ -1012,6 +1071,9 @@ class MainWindow(QMainWindow):
 
             # 【重要】他球場試合を消化し、日付を進める
             self.game_state.finish_day_and_advance()
+            
+            # ★追加: オートセーブチェック
+            self._check_autosave()
         
         # Show NPB Style Result Page
         # dialog = GameResultDialog(result, self)
@@ -1270,7 +1332,7 @@ class MainWindow(QMainWindow):
         if self.game_page:
             # 日付も渡す
             current_date = self.game_state.current_date if self.game_state else "2027-01-01"
-            self.game_page.start_game(home_team, away_team, current_date)
+            self.game_page.start_game(home_team, away_team, current_date, game_state=self.game_state)
 
     def _set_window_size(self, width: int, height: int):
         if self.isFullScreen():

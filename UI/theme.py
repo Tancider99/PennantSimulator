@@ -1,56 +1,59 @@
 # -*- coding: utf-8 -*-
 """
-Baseball Team Architect 2027 - Starfield Inspired Theme System
-NASAPunk / Industrial Sci-Fi Aesthetic
+Baseball Team Architect 2027 - Theme System
+Dark/Light Theme with Font Size Support
 """
 from PySide6.QtWidgets import QApplication, QGraphicsDropShadowEffect, QWidget
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QColor, QPalette, QFont
 from dataclasses import dataclass
+
 
 @dataclass
 class Theme:
-    """Starfield-like Industrial Sci-Fi Theme"""
-
-    # === Main Colors (Void & Industrial Materials) ===
-    bg_darkest: str = "#0b0c10"       # Deep Space Black
-    bg_dark: str = "#141619"          # Main Background
-    bg_card: str = "#1e2126"          # Panel Background
-    bg_card_elevated: str = "#262a30" # Elevated Surface
-    bg_card_hover: str = "#323842"    # Hover State
-    bg_sidebar: str = "#0b0c10"       # Sidebar background
+    """Dark Industrial Theme (Default)"""
     
-    # === Compatibility Aliases (Fixes AttributeError) ===
-    bg_hover: str = "#323842"         # Alias for bg_card_hover
-    bg_selected: str = "#2c313a"      # Selection background
+    name: str = "dark"
     
-    # === Accents (HUD & Constellation) ===
-    primary: str = "#ffffff"          # Active/Highlight (Pure White)
+    # === Main Colors ===
+    bg_darkest: str = "#0b0c10"       
+    bg_dark: str = "#141619"          
+    bg_card: str = "#1e2126"          
+    bg_card_elevated: str = "#262a30" 
+    bg_card_hover: str = "#323842"    
+    bg_sidebar: str = "#0b0c10"       
+    
+    # === Compatibility Aliases ===
+    bg_hover: str = "#323842"         
+    bg_selected: str = "#2c313a"      
+    
+    # === Accents ===
+    primary: str = "#ffffff"          
     primary_hover: str = "#e0e0e0"
     primary_dark: str = "#cccccc"
-    primary_light: str = "#ffffff"    # Bright white alias
+    primary_light: str = "#ffffff"    
     
-    accent_blue: str = "#5fbcd3"      # HUD Cyan/Blue
-    accent_blue_hover: str = "#78cce2" # Lighter Cyan (Hover)
-    accent_orange: str = "#d65d0e"    # Industrial Orange
-    accent_orange_hover: str = "#e67f33" # Lighter Orange (Hover)
-    accent_red: str = "#cc241d"       # Alert Red
-    accent_red_hover: str = "#e04f4f" # Lighter Red (Hover)
+    accent_blue: str = "#5fbcd3"      
+    accent_blue_hover: str = "#78cce2" 
+    accent_orange: str = "#d65d0e"    
+    accent_orange_hover: str = "#e67f33" 
+    accent_red: str = "#cc241d"       
+    accent_red_hover: str = "#e04f4f" 
     
-    # === Text Colors (High Contrast) ===
-    text_primary: str = "#f0f0f0"     # Main Text
-    text_secondary: str = "#9da5b4"   # Secondary Text (Industrial Grey)
-    text_muted: str = "#5c6370"       # Muted/Disabled
-    text_highlight: str = "#0b0c10"   # Text on White Background
-    text_accent: str = "#5fbcd3"      # Accent text color
-    text_link: str = "#5fbcd3"        # Link color
+    # === Text Colors ===
+    text_primary: str = "#f0f0f0"     
+    text_secondary: str = "#9da5b4"   
+    text_muted: str = "#5c6370"       
+    text_highlight: str = "#0b0c10"   
+    text_accent: str = "#5fbcd3"      
+    text_link: str = "#5fbcd3"        
 
-    # === Borders (Technical Lines) ===
+    # === Borders ===
     border: str = "#3e4451"
     border_light: str = "#4e5766"
-    border_muted: str = "#2c313a"     # Subtler border
+    border_muted: str = "#2c313a"     
     border_focus: str = "#ffffff"
     
-    # === Status Colors & Variations ===
+    # === Status Colors ===
     success: str = "#98c379"
     success_light: str = "#b5d49d"
     success_hover: str = "#86b366"
@@ -63,19 +66,18 @@ class Theme:
     danger_light: str = "#ea959b"
     danger_hover: str = "#d65560"
     
-    # ★追加: エラー用カラー（dangerのエイリアス）
     error: str = "#e06c75"
     
     info: str = "#61afef"
     info_light: str = "#8dc5f4"
     info_hover: str = "#4d9fe8"
 
-    # === Premium/Metal Colors ===
-    gold: str = "#d65d0e"             # Map Gold to Orange
+    # === Premium Colors ===
+    gold: str = "#d65d0e"             
     silver: str = "#9da5b4"
     bronze: str = "#8f5e38"
-    accent_gold: str = "#d65d0e"      # Alias
-    gradient_start: str = "#d65d0e"   # Orange Gradient
+    accent_gold: str = "#d65d0e"      
+    gradient_start: str = "#d65d0e"   
     gradient_end: str = "#e67f33"
 
     # === UI Elements ===
@@ -88,16 +90,16 @@ class Theme:
     south_league: str = "#e06c75"
 
     # === Rating Colors ===
-    rating_s: str = "#ff6b6b"   # S Rank
-    rating_a: str = "#ffa726"   # A Rank
-    rating_b: str = "#ffd700"   # B Rank
-    rating_c: str = "#ffee58"   # C Rank
-    rating_d: str = "#66bb6a"   # D Rank
-    rating_e: str = "#42a5f5"   # E Rank
-    rating_f: str = "#bdbdbd"   # F Rank
-    rating_g: str = "#757575"   # G Rank
+    rating_s: str = "#ff6b6b"   
+    rating_a: str = "#ffa726"   
+    rating_b: str = "#ffd700"   
+    rating_c: str = "#ffee58"   
+    rating_d: str = "#66bb6a"   
+    rating_e: str = "#42a5f5"   
+    rating_f: str = "#bdbdbd"   
+    rating_g: str = "#757575"   
 
-    # === Metrics (Sharp corners for Starfield style) ===
+    # === Metrics ===
     radius_small: int = 0
     radius_medium: int = 0
     radius_large: int = 2
@@ -132,12 +134,143 @@ class Theme:
         elif value >= 30: return "F"
         else: return "G"
 
+
+@dataclass
+class LightTheme:
+    """Light Theme"""
+    
+    name: str = "light"
+    
+    # === Main Colors ===
+    bg_darkest: str = "#e8e8e8"       
+    bg_dark: str = "#f5f5f5"          
+    bg_card: str = "#ffffff"          
+    bg_card_elevated: str = "#fafafa" 
+    bg_card_hover: str = "#f0f0f0"    
+    bg_sidebar: str = "#e8e8e8"       
+    
+    # === Compatibility Aliases ===
+    bg_hover: str = "#f0f0f0"         
+    bg_selected: str = "#e0e0e0"      
+    
+    # === Accents ===
+    primary: str = "#1a1a1a"          
+    primary_hover: str = "#333333"
+    primary_dark: str = "#000000"
+    primary_light: str = "#333333"    
+    
+    accent_blue: str = "#0066cc"      
+    accent_blue_hover: str = "#0055aa" 
+    accent_orange: str = "#d65d0e"    
+    accent_orange_hover: str = "#e67f33" 
+    accent_red: str = "#cc241d"       
+    accent_red_hover: str = "#e04f4f" 
+    
+    # === Text Colors ===
+    text_primary: str = "#1a1a1a"     
+    text_secondary: str = "#555555"   
+    text_muted: str = "#888888"       
+    text_highlight: str = "#ffffff"   
+    text_accent: str = "#0066cc"      
+    text_link: str = "#0066cc"        
+
+    # === Borders ===
+    border: str = "#cccccc"
+    border_light: str = "#dddddd"
+    border_muted: str = "#e0e0e0"     
+    border_focus: str = "#1a1a1a"
+    
+    # === Status Colors ===
+    success: str = "#2e7d32"
+    success_light: str = "#4caf50"
+    success_hover: str = "#1b5e20"
+    
+    warning: str = "#ef6c00"
+    warning_light: str = "#ff9800"
+    warning_hover: str = "#e65100"
+    
+    danger: str = "#c62828"
+    danger_light: str = "#ef5350"
+    danger_hover: str = "#b71c1c"
+    
+    error: str = "#c62828"
+    
+    info: str = "#1565c0"
+    info_light: str = "#1e88e5"
+    info_hover: str = "#0d47a1"
+
+    # === Premium Colors ===
+    gold: str = "#d65d0e"             
+    silver: str = "#757575"
+    bronze: str = "#8f5e38"
+    accent_gold: str = "#d65d0e"      
+    gradient_start: str = "#d65d0e"   
+    gradient_end: str = "#e67f33"
+
+    # === UI Elements ===
+    bg_overlay: str = "#00000099"
+    bg_input: str = "#ffffff"
+    bg_header: str = "#f5f5f5"
+
+    # === Team Colors ===
+    north_league: str = "#0066cc"
+    south_league: str = "#c62828"
+
+    # === Rating Colors ===
+    rating_s: str = "#d32f2f"   
+    rating_a: str = "#e65100"   
+    rating_b: str = "#f9a825"   
+    rating_c: str = "#c0ca33"   
+    rating_d: str = "#43a047"   
+    rating_e: str = "#1e88e5"   
+    rating_f: str = "#757575"   
+    rating_g: str = "#9e9e9e"   
+
+    # === Metrics ===
+    radius_small: int = 0
+    radius_medium: int = 0
+    radius_large: int = 2
+    
+    shadow_color: str = "#00000033"
+    shadow_blur: int = 10
+
+    @property
+    def accent(self) -> str:
+        return self.accent_blue
+
+    @staticmethod
+    def get_rating_color(value: int) -> str:
+        t = LightTheme()
+        if value >= 90: return t.rating_s
+        elif value >= 80: return t.rating_a
+        elif value >= 70: return t.rating_b
+        elif value >= 60: return t.rating_c
+        elif value >= 50: return t.rating_d
+        elif value >= 40: return t.rating_e
+        elif value >= 30: return t.rating_f
+        else: return t.rating_g
+        
+    @staticmethod
+    def get_rating_rank(value: int) -> str:
+        if value >= 90: return "S"
+        elif value >= 80: return "A"
+        elif value >= 70: return "B"
+        elif value >= 60: return "C"
+        elif value >= 50: return "D"
+        elif value >= 40: return "E"
+        elif value >= 30: return "F"
+        else: return "G"
+
+
 class ThemeManager:
-    """Manages application theming"""
+    """Manages application theming with Dark/Light support"""
 
     _instance = None
-    _theme = Theme()
+    _theme = Theme()  # Default dark theme
     _current_scale = 1.0
+    _font_size = 1  # 0=小, 1=中, 2=大
+    _app = None
+    _theme_change_callbacks = []
 
     def __new__(cls):
         if cls._instance is None:
@@ -145,8 +278,48 @@ class ThemeManager:
         return cls._instance
 
     @classmethod
-    def get_theme(cls) -> Theme:
+    def get_theme(cls):
         return cls._theme
+    
+    @classmethod
+    def set_theme(cls, theme_name: str):
+        """Switch between dark and light themes"""
+        if theme_name == "light":
+            cls._theme = LightTheme()
+        else:
+            cls._theme = Theme()
+        
+        # Reapply theme if app is set
+        if cls._app:
+            cls.apply_theme(cls._app)
+            
+        # Notify callbacks
+        for callback in cls._theme_change_callbacks:
+            try:
+                callback()
+            except:
+                pass
+    
+    @classmethod
+    def set_font_size(cls, size: int):
+        """Set font size: 0=小(10px), 1=中(12px), 2=大(14px)"""
+        cls._font_size = size
+        
+        # Reapply if app exists
+        if cls._app:
+            cls.apply_theme(cls._app)
+    
+    @classmethod
+    def get_font_size_px(cls) -> int:
+        """Get current font size in pixels"""
+        sizes = {0: 10, 1: 12, 2: 14}
+        return sizes.get(cls._font_size, 12)
+    
+    @classmethod
+    def register_theme_change_callback(cls, callback):
+        """Register callback to be called when theme changes"""
+        if callback not in cls._theme_change_callbacks:
+            cls._theme_change_callbacks.append(callback)
 
     @classmethod
     def set_scale(cls, scale: float):
@@ -154,6 +327,7 @@ class ThemeManager:
 
     @classmethod
     def apply_theme(cls, app: QApplication):
+        cls._app = app
         theme = cls._theme
         palette = QPalette()
         
@@ -174,10 +348,12 @@ class ThemeManager:
     @classmethod
     def get_stylesheet(cls) -> str:
         t = cls._theme
+        font_size = cls.get_font_size_px()
         
         return f"""
         * {{
             font-family: "Yu Gothic UI", "Meiryo UI", sans-serif;
+            font-size: {font_size}px;
             outline: none;
         }}
         QMainWindow, QDialog, QWidget {{
@@ -215,7 +391,7 @@ class ThemeManager:
             border: 1px solid {t.border};
             border-radius: 0px;
             padding: 8px 16px;
-            font-size: 13px;
+            font-size: {font_size + 1}px;
             font-weight: 600;
             letter-spacing: 1px;
             text-transform: uppercase;
@@ -253,6 +429,35 @@ class ThemeManager:
             color: {t.primary};
             border-bottom: 2px solid {t.primary};
         }}
+        
+        /* Labels */
+        QLabel {{
+            color: {t.text_primary};
+        }}
+        
+        /* ComboBox */
+        QComboBox {{
+            background-color: {t.bg_input};
+            color: {t.text_primary};
+            border: 1px solid {t.border};
+            padding: 6px 10px;
+        }}
+        
+        /* SpinBox */
+        QSpinBox {{
+            background-color: {t.bg_input};
+            color: {t.text_primary};
+            border: 1px solid {t.border};
+            padding: 4px 8px;
+        }}
+        
+        /* LineEdit */
+        QLineEdit {{
+            background-color: {t.bg_input};
+            color: {t.text_primary};
+            border: 1px solid {t.border};
+            padding: 6px 10px;
+        }}
         """
 
     @classmethod
@@ -264,5 +469,6 @@ class ThemeManager:
         widget.setGraphicsEffect(effect)
         return effect
 
-def get_theme() -> Theme:
+
+def get_theme():
     return ThemeManager.get_theme()

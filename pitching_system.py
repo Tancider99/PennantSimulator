@@ -68,16 +68,40 @@ class PitchingDirector:
     RELIEVER_BLOWUP_RUNS = 2  # リリーフが2失点したら要交代
     LONG_RELIEVER_MAX_INNINGS = 3.0  # ロングリリーフの最大イニング数
     
-    def __init__(self, team: 'Team'):
+    def __init__(self, team: 'Team', team_level: 'TeamLevel' = None):
+        from models import TeamLevel
         self.team = team
+        self.team_level = team_level or TeamLevel.FIRST
         self._cached_rotation_pitchers: List['Player'] = []
         self._update_rotation_cache()
         
+    def _get_roster_indices(self) -> list:
+        """チームレベルに応じたロスターインデックスを返す"""
+        from models import TeamLevel
+        if self.team_level == TeamLevel.SECOND:
+            return self.team.farm_roster
+        elif self.team_level == TeamLevel.THIRD:
+            return self.team.third_roster
+        else:
+            return self.team.active_roster
+        
     def _update_rotation_cache(self):
         """ローテーション投手のキャッシュを更新"""
-        from models import Position
+        from models import Position, TeamLevel
         self._cached_rotation_pitchers = []
-        for idx in self.team.rotation:
+        
+        # Use level-appropriate rotation
+        if self.team_level == TeamLevel.SECOND:
+            rotation = self.team.farm_rotation
+        elif self.team_level == TeamLevel.THIRD:
+            rotation = self.team.third_rotation
+        else:
+            rotation = self.team.rotation
+        
+        if not rotation:
+            return
+        
+        for idx in rotation:
             if 0 <= idx < len(self.team.players):
                 p = self.team.players[idx]
                 if p.position == Position.PITCHER:
@@ -85,7 +109,15 @@ class PitchingDirector:
     
     def is_starter(self, pitcher: 'Player') -> bool:
         """選手がローテーション投手かどうか"""
-        return pitcher in self._cached_rotation_pitchers
+        # First check: Is the pitcher in the rotation cache?
+        if pitcher in self._cached_rotation_pitchers:
+            return True
+        
+        # Fallback: Check if this pitcher has starter aptitude (works across all levels)
+        if hasattr(pitcher, 'stats') and hasattr(pitcher.stats, 'aptitude_starter'):
+            return pitcher.stats.aptitude_starter >= 3  # ◎(4) or 〇(3)
+        
+        return False
     
     def get_pitcher_role(self, pitcher: 'Player') -> PitcherRole:
         """選手の役割を取得"""
@@ -157,7 +189,14 @@ class PitchingDirector:
         if current_pitcher.is_injured:
             return self._select_reliever(ctx, used_pitchers, next_batter)
         
-        role = self.get_pitcher_role(current_pitcher)
+        # Determine role - check if this is the game's starter first
+        is_game_starter = len(used_pitchers) > 0 and used_pitchers[0] == current_pitcher
+        
+        if is_game_starter:
+            # If this pitcher was the first to pitch in this game, treat as starter
+            role = PitcherRole.STARTER
+        else:
+            role = self.get_pitcher_role(current_pitcher)
         
         # 先発ロジック
         if role == PitcherRole.STARTER:
@@ -342,39 +381,39 @@ class PitchingDirector:
     def _find_reliever_by_role(self, target_role: PitcherRole, 
                                used_pitchers: List['Player']) -> Optional['Player']:
         """特定の役割のリリーバーを探す"""
-        from models import Position
+        from models import Position, TeamLevel
         
-        # まず明示的なアサインをチェック
-        if target_role == PitcherRole.CLOSER:
-            if self.team.closers:
-                idx = self.team.closers[0]
-                if 0 <= idx < len(self.team.players):
-                    p = self.team.players[idx]
-                    # if self._is_available(p, used_pitchers): # CLoser might be tired but we need him?
-                    # Strict availability check for now
-                    if self._is_available(p, used_pitchers):
-                        return p
-        
-        elif target_role == PitcherRole.SETUP_A:
-            if self.team.setup_pitchers:
-                idx = self.team.setup_pitchers[0]
-                if 0 <= idx < len(self.team.players):
-                    p = self.team.players[idx]
-                    if self._is_available(p, used_pitchers):
-                        return p
-        
-        elif target_role == PitcherRole.SETUP_B:
-            if len(self.team.setup_pitchers) > 1:
-                # Iterate all secondary setup pitchers
-                for idx in self.team.setup_pitchers[1:]:
+        # ファーム試合ではクローザー/セットアップをスキップ（一軍用のため）
+        if self.team_level == TeamLevel.FIRST:
+            # まず明示的なアサインをチェック
+            if target_role == PitcherRole.CLOSER:
+                if self.team.closers:
+                    idx = self.team.closers[0]
                     if 0 <= idx < len(self.team.players):
                         p = self.team.players[idx]
                         if self._is_available(p, used_pitchers):
                             return p
+            
+            elif target_role == PitcherRole.SETUP_A:
+                if self.team.setup_pitchers:
+                    idx = self.team.setup_pitchers[0]
+                    if 0 <= idx < len(self.team.players):
+                        p = self.team.players[idx]
+                        if self._is_available(p, used_pitchers):
+                            return p
+            
+            elif target_role == PitcherRole.SETUP_B:
+                if len(self.team.setup_pitchers) > 1:
+                    for idx in self.team.setup_pitchers[1:]:
+                        if 0 <= idx < len(self.team.players):
+                            p = self.team.players[idx]
+                            if self._is_available(p, used_pitchers):
+                                return p
                         
-        # 汎用検索
+        # 汎用検索 - チームレベルに応じたロスターを使用
         candidates = []
-        for idx in self.team.active_roster:
+        roster_indices = self._get_roster_indices()
+        for idx in roster_indices:
             if not (0 <= idx < len(self.team.players)):
                 continue
             p = self.team.players[idx]
@@ -405,8 +444,8 @@ class PitchingDirector:
         
         available = []
         
-        # For All-Star teams or teams without active_roster, search all players
-        roster_indices = getattr(self.team, 'active_roster', None)
+        # チームレベルに応じたロスターを使用
+        roster_indices = self._get_roster_indices()
         if not roster_indices or len(roster_indices) == 0:
             # Fallback: search all players by index
             roster_indices = range(len(self.team.players))
@@ -436,6 +475,9 @@ class PitchingDirector:
         if pitcher in used_pitchers:
             return False
         if pitcher.current_stamina < 20:
+            return False
+        # 既に今日出場した選手は出場不可（複数軍出場防止）
+        if getattr(pitcher, 'has_played_today', False):
             return False
         return True
 

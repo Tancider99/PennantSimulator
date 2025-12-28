@@ -862,7 +862,7 @@ class OrderPage(QWidget):
         item = SortableTableWidgetItem()
         item.setTextAlignment(Qt.AlignCenter)
         
-        fatigue = getattr(player, 'fatigue', 0)
+        fatigue = round(getattr(player, 'fatigue', 0))  # 四捨五入で整数に
         
         if fatigue <= 30:
             color = "#27ae60"  # 緑（元気）
@@ -1330,25 +1330,45 @@ class OrderPage(QWidget):
         if hasattr(t, 'ACTIVE_ROSTER_LIMIT'):
             TOTAL_LIMIT = t.ACTIVE_ROSTER_LIMIT
             
-        PITCHER_TARGET = int(TOTAL_LIMIT * (13/31))
-        BATTER_TARGET = TOTAL_LIMIT - PITCHER_TARGET
+        # 投手15人/野手16人の固定配分
+        PITCHER_TARGET = 15
+        BATTER_TARGET = 16
 
         active_roster_set = set(t.active_roster)
         used_indices = set()
+        
+        # Get auto order priority from settings
+        order_priority = "ability"  # default
+        if self.game_state and hasattr(self.game_state, 'auto_order_priority'):
+            order_priority = self.game_state.auto_order_priority
 
         # ヘルパー関数
         def get_incumbency_mult(p_idx):
             return 1.15 if p_idx in active_roster_set else 1.0
 
         def get_condition_mult(p):
-            # 調子優先選択削除により、標準的な影響度に固定
-            return 1.0 + (p.condition - 5) * 0.05
+            # 設定に基づいて調子の影響度を変更
+            if order_priority == "condition":
+                # 調子優先: より大きな影響
+                return 1.0 + (p.condition - 5) * 0.15
+            elif order_priority == "balanced":
+                # バランス: 中程度の影響
+                return 1.0 + (p.condition - 5) * 0.10
+            else:
+                # 能力優先: 小さな影響
+                return 1.0 + (p.condition - 5) * 0.03
 
         def get_batting_score(p, p_idx):
             s = p.stats
-            # 優先度選択削除: 能力重視（Standard）
-            val = (s.contact * 1.0 + s.power * 1.2 + s.speed * 0.5 + s.eye * 0.5)
-            # コンディションも加味するが、極端には振らない
+            if order_priority == "condition":
+                # 調子優先: 基礎能力は抑えめ、調子を重視
+                val = (s.contact * 0.8 + s.power * 0.8 + s.speed * 0.4 + s.eye * 0.4)
+            elif order_priority == "balanced":
+                # バランス
+                val = (s.contact * 0.9 + s.power * 1.0 + s.speed * 0.5 + s.eye * 0.5)
+            else:
+                # 能力優先
+                val = (s.contact * 1.0 + s.power * 1.2 + s.speed * 0.5 + s.eye * 0.5)
             return val * get_condition_mult(p) * get_incumbency_mult(p_idx)
 
         def get_defense_score(p, pos_name_long):

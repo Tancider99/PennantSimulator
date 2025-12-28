@@ -139,8 +139,28 @@ class GameStateManager:
         self.postseason_schedule = None
         self.japan_series_schedule = None
         
-        # 自動オーダー設定: "ability" (能力優先) or "condition" (調子優先)
+        # 自動オーダー設定: "ability" (能力優先) or "condition" (調子優先) or "balanced"
         self.auto_order_priority = "ability"
+        self.auto_order_enabled = False  # 自チームの自動オーダー調整（オフなら怪我人のみ交代）
+        
+        # オーダー設定
+        self.pitcher_stamina_weight = 0.5  # 投手スタミナ重視度 (0.0-1.0)
+        self.substitute_stamina_threshold = 30  # 代打スタミナ閾値
+        self.pinch_hitter_inning = 7  # 代打開始イニング
+        self.starter_rest_days = 6  # 先発投手休養日数
+        
+        # AI設定
+        self.ai_bunt_tendency = 50  # AIバント傾向 (0-100)
+        self.ai_steal_tendency = 50  # AI盗塁傾向 (0-100)
+        self.ai_pitching_change_tendency = 50  # AI継投傾向 (0-100)
+        self.ai_defensive_shift = True  # AIシフト守備使用
+        
+        # ゲーム設定
+        self.injuries_enabled = True  # 故障発生
+        self.auto_training_enabled = True  # 自動練習
+        self.autosave_enabled = True  # オートセーブ
+        self.autosave_interval = 5  # オートセーブ間隔（試合数）
+        self.font_size = 1  # フォントサイズ (0:小, 1:中, 2:大)
         
         self.free_agents: List[Player] = []
         self.news_feed = [] # ニュースフィード
@@ -154,6 +174,10 @@ class GameStateManager:
         self.offseason_phase = OffseasonPhase.NONE
         self.is_offseason = False
         self.offseason_events_schedule = []  # オフシーズンイベント日程 [(date, phase), ...]
+        
+        # 契約ページのスカウティングデータ (DraftProspect/ForeignPlayerCandidate objects)
+        self.draft_scouting_data: List = []  # DraftProspect objects from contracts page
+        self.foreign_scouting_data: List = []  # ForeignPlayerCandidate objects
         
         self._generate_dummy_free_agents()
 
@@ -331,6 +355,11 @@ class GameStateManager:
             apply_team_training(team.players, 1, team)
             
             for player in team.players:
+                # 翌日のためにhas_played_todayをリセット
+                if player.has_played_today:
+                    print(f"[RESET] {player.name} has_played_today: True -> False (Team: {team.name})")
+                player.has_played_today = False
+                
                 # 明示的な疲労増加防止 (練習も休息も疲労は減る方向のみ)
                 # 万が一のバグによる疲労増加を防ぐ
                 old_fatigue = getattr(player, 'fatigue', 0)
@@ -517,9 +546,16 @@ class GameStateManager:
             # 常にロースター枠を補充（投手15人/野手16人を維持）
             self._fill_roster_gaps(team)
             
-            # 自動オーダー編成＋保存（全チーム対象）
-            # プレイヤーチームも含めて自動編成を実行（スキップ時に空き枠ができないように）
-            self._auto_fill_and_save_order(team)
+            # 自チームかどうか判定
+            is_player_team = (team == self.player_team)
+            
+            # 自チームで自動オーダーがオフの場合は怪我人の交代のみ行う
+            if is_player_team and not getattr(self, 'auto_order_enabled', False):
+                # 怪我人のみ交代処理
+                self._rotate_lineup_based_on_condition(team)
+            else:
+                # AIチーム or 自動オーダーがオンの場合は自動編成
+                self._auto_fill_and_save_order(team)
         
         # 全チーム共通: ベンチ枠の整合性確保 (ローテ投手がベンチに入らないように)
         for team in self.all_teams:
@@ -993,6 +1029,10 @@ class GameStateManager:
     def _fill_roster_gaps(self, team: Team):
         """不足しているロースター枠を埋める (投手15人/野手16人配分)"""
         
+        # 自チームかどうか判定
+        is_player_team = (team == self.player_team)
+        auto_order_off = is_player_team and not getattr(self, 'auto_order_enabled', False)
+        
         # 目標人数
         TARGET_PITCHERS = 15
         TARGET_BATTERS = 16
@@ -1002,31 +1042,32 @@ class GameStateManager:
         active_batters = [idx for idx in team.active_roster if team.players[idx].position.value != "投手"]
         
         # --- 1. 過剰分の削減 (降格) ---
-        
-        # 投手が多すぎる場合
-        if len(active_pitchers) > TARGET_PITCHERS:
-            excess = len(active_pitchers) - TARGET_PITCHERS
-            # 能力順（低い順）にソート
-            p_sorted = sorted(active_pitchers, key=lambda i: team.players[i].overall_rating)
-            removed_count = 0
-            for idx in p_sorted:
-                p = team.players[idx]
-                if not p.is_injured and removed_count < excess:
-                    team.move_to_farm_roster(idx)
-                    p.days_until_promotion = 10
-                    removed_count += 1
-                    
-        # 野手が多すぎる場合
-        if len(active_batters) > TARGET_BATTERS:
-            excess = len(active_batters) - TARGET_BATTERS
-            b_sorted = sorted(active_batters, key=lambda i: team.players[i].overall_rating)
-            removed_count = 0
-            for idx in b_sorted:
-                p = team.players[idx]
-                if not p.is_injured and removed_count < excess:
-                    team.move_to_farm_roster(idx)
-                    p.days_until_promotion = 10
-                    removed_count += 1
+        # 自チームでauto_order_enabledがオフの場合は降格をスキップ
+        if not auto_order_off:
+            # 投手が多すぎる場合
+            if len(active_pitchers) > TARGET_PITCHERS:
+                excess = len(active_pitchers) - TARGET_PITCHERS
+                # 能力順（低い順）にソート
+                p_sorted = sorted(active_pitchers, key=lambda i: team.players[i].overall_rating)
+                removed_count = 0
+                for idx in p_sorted:
+                    p = team.players[idx]
+                    if not p.is_injured and removed_count < excess:
+                        team.move_to_farm_roster(idx)
+                        p.days_until_promotion = 10
+                        removed_count += 1
+                        
+            # 野手が多すぎる場合
+            if len(active_batters) > TARGET_BATTERS:
+                excess = len(active_batters) - TARGET_BATTERS
+                b_sorted = sorted(active_batters, key=lambda i: team.players[i].overall_rating)
+                removed_count = 0
+                for idx in b_sorted:
+                    p = team.players[idx]
+                    if not p.is_injured and removed_count < excess:
+                        team.move_to_farm_roster(idx)
+                        p.days_until_promotion = 10
+                        removed_count += 1
 
         # --- Re-fetch status after reductions ---
         active_pitchers = [idx for idx in team.active_roster if team.players[idx].position.value == "投手"]
@@ -1282,9 +1323,17 @@ class GameStateManager:
                             ps_engine = getattr(self.season_manager, 'postseason_engine', None) if self.season_manager else None
                             if ps_engine:
                                 for s in [ps_engine.cs_north_first, ps_engine.cs_south_first, ps_engine.cs_north_final, ps_engine.cs_south_final, ps_engine.japan_series]:
-                                    if s and game in s.schedule:
-                                        ps_series = s
-                                        break
+                                    if s and s.schedule:
+                                        # First check identity
+                                        if game in s.schedule:
+                                            ps_series = s
+                                            break
+                                        # Fallback: Check by content (Date + Teams) in case of object mismatch
+                                        for ps_g in s.schedule:
+                                            if ps_g.date == game.date and ps_g.home_team_name == game.home_team_name and ps_g.away_team_name == game.away_team_name:
+                                                ps_series = s
+                                                break
+                                    if ps_series: break
                             
                             is_ps = (ps_series is not None)
 
@@ -1298,16 +1347,29 @@ class GameStateManager:
                                     print(f"JAPAN SERIES GAME {ps_series.games_played + 1}: Unlimited Innings Mode")
 
                             # 試合実行
-                            engine = LiveGameEngine(home, away, is_postseason=is_ps, max_innings=max_innings)
+                            engine = LiveGameEngine(home, away, is_postseason=is_ps, max_innings=max_innings, game_state_manager=self)
                             while not engine.is_game_over():
                                 engine.simulate_pitch()
 
                             final_result = engine.finalize_game_stats(date_str)
                             
                             if is_ps:
-                                ps_engine.record_game_result(ps_series, engine.state.home_score, engine.state.away_score)
+                                # 正しく team1/team2 のスコアを算出
+                                # ホームチームがteam1かteam2かを判定して適切なスコアを渡す
+                                if game.home_team_name == ps_series.team1:
+                                    team1_score = engine.state.home_score
+                                    team2_score = engine.state.away_score
+                                else:
+                                    team1_score = engine.state.away_score
+                                    team2_score = engine.state.home_score
+                                
+                                ps_engine.record_game_result(ps_series, team1_score, team2_score)
                                 # 追加試合があればスケジュールに反映
                                 self._add_postseason_games_to_schedule()
+                                
+                                # Check if Postseason is complete
+                                if ps_engine.is_postseason_complete():
+                                    self.mark_postseason_complete()
                             else:
                                 self.record_game_result(home, away, engine.state.home_score, engine.state.away_score)
 
@@ -1870,12 +1932,19 @@ class GameStateManager:
     def _manage_ai_teams(self, date_str):
         """AIチームおよび自チーム二軍三軍の管理"""
         for team in self.all_teams:
-            if team.current_lineup:
+            # 自チームかどうか判定
+            is_player_team = (team == self.player_team)
+            auto_order_off = is_player_team and not getattr(self, 'auto_order_enabled', False)
+            
+            # 自チームで自動オーダーオフなら一軍ラインアップのローテーションをスキップ
+            # (既に_manage_all_teams_rostersで怪我人交代処理済み)
+            if team.current_lineup and not auto_order_off:
                 self._rotate_lineup_based_on_condition(team)
 
             if not team.rotation or len(team.rotation) < 6:
                 team.auto_assign_pitching_roles(TeamLevel.FIRST)
             
+            # 二軍・三軍のラインナップ生成（自チームも含む - 二軍三軍は自動管理）
             team.farm_lineup = self._auto_generate_lineup(team, TeamLevel.SECOND)
             team.third_lineup = self._auto_generate_lineup(team, TeamLevel.THIRD)
             
@@ -1887,7 +1956,15 @@ class GameStateManager:
     def _rotate_lineup_based_on_condition(self, team: Team):
         """
         調子や疲労、そして直近成績に基づいてスタメンを入れ替える
+        自チームでauto_order_enabledがオフの場合は怪我人のみ交代
         """
+        
+        # 自チームかどうかを判定
+        is_player_team = (team == self.player_team)
+        
+        # 自チームで自動オーダーがオフの場合は怪我人のみ交代
+        injury_only_mode = is_player_team and not getattr(self, 'auto_order_enabled', False)
+        
         
         def calc_player_score(p, current_date):
             """選手のスコアを計算（直近成績を重視）"""
@@ -1896,9 +1973,9 @@ class GameStateManager:
             # 調子補正 (-40 ~ +40)
             cond_bonus = (p.condition - 5) * 10
             
-            # 直近成績補正（最大±50）
+            # 直近成績補正（最大±50）- 20日に変更
             recent_bonus = 0
-            recent = p.get_recent_stats(current_date, days=10)
+            recent = p.get_recent_stats(current_date, days=20)
             if recent and recent.plate_appearances >= 5:
                 ops = recent.ops
                 if ops >= 1.000:
@@ -1918,8 +1995,61 @@ class GameStateManager:
             
             return base_score + cond_bonus + recent_bonus
         
-        # ベストオーダーがある場合はそれをベースにする
-        if hasattr(team, 'best_order') and team.best_order and len(team.best_order) >= 9:
+        # injury_only_modeの場合は現在のラインナップをベースに怪我人のみ交代
+        if injury_only_mode:
+            # 現在のラインナップをベースにする（ベストオーダーではない）
+            if not team.current_lineup or len(team.current_lineup) < 9:
+                return  # ラインナップがない場合は何もしない
+            
+            new_lineup = list(team.current_lineup)
+            used_indices = set(new_lineup)
+            
+            for i, p_idx in enumerate(new_lineup):
+                if not (0 <= p_idx < len(team.players)): continue
+                
+                player = team.players[p_idx]
+                needs_replacement = False
+                
+                # 怪我人のみチェック
+                if player.is_injured:
+                    needs_replacement = True
+                # 登録抹消されている場合も交代
+                elif p_idx not in team.active_roster:
+                    needs_replacement = True
+                
+                if needs_replacement:
+                    # 代役を探す (ベンチにいる元気な選手)
+                    candidates = []
+                    for bench_idx in team.active_roster:
+                        if bench_idx in used_indices: continue 
+                        if not (0 <= bench_idx < len(team.players)): continue
+                        
+                        bench_p = team.players[bench_idx]
+                        if bench_p.is_injured: continue 
+                        
+                        # ポジション適性チェック
+                        if bench_p.can_play_position(player.position):
+                            score = calc_player_score(bench_p, self.current_date)
+                            candidates.append((bench_idx, score))
+                    
+                    # 候補がいれば最高スコアの選手と交代
+                    if candidates:
+                        candidates.sort(key=lambda x: x[1], reverse=True)
+                        best_sub_idx = candidates[0][0]
+                        new_lineup[i] = best_sub_idx
+                        used_indices.add(best_sub_idx)
+            
+            team.current_lineup = new_lineup
+            
+            # ベンチメンバーの更新
+            active_batters = [p_idx for p_idx in team.active_roster 
+                            if 0 <= p_idx < len(team.players) 
+                            and team.players[p_idx].position.value != "投手"]
+            assigned = set(team.current_lineup)
+            team.bench_batters = [i for i in active_batters if i not in assigned]
+            
+        # 通常モード: ベストオーダーがある場合はそれをベースにする
+        elif hasattr(team, 'best_order') and team.best_order and len(team.best_order) >= 9:
             new_lineup = list(team.best_order)
             used_indices = set(new_lineup)
             
@@ -1936,14 +2066,11 @@ class GameStateManager:
                 # 2. 怪我している
                 elif player.is_injured:
                     needs_replacement = True
-                # 3. 絶不調 (コンディション2以下)
-                elif player.condition <= 2:
-                    needs_replacement = True
-                    
-                # 4. 成績不振 (直近10試合の打率が.150未満など)
+                
+                # 成績不振 (20日間の打率が.150未満)
                 if not needs_replacement and not player.is_injured:
-                    recent = player.get_recent_stats(self.current_date, days=10)
-                    if recent and recent.at_bats >= 15: 
+                    recent = player.get_recent_stats(self.current_date, days=20)
+                    if recent and recent.at_bats >= 20:
                         if recent.batting_average < 0.150:
                             needs_replacement = True
 
@@ -2029,17 +2156,15 @@ class GameStateManager:
                  team.auto_assign_pitching_roles(TeamLevel.FIRST)
 
     def _ensure_farm_roster(self, team: Team, level: TeamLevel):
-        lineup = team.farm_lineup if level == TeamLevel.SECOND else team.third_lineup
+        """二軍三軍の試合直前にラインナップを再生成して出場済み選手を除外"""
         rotation = team.farm_rotation if level == TeamLevel.SECOND else team.third_rotation
-        
-        valid_starters = len([x for x in lineup if x != -1]) if lineup else 0
         has_rotation = len([x for x in rotation if x != -1]) >= 1 if rotation else False
         
-        if valid_starters < 9:
-            if level == TeamLevel.SECOND:
-                team.farm_lineup = self._auto_generate_lineup(team, level)
-            else:
-                team.third_lineup = self._auto_generate_lineup(team, level)
+        # 常にラインナップを再生成（一軍試合後に出場済み選手をフィルタリングするため）
+        if level == TeamLevel.SECOND:
+            team.farm_lineup = self._auto_generate_lineup(team, level)
+        else:
+            team.third_lineup = self._auto_generate_lineup(team, level)
                 
         if not has_rotation:
              team.auto_assign_pitching_roles(level)
@@ -2052,7 +2177,12 @@ class GameStateManager:
         """
         from models import Position
         roster = team.get_players_by_level(level)
-        indices = [team.players.index(p) for p in roster if p.position != Position.PITCHER and not p.is_injured]
+        
+        # Filter out injured players AND players who already played today
+        indices = [team.players.index(p) for p in roster 
+                   if p.position != Position.PITCHER 
+                   and not p.is_injured 
+                   and not getattr(p, 'has_played_today', False)]
         
         if level == TeamLevel.FIRST:
             indices.sort(key=lambda i: team.players[i].stats.overall_batting(), reverse=True)
@@ -2066,7 +2196,9 @@ class GameStateManager:
             
             indices.sort(key=calc_farm_score, reverse=True)
 
-        return indices[:9]
+        lineup = indices[:9]
+        
+        return lineup
 
     def get_next_game(self):
         if not self.schedule_engine or not self.player_team: return None
@@ -2137,3 +2269,167 @@ class GameStateManager:
                 player.years_pro += 1
                 if player.position == Position.PITCHER:
                     player.days_rest = 6 # 開幕前は休息十分
+
+    # ========================================
+    # セーブ/ロード機能
+    # ========================================
+    
+    def get_save_info(self) -> dict:
+        """セーブスロット表示用の情報を取得"""
+        team_name = self.player_team.name if self.player_team else "未選択"
+        return {
+            "team_name": team_name,
+            "year": self.current_year,
+            "date": self.current_date,
+            "game_number": self.current_game_number,
+            "is_offseason": self.is_offseason,
+            "wins": self.player_team.wins if self.player_team else 0,
+            "losses": self.player_team.losses if self.player_team else 0,
+        }
+    
+    def save_to_file(self, filepath: str) -> bool:
+        """ゲーム状態をファイルに保存（dillを使用して完全シリアライズ）"""
+        import dill
+        import os
+        
+        try:
+            # セーブディレクトリ作成
+            save_dir = os.path.dirname(filepath)
+            if save_dir and not os.path.exists(save_dir):
+                os.makedirs(save_dir)
+            
+            # 完全なゲーム状態をシリアライズ
+            save_data = {
+                "version": "2.0",
+                "save_info": self.get_save_info(),
+                "game_state": self,  # GameStateManager全体を保存
+            }
+            
+            with open(filepath, 'wb') as f:
+                dill.dump(save_data, f)
+            
+            print(f"セーブ完了: {filepath}")
+            return True
+            
+        except Exception as e:
+            print(f"セーブ失敗: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def _serialize_team(self, team) -> dict:
+        """チームをシリアライズ"""
+        import pickle
+        return pickle.dumps(team)
+    
+    def _deserialize_team(self, data) -> 'Team':
+        """チームをデシリアライズ"""
+        import pickle
+        return pickle.loads(data)
+    
+    def _serialize_schedule_games(self, schedule) -> list:
+        """スケジュールの試合データのみをシリアライズ（lambdaを避ける）"""
+        if not schedule or not hasattr(schedule, 'games'):
+            return []
+        
+        games_data = []
+        for game in schedule.games:
+            game_dict = {
+                "date": game.date,
+                "home_team_name": game.home_team_name,
+                "away_team_name": game.away_team_name,
+                "status": game.status.value if hasattr(game.status, 'value') else str(game.status),
+                "home_score": getattr(game, 'home_score', 0),
+                "away_score": getattr(game, 'away_score', 0),
+                "is_interleague": getattr(game, 'is_interleague', False),
+            }
+            games_data.append(game_dict)
+        return games_data
+    
+    def _restore_schedule_games(self, schedule, games_data: list):
+        """スケジュールに保存した試合データを復元"""
+        from models import GameStatus
+        
+        if not schedule or not games_data:
+            return
+        
+        # 試合ステータスのマッピング
+        for saved_game in games_data:
+            for game in schedule.games:
+                if (game.date == saved_game["date"] and 
+                    game.home_team_name == saved_game["home_team_name"] and
+                    game.away_team_name == saved_game["away_team_name"]):
+                    # ステータス復元
+                    status_str = saved_game.get("status", "予定")
+                    for s in GameStatus:
+                        if s.value == status_str:
+                            game.status = s
+                            break
+                    game.home_score = saved_game.get("home_score", 0)
+                    game.away_score = saved_game.get("away_score", 0)
+                    break
+    
+    def load_from_file(self, filepath: str) -> bool:
+        """ファイルからゲーム状態を読み込み（dillを使用）"""
+        import dill
+        import os
+        
+        if not os.path.exists(filepath):
+            print(f"ファイルが見つかりません: {filepath}")
+            return False
+        
+        try:
+            with open(filepath, 'rb') as f:
+                save_data = dill.load(f)
+            
+            # バージョンチェック
+            version = save_data.get("version", "0.0")
+            print(f"セーブデータバージョン: {version}")
+            
+            if version == "2.0":
+                # バージョン2.0: 完全なGameStateManagerを復元
+                loaded_state = save_data.get("game_state")
+                if loaded_state:
+                    # 保存されたゲーム状態から全属性をコピー
+                    self.__dict__.update(loaded_state.__dict__)
+                    print(f"ロード完了: {filepath}")
+                    return True
+                else:
+                    print("ゲーム状態が見つかりません")
+                    return False
+            else:
+                # 古いバージョンとの互換性（必要に応じて再構築）
+                print(f"古いセーブ形式 (v{version}) - 再構築が必要です")
+                return False
+            
+        except Exception as e:
+            print(f"ロード失敗: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    @staticmethod
+    def get_save_slots(save_dir: str = "saves") -> list:
+        """セーブスロット一覧を取得"""
+        import os
+        import dill
+        
+        slots = []
+        if not os.path.exists(save_dir):
+            return slots
+        
+        for filename in sorted(os.listdir(save_dir)):
+            if filename.endswith(".psav"):
+                filepath = os.path.join(save_dir, filename)
+                try:
+                    with open(filepath, 'rb') as f:
+                        data = dill.load(f)
+                    save_info = data.get("save_info", {})
+                    save_info["filepath"] = filepath
+                    save_info["filename"] = filename
+                    save_info["modified"] = os.path.getmtime(filepath)
+                    slots.append(save_info)
+                except:
+                    pass
+        
+        return slots

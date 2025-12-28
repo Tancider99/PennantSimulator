@@ -1,976 +1,694 @@
 # -*- coding: utf-8 -*-
 """
 Baseball Team Architect 2027 - Settings Page
-Professional Settings Interface with Premium Design
+Angular Industrial Design with Functional Settings
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
     QCheckBox, QSlider, QPushButton, QFrame, QSpinBox,
-    QTabWidget, QScrollArea, QMessageBox, QFileDialog,
-    QGraphicsDropShadowEffect, QSizePolicy
+    QScrollArea, QSizePolicy, QMessageBox
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QFont
 
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from UI.theme import get_theme, ThemeManager
-from UI.widgets.cards import Card, PremiumCard
-from UI.widgets.panels import ContentPanel
-from UI.widgets.buttons import ActionButton
+
+
+class SettingSection(QFrame):
+    """Angular settings section with accent bar"""
+    
+    def __init__(self, title: str, parent=None):
+        super().__init__(parent)
+        self.theme = get_theme()
+        self.title = title
+        self._setup_ui()
+    
+    def _setup_ui(self):
+        self.setStyleSheet(f"""
+            QFrame {{
+                background: {self.theme.bg_card};
+                border: none;
+                border-radius: 0px;
+            }}
+        """)
+        
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
+        
+        # Header with accent bar
+        header = QWidget()
+        header.setStyleSheet(f"background: {self.theme.bg_card_elevated};")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(0)
+        
+        # Accent bar
+        accent = QFrame()
+        accent.setFixedSize(4, 40)
+        accent.setStyleSheet(f"background: {self.theme.primary}; border-radius: 0px;")
+        header_layout.addWidget(accent)
+        
+        # Title
+        title_label = QLabel(self.title)
+        title_label.setStyleSheet(f"""
+            font-size: 12px;
+            font-weight: 700;
+            color: {self.theme.text_primary};
+            letter-spacing: 2px;
+            padding: 12px 16px;
+        """)
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        
+        self.main_layout.addWidget(header)
+        
+        # Content area
+        self.content_widget = QWidget()
+        self.content_widget.setStyleSheet("background: transparent;")
+        self.content_layout = QVBoxLayout(self.content_widget)
+        self.content_layout.setContentsMargins(16, 8, 16, 16)
+        self.content_layout.setSpacing(4)
+        
+        self.main_layout.addWidget(self.content_widget)
+    
+    def add_widget(self, widget):
+        self.content_layout.addWidget(widget)
 
 
 class SettingRow(QFrame):
-    """A premium setting row with label and control"""
-
+    """Angular setting row with label and control"""
+    
     def __init__(self, label: str, description: str = "", parent=None):
         super().__init__(parent)
         self.theme = get_theme()
-
+        
         self.setStyleSheet(f"""
             QFrame {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {self.theme.bg_card_elevated}, stop:1 {self.theme.bg_card});
-                border: 1px solid {self.theme.border_muted};
+                background: {self.theme.bg_input};
+                border: none;
                 border-radius: 0px;
-                margin: 2px 0px;
             }}
             QFrame:hover {{
-                border-color: {self.theme.primary};
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {self.theme.bg_card_hover}, stop:1 {self.theme.bg_card_elevated});
+                background: {self.theme.bg_card_hover};
             }}
         """)
-
+        
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 12, 16, 12)
-
-        # Label and description
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(12)
+        
+        # Label section
         label_widget = QWidget()
+        label_widget.setStyleSheet("background: transparent;")
         label_layout = QVBoxLayout(label_widget)
         label_layout.setContentsMargins(0, 0, 0, 0)
-        label_layout.setSpacing(4)
-
+        label_layout.setSpacing(2)
+        
         self.label = QLabel(label)
         self.label.setStyleSheet(f"""
-            color: {self.theme.text_primary};
-            font-size: 14px;
+            font-size: 12px;
             font-weight: 600;
+            color: {self.theme.text_primary};
             background: transparent;
-            border: none;
         """)
         label_layout.addWidget(self.label)
-
+        
         if description:
-            self.desc = QLabel(description)
-            self.desc.setStyleSheet(f"""
+            desc = QLabel(description)
+            desc.setStyleSheet(f"""
+                font-size: 10px;
                 color: {self.theme.text_muted};
-                font-size: 12px;
                 background: transparent;
-                border: none;
             """)
-            self.desc.setWordWrap(True)
-            label_layout.addWidget(self.desc)
-
+            desc.setWordWrap(True)
+            label_layout.addWidget(desc)
+        
         layout.addWidget(label_widget, stretch=1)
-
-        # Control widget placeholder
+        
+        # Control placeholder
         self.control_layout = QHBoxLayout()
+        self.control_layout.setSpacing(8)
         layout.addLayout(self.control_layout)
-
+    
     def set_control(self, widget):
-        """Set the control widget"""
         self.control_layout.addWidget(widget)
 
 
-class SettingsPage(ContentPanel):
-    """Settings page with premium game configuration"""
-
+class SettingsPage(QWidget):
+    """Settings page with functional game settings - QWidget based"""
+    
     settings_changed = Signal(dict)
-
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.theme = get_theme()
+        self.game_state = None
         self.settings = {}
-
+        
         self._setup_ui()
-        self._load_defaults()
-
+    
+    def set_game_state(self, game_state):
+        """Set game state and sync settings"""
+        self.game_state = game_state
+        self._sync_from_game_state()
+    
+    def _sync_from_game_state(self):
+        """Sync UI controls from game state"""
+        if not self.game_state:
+            return
+        
+        # Weather toggle
+        if hasattr(self.game_state, 'weather_enabled'):
+            self.weather_check.setChecked(self.game_state.weather_enabled)
+        
+        # Auto order priority
+        if hasattr(self.game_state, 'auto_order_priority'):
+            priority = self.game_state.auto_order_priority
+            if priority == "ability":
+                self.order_priority_combo.setCurrentIndex(0)
+            elif priority == "condition":
+                self.order_priority_combo.setCurrentIndex(1)
+            else:
+                self.order_priority_combo.setCurrentIndex(2)
+        
+        # Auto order enabled for player team
+        if hasattr(self.game_state, 'auto_order_enabled'):
+            self.auto_order_check.setChecked(self.game_state.auto_order_enabled)
+        
+        # Pitcher stamina weight
+        if hasattr(self.game_state, 'pitcher_stamina_weight'):
+            self.stamina_weight_slider.setValue(int(self.game_state.pitcher_stamina_weight * 100))
+        
+        # Rest days
+        if hasattr(self.game_state, 'starter_rest_days'):
+            self.starter_rest_spin.setValue(self.game_state.starter_rest_days)
+        
+        # AI settings
+        if hasattr(self.game_state, 'ai_bunt_tendency'):
+            self.ai_bunt_slider.setValue(self.game_state.ai_bunt_tendency)
+        if hasattr(self.game_state, 'ai_steal_tendency'):
+            self.ai_steal_slider.setValue(self.game_state.ai_steal_tendency)
+        if hasattr(self.game_state, 'ai_pitching_change_tendency'):
+            self.ai_pitch_change_slider.setValue(self.game_state.ai_pitching_change_tendency)
+        
+        # Injuries
+        if hasattr(self.game_state, 'injuries_enabled'):
+            self.injuries_check.setChecked(self.game_state.injuries_enabled)
+        
+        # Autosave
+        if hasattr(self.game_state, 'autosave_enabled'):
+            self.autosave_check.setChecked(self.game_state.autosave_enabled)
+        if hasattr(self.game_state, 'autosave_interval'):
+            self.autosave_spin.setValue(self.game_state.autosave_interval)
+    
+    def _sync_to_game_state(self):
+        """Sync UI controls to game state"""
+        if not self.game_state:
+            return False
+        
+        # Weather toggle
+        self.game_state.weather_enabled = self.weather_check.isChecked()
+        
+        # Auto order priority
+        idx = self.order_priority_combo.currentIndex()
+        if idx == 0:
+            self.game_state.auto_order_priority = "ability"
+        elif idx == 1:
+            self.game_state.auto_order_priority = "condition"
+        else:
+            self.game_state.auto_order_priority = "balanced"
+        
+        # Auto order enabled for player team
+        self.game_state.auto_order_enabled = self.auto_order_check.isChecked()
+        
+        # Pitcher stamina weight
+        self.game_state.pitcher_stamina_weight = self.stamina_weight_slider.value() / 100.0
+        
+        # Substitute thresholds
+        self.game_state.substitute_stamina_threshold = self.sub_stamina_slider.value()
+        self.game_state.pinch_hitter_inning = self.pinch_hitter_spin.value()
+        
+        # Rest days
+        self.game_state.starter_rest_days = self.starter_rest_spin.value()
+        
+        # AI settings
+        self.game_state.ai_bunt_tendency = self.ai_bunt_slider.value()
+        self.game_state.ai_steal_tendency = self.ai_steal_slider.value()
+        self.game_state.ai_pitching_change_tendency = self.ai_pitch_change_slider.value()
+        self.game_state.ai_defensive_shift = self.ai_shift_check.isChecked()
+        
+        # Injuries
+        self.game_state.injuries_enabled = self.injuries_check.isChecked()
+        
+        # Autosave
+        self.game_state.autosave_enabled = self.autosave_check.isChecked()
+        self.game_state.autosave_interval = self.autosave_spin.value()
+        
+        return True
+    
     def _setup_ui(self):
-        """Create the premium settings page layout"""
-        # Header with gradient
-        header_frame = QFrame()
-        header_frame.setStyleSheet(f"""
+        # Main layout
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        self.setStyleSheet(f"background: {self.theme.bg_dark};")
+        
+        # Header - Angular style
+        header = QFrame()
+        header.setStyleSheet(f"""
             QFrame {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 {self.theme.bg_card}, stop:1 {self.theme.bg_card_elevated});
-                border: 1px solid {self.theme.border};
-                border-radius: 16px;
+                background: {self.theme.bg_card};
+                border: none;
+                border-radius: 0px;
             }}
         """)
-        header_layout = QHBoxLayout(header_frame)
-        header_layout.setContentsMargins(24, 20, 24, 20)
-
-        # Title with icon
-        title_layout = QVBoxLayout()
-        title = QLabel("設定")
+        
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(20, 16, 20, 16)
+        header_layout.setSpacing(0)
+        
+        # Title
+        title = QLabel("SETTINGS")
         title.setStyleSheet(f"""
-            font-size: 28px;
-            font-weight: 700;
+            font-size: 24px;
+            font-weight: 800;
             color: {self.theme.text_primary};
+            letter-spacing: 4px;
         """)
-        subtitle = QLabel("ゲームとUIの設定をカスタマイズ")
-        subtitle.setStyleSheet(f"""
-            font-size: 14px;
-            color: {self.theme.text_secondary};
-        """)
-        title_layout.addWidget(title)
-        title_layout.addWidget(subtitle)
-        header_layout.addLayout(title_layout)
-
+        header_layout.addWidget(title)
         header_layout.addStretch()
-
-        # Reset button with premium style
-        reset_btn = QPushButton("デフォルトに戻す")
+        
+        # Reset button
+        reset_btn = QPushButton("RESET")
         reset_btn.setStyleSheet(f"""
             QPushButton {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {self.theme.bg_card_hover}, stop:1 {self.theme.bg_card});
-                color: {self.theme.text_primary};
+                background: transparent;
+                color: {self.theme.text_secondary};
                 border: 1px solid {self.theme.border};
-                border-radius: 8px;
+                border-radius: 0px;
                 padding: 10px 20px;
+                font-size: 11px;
                 font-weight: 600;
+                letter-spacing: 1px;
             }}
             QPushButton:hover {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {self.theme.danger_light}, stop:1 {self.theme.danger});
-                border-color: {self.theme.danger};
+                background: {self.theme.danger};
                 color: white;
+                border-color: {self.theme.danger};
             }}
         """)
         reset_btn.clicked.connect(self._reset_settings)
         header_layout.addWidget(reset_btn)
-
-        self.add_widget(header_frame)
-
-        # Tabs with premium styling
-        tabs = QTabWidget()
-        tabs.setStyleSheet(f"""
-            QTabWidget::pane {{
-                background-color: transparent;
-                border: none;
-            }}
-            QTabBar::tab {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {self.theme.bg_card}, stop:1 {self.theme.bg_dark});
-                color: {self.theme.text_secondary};
-                border: 1px solid {self.theme.border};
-                border-bottom: none;
-                padding: 14px 28px;
-                margin-right: 4px;
-                border-radius: 0px;
-                font-size: 14px;
-                font-weight: 600;
-            }}
-            QTabBar::tab:selected {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {self.theme.primary}, stop:1 {self.theme.primary_dark});
-                color: white;
-                border-color: {self.theme.primary};
-            }}
-            QTabBar::tab:hover:!selected {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {self.theme.bg_card_hover}, stop:1 {self.theme.bg_card});
-                color: {self.theme.text_primary};
-            }}
-        """)
-
-        # Create tabs
-        tabs.addTab(self._create_display_tab(), "画面表示")
-        tabs.addTab(self._create_game_tab(), "ゲーム")
-        tabs.addTab(self._create_sim_tab(), "シミュレーション")
-        tabs.addTab(self._create_audio_tab(), "サウンド")
-        tabs.addTab(self._create_save_tab(), "セーブ/ロード")
-
-        self.add_widget(tabs)
-
-        # Apply button at bottom
-        apply_layout = QHBoxLayout()
-        apply_layout.addStretch()
-
-        self.apply_btn = QPushButton("設定を適用")
-        self.apply_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {self.theme.success_light}, stop:1 {self.theme.success});
-                color: white;
-                border: none;
-                border-radius: 10px;
-                padding: 14px 40px;
-                font-size: 16px;
-                font-weight: 700;
-            }}
-            QPushButton:hover {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {self.theme.success_hover}, stop:1 {self.theme.success_light});
-            }}
-        """)
-        self.apply_btn.clicked.connect(self._apply_settings)
-        apply_layout.addWidget(self.apply_btn)
-
-        self.add_layout(apply_layout)
-
-    def _create_display_tab(self) -> QWidget:
-        """Create display/window settings tab - FIRST TAB"""
+        
+        main_layout.addWidget(header)
+        
+        # Separator
+        sep = QFrame()
+        sep.setFixedHeight(1)
+        sep.setStyleSheet(f"background: {self.theme.border};")
+        main_layout.addWidget(sep)
+        
+        # Scroll area for settings
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("border: none; background: transparent;")
-
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setSpacing(16)
-        layout.setContentsMargins(8, 16, 8, 16)
-
-        # Window Size Card
-        window_card = PremiumCard("ウィンドウサイズ", "")
-
-        # Window size preset
-        row = SettingRow("ウィンドウサイズ", "ウィンドウの大きさを選択")
-        self.window_size_combo = QComboBox()
-        self.window_size_combo.addItems([
-            "1280 x 720 (HD)",
-            "1366 x 768",
-            "1600 x 900",
-            "1920 x 1080 (Full HD)",
-            "2560 x 1440 (QHD)",
-            "3840 x 2160 (4K)"
-        ])
-        self.window_size_combo.setCurrentIndex(3)
-        self.window_size_combo.setMinimumWidth(200)
-        row.set_control(self.window_size_combo)
-        window_card.add_widget(row)
-
-        # Fullscreen
-        row = SettingRow("フルスクリーン", "F11キーでも切替可能")
-        self.fullscreen_check = QCheckBox()
-        row.set_control(self.fullscreen_check)
-        window_card.add_widget(row)
-
-        # Start maximized
-        row = SettingRow("起動時に最大化", "ゲーム起動時にウィンドウを最大化")
-        self.start_maximized_check = QCheckBox()
-        row.set_control(self.start_maximized_check)
-        window_card.add_widget(row)
-
-        layout.addWidget(window_card)
-
-        # UI Scale Card
-        scale_card = PremiumCard("UIスケール", "")
-
-        # UI Scale
-        row = SettingRow("UIサイズ", "文字やボタンの大きさを調整")
-        scale_layout = QHBoxLayout()
-        self.scale_slider = QSlider(Qt.Horizontal)
-        self.scale_slider.setRange(80, 150)
-        self.scale_slider.setValue(100)
-        self.scale_slider.setFixedWidth(180)
-        self.scale_slider.setStyleSheet(f"""
-            QSlider::groove:horizontal {{
-                background: {self.theme.bg_input};
-                height: 8px;
-                border-radius: 4px;
+        scroll.setStyleSheet(f"""
+            QScrollArea {{
+                border: none;
+                background: {self.theme.bg_dark};
             }}
-            QSlider::handle:horizontal {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {self.theme.primary_light}, stop:1 {self.theme.primary});
-                width: 20px;
-                height: 20px;
-                margin: -6px 0;
-                border-radius: 10px;
+            QScrollBar:vertical {{
+                background: {self.theme.bg_card};
+                width: 8px;
             }}
-            QSlider::sub-page:horizontal {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 {self.theme.primary_dark}, stop:1 {self.theme.primary});
-                border-radius: 4px;
+            QScrollBar::handle:vertical {{
+                background: {self.theme.text_muted};
+                min-height: 30px;
             }}
         """)
-        scale_layout.addWidget(self.scale_slider)
-        self.scale_label = QLabel("100%")
-        self.scale_label.setStyleSheet(f"""
-            font-weight: 700;
-            font-size: 14px;
-            color: {self.theme.primary_light};
-            min-width: 50px;
-            background: transparent;
-            border: none;
-        """)
-        scale_layout.addWidget(self.scale_label)
-        self.scale_slider.valueChanged.connect(
-            lambda v: self.scale_label.setText(f"{v}%")
-        )
-        row.control_layout.addLayout(scale_layout)
-        scale_card.add_widget(row)
-
-        layout.addWidget(scale_card)
-
-        # Theme Card
-        theme_card = PremiumCard("テーマ設定", "")
-
-        # Theme
-        row = SettingRow("テーマ", "UIの外観を変更")
-        self.theme_combo = QComboBox()
-        self.theme_combo.addItems(["ダーク", "ダークブルー", "ミッドナイト", "クラシック"])
-        self.theme_combo.setCurrentIndex(0)
-        self.theme_combo.setMinimumWidth(180)
-        row.set_control(self.theme_combo)
-        theme_card.add_widget(row)
-
-        # Language
-        row = SettingRow("言語", "表示言語を変更")
-        self.lang_combo = QComboBox()
-        self.lang_combo.addItems(["日本語", "English"])
-        self.lang_combo.setCurrentIndex(0)
-        self.lang_combo.setMinimumWidth(180)
-        row.set_control(self.lang_combo)
-        theme_card.add_widget(row)
-
-        # Font size
-        row = SettingRow("フォントサイズ", "テキストの大きさ")
-        self.font_combo = QComboBox()
-        self.font_combo.addItems(["小", "中", "大", "特大"])
-        self.font_combo.setCurrentIndex(1)
-        self.font_combo.setMinimumWidth(180)
-        row.set_control(self.font_combo)
-        theme_card.add_widget(row)
-
-        layout.addWidget(theme_card)
-
-        # Stats Display Card
-        stats_card = PremiumCard("統計表示", "")
-
-        # Show advanced stats
-        row = SettingRow("高度な統計", "WAR、OPS+などの詳細統計を表示")
-        self.adv_stats_check = QCheckBox()
-        self.adv_stats_check.setChecked(True)
-        row.set_control(self.adv_stats_check)
-        stats_card.add_widget(row)
-
-        # Rating system
-        row = SettingRow("能力表示", "選手能力の表示方法")
-        self.rating_combo = QComboBox()
-        self.rating_combo.addItems(["数値 (1-99)", "ランク (S-G)", "星", "グラフ"])
-        self.rating_combo.setCurrentIndex(0)
-        self.rating_combo.setMinimumWidth(180)
-        row.set_control(self.rating_combo)
-        stats_card.add_widget(row)
-
-        layout.addWidget(stats_card)
-        layout.addStretch()
-
-        scroll.setWidget(widget)
-        return scroll
-
-    def _create_game_tab(self) -> QWidget:
-        """Create game settings tab"""
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("border: none; background: transparent;")
-
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setSpacing(16)
-        layout.setContentsMargins(8, 16, 8, 16)
-
-        # Difficulty card
-        diff_card = PremiumCard("難易度", "")
-
-        # Difficulty level
-        row = SettingRow("ゲーム難易度", "AI球団の強さを調整")
-        self.difficulty_combo = QComboBox()
-        self.difficulty_combo.addItems(["ルーキー", "レギュラー", "ベテラン", "オールスター", "殿堂入り"])
-        self.difficulty_combo.setCurrentIndex(2)
-        self.difficulty_combo.setMinimumWidth(180)
-        row.set_control(self.difficulty_combo)
-        diff_card.add_widget(row)
-
-        # Trade difficulty
-        row = SettingRow("トレード難易度", "相手球団がトレードに応じやすさ")
-        self.trade_diff_combo = QComboBox()
-        self.trade_diff_combo.addItems(["簡単", "普通", "難しい", "リアル"])
-        self.trade_diff_combo.setCurrentIndex(1)
-        self.trade_diff_combo.setMinimumWidth(180)
-        row.set_control(self.trade_diff_combo)
-        diff_card.add_widget(row)
-
-        # FA difficulty
-        row = SettingRow("FA獲得難易度", "FA選手の獲得しやすさ")
-        self.fa_diff_combo = QComboBox()
-        self.fa_diff_combo.addItems(["簡単", "普通", "難しい", "リアル"])
-        self.fa_diff_combo.setCurrentIndex(1)
-        self.fa_diff_combo.setMinimumWidth(180)
-        row.set_control(self.fa_diff_combo)
-        diff_card.add_widget(row)
-
-        layout.addWidget(diff_card)
-
-        # Season settings card
-        season_card = PremiumCard("シーズン設定", "")
-
-        # Games per season
-        row = SettingRow("試合数", "1シーズンあたりの試合数")
-        self.games_spin = QSpinBox()
-        self.games_spin.setRange(30, 143)
-        self.games_spin.setValue(143)
-        self.games_spin.setMinimumWidth(100)
-        row.set_control(self.games_spin)
-        season_card.add_widget(row)
-
-        # DH rule
-        row = SettingRow("DH制", "指名打者ルールを使用")
-        self.dh_check = QCheckBox()
-        self.dh_check.setChecked(True)
-        row.set_control(self.dh_check)
-        season_card.add_widget(row)
-
-        # Interleague
-        row = SettingRow("交流戦", "セ・パ交流戦を開催")
-        self.interleague_check = QCheckBox()
-        self.interleague_check.setChecked(True)
-        row.set_control(self.interleague_check)
-        season_card.add_widget(row)
-
-        layout.addWidget(season_card)
-
-        # Roster settings card
-        roster_card = PremiumCard("ロスター設定", "")
-
-        # Roster limit
-        row = SettingRow("1軍登録人数", "1軍に登録できる選手の上限")
-        self.roster_limit_spin = QSpinBox()
-        self.roster_limit_spin.setRange(25, 40)
-        self.roster_limit_spin.setValue(28)
-        self.roster_limit_spin.setMinimumWidth(100)
-        row.set_control(self.roster_limit_spin)
-        roster_card.add_widget(row)
-
+        
+        content = QWidget()
+        content.setStyleSheet(f"background: {self.theme.bg_dark};")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(16, 16, 16, 16)
+        content_layout.setSpacing(16)
+        
+        # === GAMEPLAY SECTION ===
+        gameplay_section = SettingSection("GAMEPLAY")
+        
+        # Weather toggle
+        row = SettingRow("天候システム", "雨天中止やコールドゲームを有効化")
+        self.weather_check = QCheckBox()
+        self.weather_check.setChecked(True)
+        self.weather_check.setStyleSheet(self._get_checkbox_style())
+        row.set_control(self.weather_check)
+        gameplay_section.add_widget(row)
+        
         # Injuries
         row = SettingRow("故障発生", "選手の故障が発生")
         self.injuries_check = QCheckBox()
         self.injuries_check.setChecked(True)
+        self.injuries_check.setStyleSheet(self._get_checkbox_style())
         row.set_control(self.injuries_check)
-        roster_card.add_widget(row)
-
-        layout.addWidget(roster_card)
-        layout.addStretch()
-
-        scroll.setWidget(widget)
-        return scroll
-
-    def _create_sim_tab(self) -> QWidget:
-        """Create simulation settings tab"""
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("border: none; background: transparent;")
-
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setSpacing(16)
-        layout.setContentsMargins(8, 16, 8, 16)
-
-        # Simulation card
-        sim_card = PremiumCard("シミュレーション設定", "")
-
-        # Simulation speed
-        row = SettingRow("シミュレーション速度", "自動進行時の速度")
-        speed_layout = QHBoxLayout()
-        self.speed_slider = QSlider(Qt.Horizontal)
-        self.speed_slider.setRange(1, 10)
-        self.speed_slider.setValue(5)
-        self.speed_slider.setFixedWidth(150)
-        speed_layout.addWidget(self.speed_slider)
-        self.speed_label = QLabel("5x")
-        self.speed_label.setStyleSheet(f"""
-            font-weight: 700;
-            color: {self.theme.primary_light};
-            min-width: 40px;
-            background: transparent;
-            border: none;
-        """)
-        speed_layout.addWidget(self.speed_label)
-        self.speed_slider.valueChanged.connect(
-            lambda v: self.speed_label.setText(f"{v}x")
-        )
-        row.control_layout.addLayout(speed_layout)
-        sim_card.add_widget(row)
-
-        # Auto-advance
-        row = SettingRow("自動進行", "試合を自動的に進行")
-        self.auto_advance_check = QCheckBox()
-        self.auto_advance_check.setChecked(True)
-        row.set_control(self.auto_advance_check)
-        sim_card.add_widget(row)
-
-        # Show play-by-play
-        row = SettingRow("プレイバイプレイ表示", "打席ごとの詳細を表示")
-        self.pbp_check = QCheckBox()
-        self.pbp_check.setChecked(True)
-        row.set_control(self.pbp_check)
-        sim_card.add_widget(row)
-
-        layout.addWidget(sim_card)
-
-        # Physics card
-        physics_card = PremiumCard("物理演算", "")
-
-        # Realistic physics
-        row = SettingRow("リアル物理演算", "打球の軌道を物理的に計算")
-        self.physics_check = QCheckBox()
-        self.physics_check.setChecked(True)
-        row.set_control(self.physics_check)
-        physics_card.add_widget(row)
-
-        # Wind effect
-        row = SettingRow("風の影響", "風がボールに影響を与える")
-        self.wind_check = QCheckBox()
-        self.wind_check.setChecked(True)
-        row.set_control(self.wind_check)
-        physics_card.add_widget(row)
-
-        layout.addWidget(physics_card)
-
-        # AI settings card
-        ai_card = PremiumCard("AI設定", "")
-
-        # AI aggressiveness
-        row = SettingRow("AI積極性", "AIの采配の積極性")
-        self.ai_aggr_combo = QComboBox()
-        self.ai_aggr_combo.addItems(["消極的", "普通", "積極的", "非常に積極的"])
-        self.ai_aggr_combo.setCurrentIndex(1)
-        self.ai_aggr_combo.setMinimumWidth(180)
-        row.set_control(self.ai_aggr_combo)
-        ai_card.add_widget(row)
-
-        layout.addWidget(ai_card)
-        layout.addStretch()
-
-        scroll.setWidget(widget)
-        return scroll
-
-    def _create_audio_tab(self) -> QWidget:
-        """Create audio settings tab"""
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("border: none; background: transparent;")
-
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setSpacing(16)
-        layout.setContentsMargins(8, 16, 8, 16)
-
-        # Audio card
-        audio_card = PremiumCard("サウンド設定", "")
-
-        # Master volume
-        row = SettingRow("マスター音量", "全体の音量")
-        volume_layout = QHBoxLayout()
-        self.master_slider = QSlider(Qt.Horizontal)
-        self.master_slider.setRange(0, 100)
-        self.master_slider.setValue(80)
-        self.master_slider.setFixedWidth(150)
-        volume_layout.addWidget(self.master_slider)
-        self.master_label = QLabel("80%")
-        self.master_label.setStyleSheet(f"""
-            font-weight: 700;
-            color: {self.theme.primary_light};
-            min-width: 50px;
-            background: transparent;
-            border: none;
-        """)
-        volume_layout.addWidget(self.master_label)
-        self.master_slider.valueChanged.connect(
-            lambda v: self.master_label.setText(f"{v}%")
-        )
-        row.control_layout.addLayout(volume_layout)
-        audio_card.add_widget(row)
-
-        # BGM volume
-        row = SettingRow("BGM音量", "背景音楽の音量")
-        bgm_layout = QHBoxLayout()
-        self.bgm_slider = QSlider(Qt.Horizontal)
-        self.bgm_slider.setRange(0, 100)
-        self.bgm_slider.setValue(70)
-        self.bgm_slider.setFixedWidth(150)
-        bgm_layout.addWidget(self.bgm_slider)
-        self.bgm_label = QLabel("70%")
-        self.bgm_label.setStyleSheet(f"""
-            font-weight: 700;
-            color: {self.theme.primary_light};
-            min-width: 50px;
-            background: transparent;
-            border: none;
-        """)
-        bgm_layout.addWidget(self.bgm_label)
-        self.bgm_slider.valueChanged.connect(
-            lambda v: self.bgm_label.setText(f"{v}%")
-        )
-        row.control_layout.addLayout(bgm_layout)
-        audio_card.add_widget(row)
-
-        # SFX volume
-        row = SettingRow("効果音", "効果音の音量")
-        sfx_layout = QHBoxLayout()
-        self.sfx_slider = QSlider(Qt.Horizontal)
-        self.sfx_slider.setRange(0, 100)
-        self.sfx_slider.setValue(90)
-        self.sfx_slider.setFixedWidth(150)
-        sfx_layout.addWidget(self.sfx_slider)
-        self.sfx_label = QLabel("90%")
-        self.sfx_label.setStyleSheet(f"""
-            font-weight: 700;
-            color: {self.theme.primary_light};
-            min-width: 50px;
-            background: transparent;
-            border: none;
-        """)
-        sfx_layout.addWidget(self.sfx_label)
-        self.sfx_slider.valueChanged.connect(
-            lambda v: self.sfx_label.setText(f"{v}%")
-        )
-        row.control_layout.addLayout(sfx_layout)
-        audio_card.add_widget(row)
-
-        # Crowd noise
-        row = SettingRow("観客音", "試合中の観客の音")
-        self.crowd_check = QCheckBox()
-        self.crowd_check.setChecked(True)
-        row.set_control(self.crowd_check)
-        audio_card.add_widget(row)
-
-        layout.addWidget(audio_card)
-        layout.addStretch()
-
-        scroll.setWidget(widget)
-        return scroll
-
-    def _create_save_tab(self) -> QWidget:
-        """Create save/load settings tab"""
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("border: none; background: transparent;")
-
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setSpacing(16)
-        layout.setContentsMargins(8, 16, 8, 16)
-
-        # Save card
-        save_card = PremiumCard("セーブデータ", "")
-
-        # Auto-save
+        gameplay_section.add_widget(row)
+        
+        content_layout.addWidget(gameplay_section)
+        
+        # === ORDER SETTINGS SECTION ===
+        order_section = SettingSection("ORDER SETTINGS")
+        
+        # Auto order toggle for player team
+        row = SettingRow("自動オーダー調整", "自チームのオーダーを自動調整（オフ時は怪我人のみ交代）")
+        self.auto_order_check = QCheckBox()
+        self.auto_order_check.setChecked(False)  # Default OFF - manual control
+        self.auto_order_check.setStyleSheet(self._get_checkbox_style())
+        row.set_control(self.auto_order_check)
+        order_section.add_widget(row)
+        
+        # Auto order priority
+        row = SettingRow("自動オーダー優先", "オート編成時の優先順位")
+        self.order_priority_combo = QComboBox()
+        self.order_priority_combo.addItems(["能力優先", "調子優先", "バランス"])
+        self.order_priority_combo.setStyleSheet(self._get_combo_style())
+        row.set_control(self.order_priority_combo)
+        order_section.add_widget(row)
+        
+        # Pitcher stamina weight
+        row = SettingRow("投手スタミナ重視度", "オーダー決定時のスタミナの考慮度")
+        stamina_layout = QHBoxLayout()
+        stamina_layout.setSpacing(8)
+        self.stamina_weight_slider = QSlider(Qt.Horizontal)
+        self.stamina_weight_slider.setRange(0, 100)
+        self.stamina_weight_slider.setValue(50)
+        self.stamina_weight_slider.setFixedWidth(120)
+        self.stamina_weight_slider.setStyleSheet(self._get_slider_style())
+        stamina_layout.addWidget(self.stamina_weight_slider)
+        self.stamina_weight_label = QLabel("50%")
+        self.stamina_weight_label.setStyleSheet(f"font-weight: 700; color: {self.theme.primary}; min-width: 40px;")
+        stamina_layout.addWidget(self.stamina_weight_label)
+        self.stamina_weight_slider.valueChanged.connect(lambda v: self.stamina_weight_label.setText(f"{v}%"))
+        row.control_layout.addLayout(stamina_layout)
+        order_section.add_widget(row)
+        
+        # Substitute stamina threshold
+        row = SettingRow("代打スタミナ閾値", "この値以下で代打を考慮")
+        sub_layout = QHBoxLayout()
+        sub_layout.setSpacing(8)
+        self.sub_stamina_slider = QSlider(Qt.Horizontal)
+        self.sub_stamina_slider.setRange(10, 50)
+        self.sub_stamina_slider.setValue(30)
+        self.sub_stamina_slider.setFixedWidth(120)
+        self.sub_stamina_slider.setStyleSheet(self._get_slider_style())
+        sub_layout.addWidget(self.sub_stamina_slider)
+        self.sub_stamina_label = QLabel("30%")
+        self.sub_stamina_label.setStyleSheet(f"font-weight: 700; color: {self.theme.primary}; min-width: 40px;")
+        sub_layout.addWidget(self.sub_stamina_label)
+        self.sub_stamina_slider.valueChanged.connect(lambda v: self.sub_stamina_label.setText(f"{v}%"))
+        row.control_layout.addLayout(sub_layout)
+        order_section.add_widget(row)
+        
+        # Pinch hitter inning
+        row = SettingRow("代打開始イニング", "代打を使い始めるイニング")
+        self.pinch_hitter_spin = QSpinBox()
+        self.pinch_hitter_spin.setRange(5, 9)
+        self.pinch_hitter_spin.setValue(7)
+        self.pinch_hitter_spin.setStyleSheet(self._get_spinbox_style())
+        row.set_control(self.pinch_hitter_spin)
+        order_section.add_widget(row)
+        
+        # Starter rest days
+        row = SettingRow("先発投手休養日数", "先発登板後の休養日数")
+        self.starter_rest_spin = QSpinBox()
+        self.starter_rest_spin.setRange(4, 7)
+        self.starter_rest_spin.setValue(6)
+        self.starter_rest_spin.setStyleSheet(self._get_spinbox_style())
+        row.set_control(self.starter_rest_spin)
+        order_section.add_widget(row)
+        
+        content_layout.addWidget(order_section)
+        
+        # === AI SETTINGS SECTION ===
+        ai_section = SettingSection("AI SETTINGS")
+        
+        # AI bunt tendency
+        row = SettingRow("AIバント傾向", "AIがバントを選択する傾向")
+        bunt_layout = QHBoxLayout()
+        bunt_layout.setSpacing(8)
+        self.ai_bunt_slider = QSlider(Qt.Horizontal)
+        self.ai_bunt_slider.setRange(0, 100)
+        self.ai_bunt_slider.setValue(50)
+        self.ai_bunt_slider.setFixedWidth(120)
+        self.ai_bunt_slider.setStyleSheet(self._get_slider_style())
+        bunt_layout.addWidget(self.ai_bunt_slider)
+        self.ai_bunt_label = QLabel("50")
+        self.ai_bunt_label.setStyleSheet(f"font-weight: 700; color: {self.theme.primary}; min-width: 30px;")
+        bunt_layout.addWidget(self.ai_bunt_label)
+        self.ai_bunt_slider.valueChanged.connect(lambda v: self.ai_bunt_label.setText(f"{v}"))
+        row.control_layout.addLayout(bunt_layout)
+        ai_section.add_widget(row)
+        
+        # AI steal tendency
+        row = SettingRow("AI盗塁傾向", "AIが盗塁を試みる傾向")
+        steal_layout = QHBoxLayout()
+        steal_layout.setSpacing(8)
+        self.ai_steal_slider = QSlider(Qt.Horizontal)
+        self.ai_steal_slider.setRange(0, 100)
+        self.ai_steal_slider.setValue(50)
+        self.ai_steal_slider.setFixedWidth(120)
+        self.ai_steal_slider.setStyleSheet(self._get_slider_style())
+        steal_layout.addWidget(self.ai_steal_slider)
+        self.ai_steal_label = QLabel("50")
+        self.ai_steal_label.setStyleSheet(f"font-weight: 700; color: {self.theme.primary}; min-width: 30px;")
+        steal_layout.addWidget(self.ai_steal_label)
+        self.ai_steal_slider.valueChanged.connect(lambda v: self.ai_steal_label.setText(f"{v}"))
+        row.control_layout.addLayout(steal_layout)
+        ai_section.add_widget(row)
+        
+        # AI pitching change tendency
+        row = SettingRow("AI継投傾向", "AIが投手交代を行う傾向")
+        pitch_layout = QHBoxLayout()
+        pitch_layout.setSpacing(8)
+        self.ai_pitch_change_slider = QSlider(Qt.Horizontal)
+        self.ai_pitch_change_slider.setRange(0, 100)
+        self.ai_pitch_change_slider.setValue(50)
+        self.ai_pitch_change_slider.setFixedWidth(120)
+        self.ai_pitch_change_slider.setStyleSheet(self._get_slider_style())
+        pitch_layout.addWidget(self.ai_pitch_change_slider)
+        self.ai_pitch_label = QLabel("50")
+        self.ai_pitch_label.setStyleSheet(f"font-weight: 700; color: {self.theme.primary}; min-width: 30px;")
+        pitch_layout.addWidget(self.ai_pitch_label)
+        self.ai_pitch_change_slider.valueChanged.connect(lambda v: self.ai_pitch_label.setText(f"{v}"))
+        row.control_layout.addLayout(pitch_layout)
+        ai_section.add_widget(row)
+        
+        # AI defensive shift
+        row = SettingRow("AIシフト守備", "AIがシフト守備を使用")
+        self.ai_shift_check = QCheckBox()
+        self.ai_shift_check.setChecked(True)
+        self.ai_shift_check.setStyleSheet(self._get_checkbox_style())
+        row.set_control(self.ai_shift_check)
+        ai_section.add_widget(row)
+        
+        content_layout.addWidget(ai_section)
+        
+        # === AUTOSAVE SECTION ===
+        save_section = SettingSection("AUTOSAVE")
+        
+        # Auto-save toggle
         row = SettingRow("オートセーブ", "自動的にゲームを保存")
         self.autosave_check = QCheckBox()
         self.autosave_check.setChecked(True)
+        self.autosave_check.setStyleSheet(self._get_checkbox_style())
         row.set_control(self.autosave_check)
-        save_card.add_widget(row)
-
+        save_section.add_widget(row)
+        
         # Auto-save interval
         row = SettingRow("オートセーブ間隔", "自動保存の頻度（試合数）")
         self.autosave_spin = QSpinBox()
         self.autosave_spin.setRange(1, 30)
         self.autosave_spin.setValue(5)
-        self.autosave_spin.setMinimumWidth(100)
+        self.autosave_spin.setStyleSheet(self._get_spinbox_style())
         row.set_control(self.autosave_spin)
-        save_card.add_widget(row)
-
-        # Save slots
-        row = SettingRow("セーブスロット数", "保持するセーブデータの数")
-        self.slots_spin = QSpinBox()
-        self.slots_spin.setRange(1, 10)
-        self.slots_spin.setValue(3)
-        self.slots_spin.setMinimumWidth(100)
-        row.set_control(self.slots_spin)
-        save_card.add_widget(row)
-
-        layout.addWidget(save_card)
-
-        # Backup card
-        backup_card = PremiumCard("バックアップ", "")
-
-        # Backup location
-        backup_row = QFrame()
-        backup_row.setStyleSheet(f"""
+        save_section.add_widget(row)
+        
+        content_layout.addWidget(save_section)
+        
+        content_layout.addStretch()
+        scroll.setWidget(content)
+        main_layout.addWidget(scroll)
+        
+        # Bottom buttons
+        button_bar = QFrame()
+        button_bar.setStyleSheet(f"""
             QFrame {{
                 background: {self.theme.bg_card};
-                border: 1px solid {self.theme.border_muted};
-                border-radius: 10px;
+                border: none;
             }}
         """)
-        backup_layout = QHBoxLayout(backup_row)
-        backup_layout.setContentsMargins(16, 12, 16, 12)
-
-        backup_label = QLabel("バックアップ先:")
-        backup_label.setStyleSheet(f"""
-            color: {self.theme.text_secondary};
-            font-weight: 600;
-            background: transparent;
-            border: none;
-        """)
-        backup_layout.addWidget(backup_label)
-
-        self.backup_path = QLabel("./backups")
-        self.backup_path.setStyleSheet(f"""
-            color: {self.theme.text_primary};
-            padding: 8px 12px;
-            background: {self.theme.bg_input};
-            border-radius: 6px;
-        """)
-        backup_layout.addWidget(self.backup_path, stretch=1)
-
-        browse_btn = QPushButton("参照...")
-        browse_btn.setStyleSheet(f"""
+        button_layout = QHBoxLayout(button_bar)
+        button_layout.setContentsMargins(20, 12, 20, 12)
+        button_layout.setSpacing(12)
+        
+        button_layout.addStretch()
+        
+        # Apply button
+        self.apply_btn = QPushButton("APPLY")
+        self.apply_btn.setMinimumSize(120, 40)
+        self.apply_btn.setCursor(Qt.PointingHandCursor)
+        self.apply_btn.setStyleSheet(f"""
             QPushButton {{
-                background: {self.theme.bg_card_hover};
-                color: {self.theme.text_primary};
-                border: 1px solid {self.theme.border};
-                border-radius: 6px;
-                padding: 8px 16px;
+                background: white;
+                color: black;
+                border: none;
+                border-radius: 0px;
+                padding: 12px 32px;
+                font-weight: 700;
+                font-size: 12px;
+                letter-spacing: 2px;
             }}
             QPushButton:hover {{
+                background: #e0e0e0;
+            }}
+            QPushButton:pressed {{
+                background: #cccccc;
+            }}
+        """)
+        self.apply_btn.clicked.connect(self._apply_settings)
+        button_layout.addWidget(self.apply_btn)
+        
+        main_layout.addWidget(button_bar)
+    
+    def _get_checkbox_style(self):
+        return f"""
+            QCheckBox::indicator {{
+                width: 20px;
+                height: 20px;
+                border: 2px solid {self.theme.border};
+                background: {self.theme.bg_input};
+            }}
+            QCheckBox::indicator:checked {{
                 background: {self.theme.primary};
                 border-color: {self.theme.primary};
             }}
-        """)
-        browse_btn.clicked.connect(self._browse_backup)
-        backup_layout.addWidget(browse_btn)
-
-        backup_card.add_widget(backup_row)
-
-        # Export/Import buttons
-        export_layout = QHBoxLayout()
-
-        export_btn = QPushButton("エクスポート")
-        export_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {self.theme.bg_card_hover}, stop:1 {self.theme.bg_card});
+        """
+    
+    def _get_combo_style(self):
+        return f"""
+            QComboBox {{
+                background: {self.theme.bg_input};
                 color: {self.theme.text_primary};
                 border: 1px solid {self.theme.border};
-                border-radius: 8px;
-                padding: 12px 24px;
-                font-weight: 600;
+                padding: 8px 12px;
+                min-width: 120px;
+                font-weight: 500;
             }}
-            QPushButton:hover {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {self.theme.primary_light}, stop:1 {self.theme.primary});
+            QComboBox:hover {{
                 border-color: {self.theme.primary};
             }}
-        """)
-        export_btn.clicked.connect(self._export_save)
-        export_layout.addWidget(export_btn)
-
-        import_btn = QPushButton("インポート")
-        import_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {self.theme.bg_card_hover}, stop:1 {self.theme.bg_card});
+            QComboBox::drop-down {{
+                border: none;
+                width: 24px;
+            }}
+            QComboBox QAbstractItemView {{
+                background: {self.theme.bg_card};
                 color: {self.theme.text_primary};
                 border: 1px solid {self.theme.border};
-                border-radius: 8px;
-                padding: 12px 24px;
-                font-weight: 600;
+                selection-background-color: {self.theme.primary};
             }}
-            QPushButton:hover {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {self.theme.primary_light}, stop:1 {self.theme.primary});
-                border-color: {self.theme.primary};
+        """
+    
+    def _get_slider_style(self):
+        return f"""
+            QSlider::groove:horizontal {{
+                background: {self.theme.bg_input};
+                height: 6px;
             }}
-        """)
-        import_btn.clicked.connect(self._import_save)
-        export_layout.addWidget(import_btn)
-
-        backup_card.add_layout(export_layout)
-
-        layout.addWidget(backup_card)
-        layout.addStretch()
-
-        scroll.setWidget(widget)
-        return scroll
-
-    def _load_defaults(self):
-        """Load default settings"""
+            QSlider::handle:horizontal {{
+                background: {self.theme.primary};
+                width: 16px;
+                height: 16px;
+                margin: -5px 0;
+            }}
+            QSlider::sub-page:horizontal {{
+                background: {self.theme.primary};
+            }}
+        """
+    
+    def _get_spinbox_style(self):
+        return f"""
+            QSpinBox {{
+                background: {self.theme.bg_input};
+                color: {self.theme.text_primary};
+                border: 1px solid {self.theme.border};
+                padding: 6px 10px;
+                min-width: 80px;
+            }}
+            QSpinBox::up-button, QSpinBox::down-button {{
+                width: 20px;
+                border: none;
+                background: {self.theme.bg_card_hover};
+            }}
+        """
+    
+    def _apply_settings(self):
+        """Apply current settings to game state"""
+        print("Settings _apply_settings called!")  # Debug
+        
+        success = self._sync_to_game_state()
+        
+        # Collect all settings
         self.settings = {
-            "window_size": "1920 x 1080 (Full HD)",
-            "fullscreen": False,
-            "start_maximized": False,
-            "ui_scale": 100,
-            "difficulty": "ベテラン",
-            "trade_difficulty": "普通",
-            "fa_difficulty": "普通",
-            "games_per_season": 143,
-            "dh_rule": True,
-            "interleague": True,
-            "roster_limit": 28,
-            "injuries": True,
-            "sim_speed": 5,
-            "auto_advance": True,
-            "show_pbp": True,
-            "physics": True,
-            "wind": True,
-            "ai_aggression": "普通",
-            "theme": "ダーク",
-            "language": "日本語",
-            "font_size": "中",
-            "advanced_stats": True,
-            "rating_display": "数値 (1-99)",
-            "master_volume": 80,
-            "bgm_volume": 70,
-            "sfx_volume": 90,
-            "crowd_noise": True,
-            "autosave": True,
-            "autosave_interval": 5,
-            "save_slots": 3,
+            "weather_enabled": self.weather_check.isChecked(),
+            "injuries_enabled": self.injuries_check.isChecked(),
+            "auto_order_enabled": self.auto_order_check.isChecked(),
+            "order_priority": self.order_priority_combo.currentIndex(),
+            "pitcher_stamina_weight": self.stamina_weight_slider.value(),
+            "substitute_stamina_threshold": self.sub_stamina_slider.value(),
+            "pinch_hitter_inning": self.pinch_hitter_spin.value(),
+            "starter_rest_days": self.starter_rest_spin.value(),
+            "ai_bunt_tendency": self.ai_bunt_slider.value(),
+            "ai_steal_tendency": self.ai_steal_slider.value(),
+            "ai_pitching_change_tendency": self.ai_pitch_change_slider.value(),
+            "ai_defensive_shift": self.ai_shift_check.isChecked(),
+            "autosave_enabled": self.autosave_check.isChecked(),
+            "autosave_interval": self.autosave_spin.value(),
         }
-
+        
+        print(f"Emitting settings_changed signal with: {self.settings}")  # Debug
+        self.settings_changed.emit(self.settings)
+        
+        # Show confirmation dialog
+        if success:
+            QMessageBox.information(self, "設定", "設定を適用しました")
+        else:
+            QMessageBox.warning(self, "設定", "ゲームが開始されていないため、一部の設定が適用されませんでした")
+    
     def _reset_settings(self):
         """Reset to default settings"""
-        result = QMessageBox.question(
-            self, "設定リセット",
-            "すべての設定をデフォルトに戻しますか？",
-            QMessageBox.Yes | QMessageBox.No
-        )
-
-        if result == QMessageBox.Yes:
-            self._load_defaults()
-            self._apply_settings_to_ui()
-            QMessageBox.information(self, "完了", "設定をリセットしました。")
-
-    def _apply_settings_to_ui(self):
-        """Apply loaded settings to UI controls"""
-        # Display settings
-        self.window_size_combo.setCurrentText(self.settings.get("window_size", "1920 x 1080 (Full HD)"))
-        self.fullscreen_check.setChecked(self.settings.get("fullscreen", False))
-        self.start_maximized_check.setChecked(self.settings.get("start_maximized", False))
-        self.scale_slider.setValue(self.settings.get("ui_scale", 100))
-        self.theme_combo.setCurrentText(self.settings.get("theme", "ダーク"))
-        self.lang_combo.setCurrentText(self.settings.get("language", "日本語"))
-        self.font_combo.setCurrentText(self.settings.get("font_size", "中"))
-        self.adv_stats_check.setChecked(self.settings.get("advanced_stats", True))
-        self.rating_combo.setCurrentText(self.settings.get("rating_display", "数値 (1-99)"))
-
-        # Game settings
-        self.difficulty_combo.setCurrentText(self.settings.get("difficulty", "ベテラン"))
-        self.trade_diff_combo.setCurrentText(self.settings.get("trade_difficulty", "普通"))
-        self.fa_diff_combo.setCurrentText(self.settings.get("fa_difficulty", "普通"))
-        self.games_spin.setValue(self.settings.get("games_per_season", 143))
-        self.dh_check.setChecked(self.settings.get("dh_rule", True))
-        self.interleague_check.setChecked(self.settings.get("interleague", True))
-        self.roster_limit_spin.setValue(self.settings.get("roster_limit", 28))
-        self.injuries_check.setChecked(self.settings.get("injuries", True))
-
-        # Simulation settings
-        self.speed_slider.setValue(self.settings.get("sim_speed", 5))
-        self.auto_advance_check.setChecked(self.settings.get("auto_advance", True))
-        self.pbp_check.setChecked(self.settings.get("show_pbp", True))
-        self.physics_check.setChecked(self.settings.get("physics", True))
-        self.wind_check.setChecked(self.settings.get("wind", True))
-        self.ai_aggr_combo.setCurrentText(self.settings.get("ai_aggression", "普通"))
-
-        # Audio settings
-        self.master_slider.setValue(self.settings.get("master_volume", 80))
-        self.bgm_slider.setValue(self.settings.get("bgm_volume", 70))
-        self.sfx_slider.setValue(self.settings.get("sfx_volume", 90))
-        self.crowd_check.setChecked(self.settings.get("crowd_noise", True))
-
-        # Save settings
-        self.autosave_check.setChecked(self.settings.get("autosave", True))
-        self.autosave_spin.setValue(self.settings.get("autosave_interval", 5))
-        self.slots_spin.setValue(self.settings.get("save_slots", 3))
-
-    def _apply_settings(self):
-        """Apply current settings"""
-        self.settings = {
-            # Display
-            "window_size": self.window_size_combo.currentText(),
-            "fullscreen": self.fullscreen_check.isChecked(),
-            "start_maximized": self.start_maximized_check.isChecked(),
-            "ui_scale": self.scale_slider.value() / 100.0,
-            "theme": self.theme_combo.currentText(),
-            "language": self.lang_combo.currentText(),
-            "font_size": self.font_combo.currentText(),
-            "advanced_stats": self.adv_stats_check.isChecked(),
-            "rating_display": self.rating_combo.currentText(),
-            # Game
-            "difficulty": self.difficulty_combo.currentText(),
-            "trade_difficulty": self.trade_diff_combo.currentText(),
-            "fa_difficulty": self.fa_diff_combo.currentText(),
-            "games_per_season": self.games_spin.value(),
-            "dh_rule": self.dh_check.isChecked(),
-            "interleague": self.interleague_check.isChecked(),
-            "roster_limit": self.roster_limit_spin.value(),
-            "injuries": self.injuries_check.isChecked(),
-            # Simulation
-            "sim_speed": self.speed_slider.value(),
-            "auto_advance": self.auto_advance_check.isChecked(),
-            "show_pbp": self.pbp_check.isChecked(),
-            "physics": self.physics_check.isChecked(),
-            "wind": self.wind_check.isChecked(),
-            "ai_aggression": self.ai_aggr_combo.currentText(),
-            # Audio
-            "master_volume": self.master_slider.value(),
-            "bgm_volume": self.bgm_slider.value(),
-            "sfx_volume": self.sfx_slider.value(),
-            "crowd_noise": self.crowd_check.isChecked(),
-            # Save
-            "autosave": self.autosave_check.isChecked(),
-            "autosave_interval": self.autosave_spin.value(),
-            "save_slots": self.slots_spin.value(),
-        }
-
-        self.settings_changed.emit(self.settings)
-        QMessageBox.information(self, "完了", "設定を適用しました。")
-
-    def _browse_backup(self):
-        """Browse for backup folder"""
-        folder = QFileDialog.getExistingDirectory(
-            self, "バックアップ先を選択",
-            self.backup_path.text()
-        )
-        if folder:
-            self.backup_path.setText(folder)
-
-    def _export_save(self):
-        """Export save data"""
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "セーブデータをエクスポート",
-            "", "Save Files (*.psav)"
-        )
-        if file_path:
-            QMessageBox.information(
-                self, "エクスポート完了",
-                f"セーブデータを {file_path} に書き出しました。"
-            )
-
-    def _import_save(self):
-        """Import save data"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "セーブデータをインポート",
-            "", "Save Files (*.psav)"
-        )
-        if file_path:
-            result = QMessageBox.question(
-                self, "インポート確認",
-                "現在のデータを上書きしますか？",
-                QMessageBox.Yes | QMessageBox.No
-            )
-            if result == QMessageBox.Yes:
-                QMessageBox.information(
-                    self, "インポート完了",
-                    "セーブデータを読み込みました。"
-                )
-
-    def get_settings(self) -> dict:
-        """Get current settings"""
-        return self.settings
+        self.weather_check.setChecked(True)
+        self.injuries_check.setChecked(True)
+        self.auto_order_check.setChecked(False)  # Default OFF
+        self.order_priority_combo.setCurrentIndex(0)
+        self.stamina_weight_slider.setValue(50)
+        self.sub_stamina_slider.setValue(30)
+        self.pinch_hitter_spin.setValue(7)
+        self.starter_rest_spin.setValue(6)
+        self.ai_bunt_slider.setValue(50)
+        self.ai_steal_slider.setValue(50)
+        self.ai_pitch_change_slider.setValue(50)
+        self.ai_shift_check.setChecked(True)
+        self.theme_combo.setCurrentIndex(0)
+        self.font_combo.setCurrentIndex(1)
+        self.autosave_check.setChecked(True)
+        self.autosave_spin.setValue(5)
+        
+        QMessageBox.information(self, "設定", "設定をデフォルトに戻しました")
+    
+    def refresh(self):
+        """Refresh settings from game state"""
+        self._sync_from_game_state()

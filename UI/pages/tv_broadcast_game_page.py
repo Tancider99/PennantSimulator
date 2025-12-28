@@ -1451,10 +1451,10 @@ class TVBroadcastGamePage(QWidget):
             if self.live_engine and self.live_engine.is_game_over():
                 self._finish()
 
-    def start_game(self, home, away, date_str="2027-01-01"):
+    def start_game(self, home, away, date_str="2027-01-01", game_state=None):
         self.date_str = date_str
         from live_game_engine import LiveGameEngine
-        self.live_engine = LiveGameEngine(home, away)
+        self.live_engine = LiveGameEngine(home, away, game_state_manager=game_state)
         
         # スタジアム情報をUIにセット
         self.field_widget.set_stadium(self.live_engine.stadium)

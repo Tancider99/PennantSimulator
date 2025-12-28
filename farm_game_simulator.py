@@ -58,6 +58,9 @@ class FarmGameSimulator:
     def simulate_game(self, date: str = "") -> FarmGameResult:
         """1試合を完全にシミュレート"""
         
+        # DEBUG: Check player levels in lineup before game
+        lineup = self.home_team.farm_lineup if self.team_level == TeamLevel.SECOND else self.home_team.third_lineup
+        
         # 試合実行
         while not self.engine.is_game_over():
             self.engine.simulate_pitch()
