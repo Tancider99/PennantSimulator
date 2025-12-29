@@ -1,509 +1,793 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { motion, useScroll, useTransform, useSpring, useMotionValue, useMotionTemplate } from 'framer-motion';
-import { ChevronRight, Database, BarChart3, Trophy, Play, Hexagon, Globe, Zap, Cpu, MousePointer2 } from 'lucide-react';
+<!DOCTYPE html>
+<html lang="ja" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pennant Simulator | Advanced Strategy Engine</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Tailwind Config -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                        display: ['Orbitron', 'sans-serif'],
+                    },
+                    colors: {
+                        space: {
+                            900: '#050508',
+                            800: '#0a0a12',
+                            700: '#141420',
+                        },
+                        accent: {
+                            cyan: '#00f3ff',
+                            blue: '#2d6cdf',
+                            purple: '#7d2ae8'
+                        }
+                    },
+                    animation: {
+                        'pulse-fast': 'pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'glitch': 'glitch 1s linear infinite',
+                    },
+                    keyframes: {
+                        glitch: {
+                            '2%, 64%': { transform: 'translate(2px,0) skew(0deg)' },
+                            '4%, 60%': { transform: 'translate(-2px,0) skew(0deg)' },
+                            '62%': { transform: 'translate(0,0) skew(5deg)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
 
-/**
- * ユーザーがアップロードしたファイル名のリスト
- * 実際の環境では、これらの画像をpublicフォルダまたはsrcフォルダに配置してください。
- */
-const SCREENSHOTS = [
-  "スクリーンショット 2025-12-30 054606.png",
-  "スクリーンショット 2025-12-30 054600.png",
-  "スクリーンショット 2025-12-30 054537.png",
-  "スクリーンショット 2025-12-30 054515.png",
-  "スクリーンショット 2025-12-30 054415.png",
-  "スクリーンショット 2025-12-30 054357.png",
-  "スクリーンショット 2025-12-30 054330.png",
-  "スクリーンショット 2025-12-30 053028.png",
-  "スクリーンショット 2025-12-30 053009.png",
-  "スクリーンショット 2025-12-30 054807.png"
-];
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- GSAP -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"></script>
 
-// --- Components ---
+    <style>
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #050508; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #2d6cdf; 
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #00f3ff; 
+        }
 
-/**
- * スターフィールド背景エフェクト
- */
-const StarfieldBackground = () => {
-  return (
-    <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none bg-[#050505]">
-      {/* 遠景の星 */}
-      <div className="absolute inset-0 opacity-40" 
-           style={{ backgroundImage: 'radial-gradient(1px 1px at 20px 30px, #eee, rgba(0,0,0,0)), radial-gradient(1px 1px at 40px 70px, #fff, rgba(0,0,0,0)), radial-gradient(2px 2px at 90px 40px, #ddd, rgba(0,0,0,0))', backgroundSize: '550px 550px' }}></div>
-      {/* 近景の星（ゆっくり動く） */}
-      <motion.div 
-        animate={{ y: [-100, 0] }}
-        transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-        className="absolute inset-0 opacity-60"
-        style={{ backgroundImage: 'radial-gradient(1.5px 1.5px at 100px 150px, #fff, rgba(0,0,0,0)), radial-gradient(2px 2px at 200px 400px, #8ecae6, rgba(0,0,0,0))', backgroundSize: '400px 400px' }}
-      />
-      {/* オーロラ/ネビュラ効果 */}
-      <div className="absolute top-[-20%] left-[-20%] w-[70%] h-[70%] bg-blue-900/10 rounded-full blur-[120px] mix-blend-screen animate-pulse" />
-      <div className="absolute bottom-[-20%] right-[-20%] w-[60%] h-[60%] bg-indigo-900/10 rounded-full blur-[100px] mix-blend-screen animate-pulse" style={{ animationDelay: '2s' }} />
-    </div>
-  );
-};
-
-/**
- * 3Dチルト効果のある画像カード
- */
-const TiltCard = ({ src, alt, title, subtitle, index }) => {
-  const x = useMotionValue(0);
-  const y = useMotionValue(0);
-  const rotateX = useTransform(y, [-100, 100], [5, -5]);
-  const rotateY = useTransform(x, [-100, 100], [-5, 5]);
-
-  function handleMouseMove(event) {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const width = rect.width;
-    const height = rect.height;
-    const mouseX = event.clientX - rect.left;
-    const mouseY = event.clientY - rect.top;
-    const xPct = mouseX / width - 0.5;
-    const yPct = mouseY / height - 0.5;
-    x.set(xPct * 200);
-    y.set(yPct * 200);
-  }
-
-  function handleMouseLeave() {
-    x.set(0);
-    y.set(0);
-  }
-
-  return (
-    <motion.div
-      style={{ rotateX, rotateY, transformStyle: "preserve-3d" }}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
-      initial={{ opacity: 0, y: 50 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true }}
-      transition={{ duration: 0.8, delay: index * 0.1 }}
-      className="relative group w-full h-64 md:h-80 perspective-1000 cursor-none"
-    >
-      <div className="absolute inset-0 border border-white/10 bg-slate-900/40 backdrop-blur-sm rounded-sm overflow-hidden transform transition-all duration-500 group-hover:border-blue-400/50 group-hover:shadow-[0_0_30px_rgba(59,130,246,0.3)]">
-        {/* 画像プレースホルダーとフォールバック処理 */}
-        <div className="w-full h-full relative overflow-hidden">
-          <img 
-            src={src} 
-            alt={alt} 
-            className="w-full h-full object-cover opacity-80 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700"
-            onError={(e) => {
-              e.target.style.display = 'none';
-              e.target.nextSibling.style.display = 'flex';
-            }}
-          />
-          {/* 画像読み込みエラー時のフォールバック表示 */}
-          <div className="hidden absolute inset-0 flex-col items-center justify-center bg-slate-900 text-slate-500 p-4 text-center">
-            <Database className="w-12 h-12 mb-2 opacity-50" />
-            <span className="text-xs font-mono uppercase tracking-widest">{alt}</span>
-            <span className="text-[10px] mt-1 text-slate-600">Image Asset Placeholder</span>
-          </div>
-          
-          {/* オーバーレイグリッド */}
-          <div className="absolute inset-0 bg-[linear-gradient(rgba(18,20,30,0)_0%,rgba(18,20,30,0.8)_100%)] pointer-events-none" />
-          <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay pointer-events-none" />
-        </div>
-
-        {/* HUD要素 */}
-        <div className="absolute bottom-0 left-0 w-full p-6 translate-z-20">
-          <div className="flex items-end justify-between">
-            <div>
-              <div className="flex items-center space-x-2 mb-1">
-                <div className="w-1 h-1 bg-blue-500 rounded-full animate-pulse" />
-                <span className="text-blue-400 text-[10px] font-mono tracking-[0.2em] uppercase">System_View_{index + 1}</span>
-              </div>
-              <h3 className="text-white text-xl font-bold font-sans tracking-wide">{title}</h3>
-              <p className="text-slate-400 text-sm font-light mt-1 max-w-[90%]">{subtitle}</p>
-            </div>
-            <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 transform translate-x-4 group-hover:translate-x-0">
-              <ChevronRight className="text-blue-400 w-6 h-6" />
-            </div>
-          </div>
-        </div>
-
-        {/* コーナー装飾 */}
-        <div className="absolute top-0 left-0 w-4 h-4 border-t border-l border-blue-500/50" />
-        <div className="absolute top-0 right-0 w-4 h-4 border-t border-r border-blue-500/50" />
-        <div className="absolute bottom-0 right-0 w-4 h-4 border-b border-r border-blue-500/50" />
-      </div>
-    </motion.div>
-  );
-};
-
-/**
- * カスタムカーソル
- */
-const CustomCursor = () => {
-  const cursorRef = useRef(null);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-
-  useEffect(() => {
-    const handleMouseMove = (e) => {
-      setPosition({ x: e.clientX, y: e.clientY });
-    };
-    window.addEventListener("mousemove", handleMouseMove);
-    return () => window.removeEventListener("mousemove", handleMouseMove);
-  }, []);
-
-  return (
-    <div 
-      className="fixed w-8 h-8 pointer-events-none z-50 mix-blend-difference"
-      style={{ 
-        left: position.x, 
-        top: position.y,
-        transform: 'translate(-50%, -50%)'
-      }}
-    >
-      <div className="w-full h-full border border-white rounded-full opacity-50 flex items-center justify-center">
-        <div className="w-1 h-1 bg-white rounded-full" />
-      </div>
-    </div>
-  );
-};
-
-export default function App() {
-  const { scrollYProgress } = useScroll();
-  const y = useTransform(scrollYProgress, [0, 1], [0, -50]);
-  
-  // ヒーローセクションのタイトルアニメーション
-  const titleChars = "PENNANT SIMULATOR".split("");
-
-  return (
-    <div className="min-h-screen bg-[#050505] text-slate-200 font-sans selection:bg-blue-500/30 selection:text-blue-200 overflow-x-hidden">
-      <CustomCursor />
-      <StarfieldBackground />
-
-      {/* --- Navigation --- */}
-      <nav className="fixed top-0 w-full z-40 border-b border-white/5 bg-[#050505]/80 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <Hexagon className="text-blue-500 w-6 h-6" strokeWidth={1.5} />
-            <span className="text-lg font-bold tracking-[0.2em] text-white">PENNANT<span className="font-light text-slate-400">SIM</span></span>
-          </div>
-          <div className="hidden md:flex items-center space-x-8 text-xs font-mono tracking-widest text-slate-400">
-            {['SYSTEM', 'FEATURES', 'DATABASE', 'DOWNLOAD'].map((item) => (
-              <a key={item} href={`#${item.toLowerCase()}`} className="hover:text-blue-400 transition-colors relative group">
-                {item}
-                <span className="absolute -bottom-1 left-0 w-0 h-[1px] bg-blue-500 transition-all duration-300 group-hover:w-full" />
-              </a>
-            ))}
-          </div>
-          <button className="px-6 py-2 border border-white/20 text-xs font-bold tracking-widest hover:bg-white hover:text-black transition-all duration-300">
-            PLAY NOW
-          </button>
-        </div>
-      </nav>
-
-      {/* --- Hero Section --- */}
-      <header className="relative min-h-screen flex flex-col items-center justify-center px-6 pt-20">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-blue-600/20 rounded-full blur-[150px] pointer-events-none" />
+        /* Utilities */
+        .glass-panel {
+            background: rgba(10, 10, 18, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+        }
         
-        <div className="relative z-10 text-center space-y-8">
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 1 }}
-            className="flex items-center justify-center space-x-4 mb-4"
-          >
-            <span className="h-[1px] w-12 bg-blue-500/50" />
-            <span className="text-blue-400 font-mono text-xs tracking-[0.3em] uppercase">Next Gen Baseball Strategy</span>
-            <span className="h-[1px] w-12 bg-blue-500/50" />
-          </motion.div>
+        .text-glow {
+            text-shadow: 0 0 10px rgba(0, 243, 255, 0.5), 0 0 20px rgba(0, 243, 255, 0.3);
+        }
 
-          <h1 className="text-5xl md:text-8xl font-bold tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white via-white to-slate-500">
-            {titleChars.map((char, i) => (
-              <motion.span
-                key={i}
-                initial={{ opacity: 0, filter: "blur(10px)" }}
-                animate={{ opacity: 1, filter: "blur(0px)" }}
-                transition={{ duration: 0.8, delay: i * 0.05 }}
-              >
-                {char}
-              </motion.span>
-            ))}
-          </h1>
+        .border-glow:hover {
+            box-shadow: 0 0 15px rgba(45, 108, 223, 0.4), inset 0 0 10px rgba(45, 108, 223, 0.2);
+            border-color: rgba(45, 108, 223, 0.8);
+        }
 
-          <motion.p 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 1, duration: 1 }}
-            className="text-slate-400 max-w-2xl mx-auto text-sm md:text-base leading-relaxed font-light"
-          >
-            無限の宇宙のようなデータの中から、勝利への道筋を描け。
-            <br />
-            超本格派ペナントシミュレーションが、かつてない没入感でここに。
-          </motion.p>
+        /* Scanline Effect */
+        .scanlines {
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 50%,
+                rgba(0,0,0,0.2) 50%,
+                rgba(0,0,0,0.2)
+            );
+            background-size: 100% 4px;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            pointer-events: none;
+            z-index: 999;
+            opacity: 0.15;
+        }
 
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 1.5 }}
-            className="flex flex-col md:flex-row items-center justify-center gap-6 mt-12"
-          >
-            <button className="group relative px-8 py-4 bg-white text-black text-sm font-bold tracking-widest overflow-hidden">
-              <span className="relative z-10 flex items-center">
-                START SIMULATION <ChevronRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
-              </span>
-              <div className="absolute inset-0 bg-blue-400 transform scale-x-0 origin-left group-hover:scale-x-100 transition-transform duration-300 ease-out z-0" />
-            </button>
-            <button className="px-8 py-4 border border-white/20 text-sm font-bold tracking-widest hover:bg-white/5 transition-colors flex items-center">
-              <Play className="w-4 h-4 mr-2" /> WATCH TRAILER
-            </button>
-          </motion.div>
+        /* Noise Texture */
+        .noise-bg {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 998;
+            opacity: 0.03;
+            background: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIj48ZmlsdGVyIGlkPSJnoiPjxmZVR1cmJ1bGVuY2UgdHlwZT0iZnJhY3RhbE5vaXNlIiBiYXNlRnJlcXVlbmN5PSIwLjY1IiBudW1PY3RhdmVzPSIzIiBzdGl0Y2hUaWxlcz0ic3RpdGNoIi8+PC9maWx0ZXI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsdGVyPSJ1cmwoI2cpIiBvcGFjaXR5PSIxIi8+PC9zdmc+');
+        }
+
+        /* Loader */
+        #loader {
+            transition: opacity 0.8s ease-out, visibility 0.8s;
+        }
+        
+        /* Cursor */
+        .custom-cursor {
+            pointer-events: none;
+            mix-blend-mode: difference;
+            z-index: 9999;
+        }
+    </style>
+</head>
+<body class="bg-space-900 text-slate-300 overflow-x-hidden cursor-none">
+
+    <!-- Custom Cursor -->
+    <div id="cursor-dot" class="custom-cursor fixed w-2 h-2 bg-accent-cyan rounded-full top-0 left-0 -translate-x-1/2 -translate-y-1/2 transition-transform duration-100 ease-out"></div>
+    <div id="cursor-ring" class="custom-cursor fixed w-10 h-10 border border-white/50 rounded-full top-0 left-0 -translate-x-1/2 -translate-y-1/2 transition-transform duration-300 ease-out"></div>
+
+    <!-- Screen Effects -->
+    <div class="scanlines"></div>
+    <div class="noise-bg"></div>
+
+    <!-- Loading Screen -->
+    <div id="loader" class="fixed inset-0 z-[1000] bg-space-900 flex flex-col items-center justify-center font-mono">
+        <div class="relative w-64 h-1 bg-gray-800 rounded overflow-hidden mb-4">
+            <div id="progress-bar" class="absolute top-0 left-0 h-full bg-accent-cyan w-0 shadow-[0_0_10px_#00f3ff]"></div>
         </div>
-
-        {/* Scroll Indicator */}
-        <motion.div 
-          animate={{ y: [0, 10, 0] }}
-          transition={{ duration: 2, repeat: Infinity }}
-          className="absolute bottom-10 flex flex-col items-center gap-2 opacity-50"
-        >
-          <span className="text-[10px] tracking-widest uppercase">Scroll to Explore</span>
-          <div className="w-[1px] h-12 bg-gradient-to-b from-blue-500 to-transparent" />
-        </motion.div>
-      </header>
-
-      {/* --- Main Features Grid --- */}
-      <section id="features" className="relative py-32 px-6">
-        <div className="max-w-7xl mx-auto">
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="mb-20 flex items-end justify-between border-b border-white/10 pb-6"
-          >
-            <div>
-              <h2 className="text-4xl font-bold text-white mb-2">SYSTEM ARCHITECTURE</h2>
-              <p className="text-slate-400 font-mono text-sm">コアシステムとビジュアルの融合</p>
-            </div>
-            <div className="hidden md:block text-right">
-              <div className="text-xs font-mono text-blue-400 mb-1">STATUS: ONLINE</div>
-              <div className="flex gap-1">
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className="w-2 h-2 bg-blue-500/20 rounded-full" />
-                ))}
-              </div>
-            </div>
-          </motion.div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {/* 実際の画像ファイル名を使用してカードを生成 */}
-            <TiltCard 
-              src={SCREENSHOTS[0]} 
-              alt={SCREENSHOTS[0]}
-              title="Main Dashboard"
-              subtitle="全チーム状況を俯瞰するコマンドセンター。直感的なUIで球団運営を指揮せよ。"
-              index={0}
-            />
-            <TiltCard 
-              src={SCREENSHOTS[1]} 
-              alt={SCREENSHOTS[1]}
-              title="Live Match Engine"
-              subtitle="一球一打をリアルタイム演算。物理演算に基づいたリアルな弾道。"
-              index={1}
-            />
-            <TiltCard 
-              src={SCREENSHOTS[2]} 
-              alt={SCREENSHOTS[2]}
-              title="Data Analytics"
-              subtitle="セイバーメトリクスを完全網羅。過去10年のデータを解析。"
-              index={2}
-            />
-             <TiltCard 
-              src={SCREENSHOTS[3]} 
-              alt={SCREENSHOTS[3]}
-              title="Player Development"
-              subtitle="独自の育成アルゴリズム。才能の原石を見つけ出し、スターへ。"
-              index={3}
-            />
-             <TiltCard 
-              src={SCREENSHOTS[4]} 
-              alt={SCREENSHOTS[4]}
-              title="Draft Strategy"
-              subtitle="スカウティングレポートの深層分析。未来の主力選手を獲得せよ。"
-              index={4}
-            />
-             <TiltCard 
-              src={SCREENSHOTS[5]} 
-              alt={SCREENSHOTS[5]}
-              title="Season Records"
-              subtitle="詳細なシーズン記録。歴史はここから作られる。"
-              index={5}
-            />
-          </div>
+        <div class="text-xs text-accent-cyan tracking-widest uppercase">
+            <span id="loader-text">Initializing Systems...</span>
+            <span class="animate-pulse">_</span>
         </div>
-      </section>
+        <div class="absolute bottom-10 text-[10px] text-gray-600">PENNANT SIMULATOR KERNEL v2.5.0</div>
+    </div>
 
-      {/* --- Big Parallax Section --- */}
-      <section className="relative py-40 overflow-hidden">
-        <div className="absolute inset-0 bg-blue-900/5" />
-        <div className="max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
-          <motion.div 
-            style={{ y }} 
-            className="relative z-10"
-          >
-            <div className="absolute -left-10 -top-10 text-9xl font-bold text-white/5 select-none pointer-events-none">
-              01
-            </div>
-            <h2 className="text-5xl font-bold mb-6 leading-tight">
-              究極の<br/>
-              <span className="text-blue-400">リアリティ</span>を追求
-            </h2>
-            <div className="space-y-6 text-slate-400 leading-relaxed">
-              <p>
-                Pennant Simulatorは、単なるゲームではありません。それは野球というスポーツの深淵に触れるためのシミュレーターです。
-              </p>
-              <ul className="space-y-4 font-mono text-sm">
-                <li className="flex items-center">
-                  <Cpu className="w-5 h-5 text-blue-500 mr-4" />
-                  <span>AI駆動のトレードロジック</span>
-                </li>
-                <li className="flex items-center">
-                  <Globe className="w-5 h-5 text-blue-500 mr-4" />
-                  <span>リアルタイム天候変動システム</span>
-                </li>
-                <li className="flex items-center">
-                  <Zap className="w-5 h-5 text-blue-500 mr-4" />
-                  <span>ダイナミックな疲労度管理</span>
-                </li>
-              </ul>
-              <button className="mt-8 px-8 py-3 bg-white/5 border border-white/10 hover:border-blue-400/50 transition-colors text-sm font-bold tracking-widest">
-                VIEW FULL SPECS
-              </button>
-            </div>
-          </motion.div>
+    <!-- Background Canvas -->
+    <canvas id="starfield" class="fixed inset-0 z-0"></canvas>
 
-          <div className="relative">
-            {/* スクリーンショットを重ねて配置 */}
-            <motion.div 
-              initial={{ opacity: 0, x: 50 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              transition={{ duration: 1 }}
-              className="relative z-10"
-            >
-               {/* 大きなメイン画像 */}
-              <div className="rounded-lg overflow-hidden border border-white/10 shadow-2xl shadow-blue-900/20">
-                <img 
-                  src={SCREENSHOTS[6]} 
-                  alt="Feature Detail" 
-                  className="w-full h-auto"
-                  onError={(e) => {
-                     e.target.src = "https://via.placeholder.com/800x500/1e293b/475569?text=Deep+Analysis+Mode";
-                  }}
-                />
-              </div>
-            </motion.div>
-             {/* 浮遊するサブ画像 */}
-            <motion.div 
-              animate={{ y: [0, -20, 0] }}
-              transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
-              className="absolute -bottom-10 -left-10 w-2/3 z-20 rounded-lg overflow-hidden border border-white/20 shadow-xl bg-black"
-            >
-               <img 
-                  src={SCREENSHOTS[7]} 
-                  alt="Sub Feature" 
-                  className="w-full h-auto opacity-90"
-                  onError={(e) => {
-                     e.target.src = "https://via.placeholder.com/600x400/0f172a/334155?text=Stats+Overlay";
-                  }}
-                />
-            </motion.div>
-          </div>
-        </div>
-      </section>
-
-      {/* --- Gallery Carousel Style --- */}
-      <section id="database" className="py-32 bg-gradient-to-b from-[#050505] to-[#0a0a0f]">
-        <div className="max-w-full overflow-hidden">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl font-bold tracking-[0.5em] text-white/80">VISUAL DATABASE</h2>
-            <div className="w-1 h-10 bg-gradient-to-b from-blue-500 to-transparent mx-auto mt-4" />
-          </div>
-          
-          <div className="flex gap-8 px-6 overflow-x-auto pb-12 snap-x scrollbar-hide">
-            {/* 残りのスクリーンショットを表示 */}
-            {SCREENSHOTS.slice(6).concat(SCREENSHOTS.slice(0,3)).map((src, i) => (
-              <motion.div 
-                key={i}
-                className="flex-shrink-0 w-[400px] snap-center"
-                whileHover={{ scale: 1.02 }}
-                transition={{ duration: 0.3 }}
-              >
-                <div className="relative aspect-video bg-slate-900 border border-white/10 rounded-sm overflow-hidden group">
-                   <img 
-                    src={src} 
-                    alt={`Gallery ${i}`}
-                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-                    onError={(e) => {
-                       e.target.style.display = 'none';
-                       e.target.nextSibling.style.display = 'flex';
-                    }}
-                  />
-                  <div className="hidden absolute inset-0 flex items-center justify-center bg-slate-800 text-slate-500">
-                    <span className="text-xs font-mono">IMAGE DATA {i + 1}</span>
-                  </div>
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
-                    <div className="w-12 h-12 rounded-full border border-white/30 flex items-center justify-center backdrop-blur-md">
-                      <BarChart3 className="w-5 h-5 text-white" />
-                    </div>
-                  </div>
+    <!-- Navigation -->
+    <nav class="fixed top-0 w-full z-50 border-b border-white/5 bg-space-900/80 backdrop-blur-md transition-all duration-300" id="navbar">
+        <div class="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+            <div class="flex items-center gap-3 group cursor-pointer">
+                <div class="relative w-8 h-8 flex items-center justify-center">
+                    <i data-lucide="hexagon" class="text-accent-blue w-full h-full stroke-1 group-hover:stroke-accent-cyan transition-colors"></i>
+                    <div class="absolute inset-0 bg-accent-blue/20 blur-md rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
                 </div>
-                <div className="mt-4 flex justify-between items-center text-xs font-mono text-slate-500">
-                  <span>IMG_SEQ_{i + 1024}</span>
-                  <span>1920x1080</span>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* --- Footer --- */}
-      <footer className="relative border-t border-white/10 bg-[#020203] py-20 px-6 overflow-hidden">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-start">
-          <div className="mb-10 md:mb-0">
-             <div className="flex items-center space-x-2 mb-6">
-              <Hexagon className="text-white w-8 h-8" strokeWidth={1} />
-              <span className="text-2xl font-bold tracking-widest text-white">PENNANT<span className="font-light text-slate-500">SIM</span></span>
+                <span class="font-display text-xl tracking-widest text-white group-hover:text-glow transition-all">PENNANT<span class="font-light text-slate-500">SIM</span></span>
             </div>
-            <p className="text-slate-500 text-sm max-w-xs">
-              Advanced simulation engine built for the true baseball strategist. 
-              <br/>Designed in Osaka, Japan.
+            
+            <div class="hidden md:flex items-center gap-8 text-xs font-mono tracking-widest text-slate-400">
+                <a href="#system" class="hover:text-accent-cyan transition-colors nav-link">SYSTEM</a>
+                <a href="#features" class="hover:text-accent-cyan transition-colors nav-link">FEATURES</a>
+                <a href="#data" class="hover:text-accent-cyan transition-colors nav-link">DATABASE</a>
+                <button class="px-6 py-2 border border-accent-blue/30 text-accent-blue hover:bg-accent-blue hover:text-white transition-all duration-300 rounded-sm uppercase font-bold relative overflow-hidden group">
+                    <span class="relative z-10">Initialize</span>
+                    <div class="absolute inset-0 bg-gradient-to-r from-accent-blue to-accent-cyan transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-500 ease-out"></div>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <header class="relative min-h-screen flex flex-col items-center justify-center px-6 pt-20 overflow-hidden">
+        <!-- Decoration Circles -->
+        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] border border-white/5 rounded-full animate-[spin_60s_linear_infinite]"></div>
+        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] border border-white/5 rounded-full border-dashed animate-[spin_40s_linear_infinite_reverse]"></div>
+
+        <div class="relative z-10 text-center space-y-8 max-w-5xl mx-auto">
+            <div class="gsap-hero-reveal opacity-0 translate-y-10 flex items-center justify-center gap-4 mb-4">
+                <div class="h-[1px] w-12 bg-gradient-to-r from-transparent to-accent-cyan"></div>
+                <span class="text-accent-cyan font-mono text-xs tracking-[0.4em] uppercase">Tactical Baseball Simulation</span>
+                <div class="h-[1px] w-12 bg-gradient-to-l from-transparent to-accent-cyan"></div>
+            </div>
+
+            <h1 class="font-display text-5xl md:text-8xl lg:text-9xl font-bold tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white via-white to-slate-600 gsap-hero-reveal opacity-0 scale-90">
+                PENNANT<br>SIMULATOR
+            </h1>
+
+            <p class="gsap-hero-reveal opacity-0 translate-y-5 text-slate-400 max-w-2xl mx-auto text-sm md:text-base leading-relaxed font-light tracking-wide">
+                <span class="text-white">無限の宇宙</span>のような膨大なデータセット。<br>
+                深層学習AIが導き出す、かつてない<span class="text-accent-cyan">リアリティ</span>。
             </p>
-          </div>
-          
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-12 text-sm text-slate-400">
-            <div>
-              <h4 className="text-white font-bold mb-4 tracking-widest">PRODUCT</h4>
-              <ul className="space-y-2">
-                <li className="hover:text-blue-400 cursor-pointer">Features</li>
-                <li className="hover:text-blue-400 cursor-pointer">Changelog</li>
-                <li className="hover:text-blue-400 cursor-pointer">Roadmap</li>
-              </ul>
+
+            <div class="gsap-hero-reveal opacity-0 translate-y-5 flex flex-col md:flex-row items-center justify-center gap-6 mt-12">
+                <button class="relative px-10 py-4 bg-white text-black font-display font-bold tracking-widest text-sm hover:scale-105 transition-transform duration-300 shadow-[0_0_20px_rgba(255,255,255,0.3)]">
+                    START SIMULATION
+                    <div class="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 border-black"></div>
+                    <div class="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 border-black"></div>
+                </button>
+                <button class="flex items-center gap-2 px-8 py-4 border border-white/20 hover:border-white/60 hover:bg-white/5 transition-all font-mono text-sm tracking-widest">
+                    <i data-lucide="play" class="w-4 h-4"></i> WATCH TEASER
+                </button>
             </div>
-            <div>
-              <h4 className="text-white font-bold mb-4 tracking-widest">COMMUNITY</h4>
-              <ul className="space-y-2">
-                <li className="hover:text-blue-400 cursor-pointer">Discord</li>
-                <li className="hover:text-blue-400 cursor-pointer">Twitter (X)</li>
-                <li className="hover:text-blue-400 cursor-pointer">Forum</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-        
-        <div className="max-w-7xl mx-auto mt-20 pt-8 border-t border-white/5 flex flex-col md:flex-row justify-between items-center text-xs text-slate-600 font-mono">
-          <p>© 2025 PENNANT SIMULATOR. ALL SYSTEMS NOMINAL.</p>
-          <div className="flex space-x-6 mt-4 md:mt-0">
-            <span>PRIVACY PROTOCOL</span>
-            <span>TERMS OF ENGAGEMENT</span>
-          </div>
         </div>
 
-        {/* Footer Ambient Light */}
-        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[500px] h-[300px] bg-blue-900/10 rounded-full blur-[100px] pointer-events-none" />
-      </footer>
-    </div>
-  );
-}
+        <!-- Scroll Indicator -->
+        <div class="absolute bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 opacity-50 animate-bounce">
+            <span class="text-[10px] font-mono tracking-widest">SCROLL TO EXPLORE</span>
+            <i data-lucide="chevron-down" class="w-4 h-4 text-accent-cyan"></i>
+        </div>
+    </header>
+
+    <!-- Main Content Wrapper -->
+    <main class="relative z-10">
+        
+        <!-- Stats/HUD Bar -->
+        <div class="border-y border-white/10 bg-black/40 backdrop-blur-sm py-4">
+            <div class="max-w-7xl mx-auto px-6 flex justify-between items-center font-mono text-xs text-slate-500 overflow-hidden">
+                <div class="flex gap-8 whitespace-nowrap animate-marquee">
+                    <span>SYS_STATUS: <span class="text-green-500">NORMAL</span></span>
+                    <span>AI_CORE: <span class="text-accent-blue">ONLINE</span></span>
+                    <span>DB_CONN: <span class="text-accent-blue">ESTABLISHED</span></span>
+                    <span>FRAME_RATE: <span class="text-white">120FPS</span></span>
+                    <span>LOCATION: <span class="text-white">OSAKA_SERVER_01</span></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Features Grid -->
+        <section id="system" class="py-32 px-6">
+            <div class="max-w-7xl mx-auto">
+                <div class="mb-20 flex items-end justify-between border-b border-white/10 pb-6 gsap-fade-up">
+                    <div>
+                        <h2 class="font-display text-4xl font-bold text-white mb-2">SYSTEM MODULES</h2>
+                        <p class="text-accent-cyan font-mono text-xs tracking-widest">// CORE ARCHITECTURE VISUALIZATION</p>
+                    </div>
+                    <div class="hidden md:flex gap-2">
+                        <div class="w-12 h-1 bg-accent-blue"></div>
+                        <div class="w-2 h-1 bg-slate-700"></div>
+                        <div class="w-2 h-1 bg-slate-700"></div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8" id="card-grid">
+                    <!-- Cards are generated via JS for cleaner HTML, but structured here for template -->
+                    <!-- JS will populate these using the provided filenames -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Feature Spotlight (Parallax) -->
+        <section id="features" class="relative py-40 overflow-hidden bg-gradient-to-b from-space-900 via-space-800 to-space-900">
+            <!-- Background Elements -->
+            <div class="absolute right-0 top-20 w-1/2 h-full bg-accent-blue/5 blur-[100px] rounded-full pointer-events-none"></div>
+
+            <div class="max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+                <div class="order-2 lg:order-1 relative gsap-parallax-img">
+                    <div class="relative z-10 rounded border border-white/10 overflow-hidden shadow-[0_0_50px_rgba(45,108,223,0.1)] group">
+                        <div class="absolute inset-0 bg-accent-blue/10 mix-blend-overlay group-hover:bg-transparent transition-all duration-500"></div>
+                        <img src="スクリーンショット 2025-12-30 053009.png" alt="Detail View" class="w-full h-auto transform group-hover:scale-105 transition-transform duration-700 grayscale-[0.3] group-hover:grayscale-0" onerror="this.src='https://placehold.co/800x500/1e293b/475569?text=Analysis+Mode'">
+                        
+                        <!-- HUD Overlay on Image -->
+                        <div class="absolute inset-0 p-6 pointer-events-none flex flex-col justify-between">
+                            <div class="flex justify-between">
+                                <i data-lucide="crosshair" class="text-white/50 w-6 h-6"></i>
+                                <span class="font-mono text-[10px] text-white/50">REC_001</span>
+                            </div>
+                            <div class="flex justify-between items-end">
+                                <div class="w-20 h-1 bg-white/30"></div>
+                                <i data-lucide="maximize" class="text-white/50 w-4 h-4"></i>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Floating Secondary Image -->
+                    <div class="absolute -bottom-10 -right-10 w-2/3 z-20 rounded border border-white/20 shadow-2xl bg-black/80 backdrop-blur-sm gsap-float-element">
+                         <img src="スクリーンショット 2025-12-30 053028.png" alt="Sub Feature" class="w-full h-auto opacity-80" onerror="this.src='https://placehold.co/600x400/0f172a/334155?text=Sub+Data'">
+                    </div>
+                </div>
+
+                <div class="order-1 lg:order-2 space-y-8 gsap-fade-left">
+                    <div class="flex items-center gap-4 text-accent-cyan font-mono text-sm tracking-widest">
+                        <span>02</span>
+                        <div class="w-10 h-[1px] bg-accent-cyan"></div>
+                        <span>DEEP DIVE ANALYSIS</span>
+                    </div>
+                    
+                    <h2 class="font-display text-5xl font-bold leading-tight">
+                        勝利の方程式を<br>
+                        <span class="text-transparent bg-clip-text bg-gradient-to-r from-accent-cyan to-accent-blue">可視化</span>せよ
+                    </h2>
+                    
+                    <p class="text-slate-400 leading-relaxed">
+                        セイバーメトリクスのさらに先へ。Pennant Simulatorは、選手の身体データ、精神状態、天候、そして球場の物理特性までをも考慮した超高精度シミュレーションエンジンを搭載しています。
+                    </p>
+
+                    <ul class="space-y-4 font-mono text-sm text-slate-300">
+                        <li class="flex items-center gap-3">
+                            <i data-lucide="cpu" class="text-accent-blue w-5 h-5"></i>
+                            <span>AIマネージャーによる学習型采配</span>
+                        </li>
+                        <li class="flex items-center gap-3">
+                            <i data-lucide="activity" class="text-accent-blue w-5 h-5"></i>
+                            <span>バイオメトリクス疲労管理システム</span>
+                        </li>
+                        <li class="flex items-center gap-3">
+                            <i data-lucide="database" class="text-accent-blue w-5 h-5"></i>
+                            <span>過去50年分の架空歴史生成エンジン</span>
+                        </li>
+                    </ul>
+
+                    <button class="mt-8 group flex items-center gap-3 text-white font-bold tracking-widest hover:text-accent-cyan transition-colors">
+                        READ FULL DOCS <i data-lucide="arrow-right" class="w-4 h-4 group-hover:translate-x-2 transition-transform"></i>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Database / Gallery -->
+        <section id="data" class="py-32">
+            <div class="text-center mb-16 space-y-4 gsap-fade-up">
+                <i data-lucide="database" class="w-8 h-8 text-accent-blue mx-auto mb-4"></i>
+                <h2 class="font-display text-4xl font-bold tracking-widest">VISUAL DATABASE</h2>
+                <p class="font-mono text-xs text-slate-500">ACCESSING RESTRICTED FILES...</p>
+            </div>
+
+            <!-- Horizontal Scroll Container -->
+            <div class="w-full overflow-x-auto pb-12 px-6 scrollbar-hide cursor-grab active:cursor-grabbing" id="gallery-container">
+                <div class="flex gap-6 w-max mx-auto" id="gallery-track">
+                    <!-- Gallery Items injected by JS -->
+                </div>
+            </div>
+        </section>
+
+        <!-- CTA Section -->
+        <section class="py-24 relative overflow-hidden">
+            <div class="absolute inset-0 bg-accent-blue/10"></div>
+            <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                 <div class="w-[500px] h-[500px] bg-accent-cyan/20 blur-[150px] rounded-full"></div>
+            </div>
+
+            <div class="relative z-10 max-w-4xl mx-auto text-center px-6">
+                <h2 class="font-display text-5xl md:text-7xl font-bold mb-8 text-white">READY TO MANAGE?</h2>
+                <p class="text-slate-300 mb-10 max-w-2xl mx-auto">
+                    あなたの戦略が、歴史を変える。究極のシミュレーターで、最強の球団を築き上げろ。
+                </p>
+                <div class="flex flex-col sm:flex-row justify-center gap-6">
+                    <button class="px-12 py-5 bg-white text-black font-display font-bold text-lg tracking-widest hover:bg-accent-cyan transition-colors shadow-[0_0_30px_rgba(255,255,255,0.2)]">
+                        DOWNLOAD NOW v1.0
+                    </button>
+                    <button class="px-12 py-5 border border-white/30 text-white font-mono font-bold tracking-widest hover:bg-white/10 transition-colors backdrop-blur-sm">
+                        VIEW ROADMAP
+                    </button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-[#020203] border-t border-white/5 py-16 px-6 font-mono text-xs">
+        <div class="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-12 text-slate-500">
+            <div class="col-span-1 md:col-span-2 space-y-4">
+                <div class="flex items-center gap-2 text-white">
+                    <i data-lucide="hexagon" class="w-6 h-6 text-accent-blue"></i>
+                    <span class="font-display text-lg tracking-widest">PENNANT SIM</span>
+                </div>
+                <p class="max-w-xs leading-relaxed">
+                    Designed for the obsessed. <br>
+                    The most detailed baseball management simulation ever created.
+                </p>
+                <div class="pt-4 flex gap-4">
+                    <a href="#" class="hover:text-accent-cyan transition-colors"><i data-lucide="twitter" class="w-5 h-5"></i></a>
+                    <a href="#" class="hover:text-accent-cyan transition-colors"><i data-lucide="github" class="w-5 h-5"></i></a>
+                    <a href="#" class="hover:text-accent-cyan transition-colors"><i data-lucide="disc" class="w-5 h-5"></i></a>
+                </div>
+            </div>
+            
+            <div class="space-y-4">
+                <h4 class="text-white font-bold tracking-widest">PRODUCT</h4>
+                <ul class="space-y-2">
+                    <li><a href="#" class="hover:text-accent-cyan transition-colors">Download</a></li>
+                    <li><a href="#" class="hover:text-accent-cyan transition-colors">Documentation</a></li>
+                    <li><a href="#" class="hover:text-accent-cyan transition-colors">Changelog</a></li>
+                </ul>
+            </div>
+
+            <div class="space-y-4">
+                <h4 class="text-white font-bold tracking-widest">LEGAL</h4>
+                <ul class="space-y-2">
+                    <li><a href="#" class="hover:text-accent-cyan transition-colors">Privacy Policy</a></li>
+                    <li><a href="#" class="hover:text-accent-cyan transition-colors">Terms of Service</a></li>
+                    <li><a href="#" class="hover:text-accent-cyan transition-colors">EULA</a></li>
+                </ul>
+            </div>
+        </div>
+        <div class="max-w-7xl mx-auto mt-12 pt-8 border-t border-white/5 flex flex-col md:flex-row justify-between items-center">
+            <p>&copy; 2025 PENNANT SIMULATOR PROJECT.</p>
+            <p class="mt-2 md:mt-0 text-slate-600">SYSTEM BUILD: 2025.12.30.0600</p>
+        </div>
+    </footer>
+
+    <!-- JavaScript Logic -->
+    <script>
+        // --- Data ---
+        const SCREENSHOTS = [
+            "スクリーンショット 2025-12-30 054606.png",
+            "スクリーンショット 2025-12-30 054600.png",
+            "スクリーンショット 2025-12-30 054537.png",
+            "スクリーンショット 2025-12-30 054515.png",
+            "スクリーンショット 2025-12-30 054415.png",
+            "スクリーンショット 2025-12-30 054357.png",
+            "スクリーンショット 2025-12-30 054330.png",
+            "スクリーンショット 2025-12-30 053028.png",
+            "スクリーンショット 2025-12-30 053009.png",
+            "スクリーンショット 2025-12-30 054807.png"
+        ];
+
+        const FEATURES_INFO = [
+            { title: "Command Center", subtitle: "球団運営の全てをここから" },
+            { title: "Live Match", subtitle: "1球速報リアルタイムエンジン" },
+            { title: "Deep Metrics", subtitle: "数百の指標による徹底分析" },
+            { title: "Scouting Net", subtitle: "世界中に広がるスカウト網" },
+            { title: "Development", subtitle: "覚醒か、停滞か。育成の妙" },
+            { title: "History Book", subtitle: "記録は永遠に残る" }
+        ];
+
+        // --- Initialization ---
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            initLoader();
+            initStarfield();
+            renderCards();
+            renderGallery();
+            initAnimations();
+            initCursor();
+        });
+
+        // --- Loader Logic ---
+        function initLoader() {
+            const bar = document.getElementById('progress-bar');
+            const loader = document.getElementById('loader');
+            const text = document.getElementById('loader-text');
+            
+            let width = 0;
+            const interval = setInterval(() => {
+                width += Math.random() * 5;
+                if (width > 100) width = 100;
+                bar.style.width = width + '%';
+                
+                if (width > 30) text.innerText = "Loading Assets...";
+                if (width > 60) text.innerText = "Connecting to Server...";
+                if (width > 90) text.innerText = "System Ready";
+
+                if (width === 100) {
+                    clearInterval(interval);
+                    setTimeout(() => {
+                        loader.style.opacity = '0';
+                        loader.style.visibility = 'hidden';
+                        
+                        // Start Hero Animations
+                        gsap.to(".gsap-hero-reveal", {
+                            y: 0,
+                            opacity: 1,
+                            scale: 1,
+                            duration: 1.2,
+                            stagger: 0.2,
+                            ease: "power3.out",
+                            delay: 0.5
+                        });
+                    }, 500);
+                }
+            }, 30);
+        }
+
+        // --- Starfield Canvas ---
+        function initStarfield() {
+            const canvas = document.getElementById('starfield');
+            const ctx = canvas.getContext('2d');
+            let width, height;
+            let stars = [];
+            
+            // Mouse Parallax
+            let mouseX = 0;
+            let mouseY = 0;
+            let targetX = 0;
+            let targetY = 0;
+            
+            const numStars = 400;
+
+            function resize() {
+                width = window.innerWidth;
+                height = window.innerHeight;
+                canvas.width = width;
+                canvas.height = height;
+            }
+
+            class Star {
+                constructor() {
+                    this.reset(true);
+                }
+                
+                reset(initial = false) {
+                    this.x = Math.random() * width;
+                    this.y = Math.random() * height;
+                    this.z = Math.random() * 2 + 0.5; // Depth/Speed
+                    this.size = Math.random() * 1.5;
+                    this.opacity = Math.random();
+                    this.blinkSpeed = Math.random() * 0.02 + 0.005;
+                    
+                    if (!initial) {
+                        // Reset to top or bottom depending on direction (optional)
+                        // For now just random respawn
+                    }
+                }
+
+                update() {
+                    // Parallax movement
+                    const dx = (mouseX - width/2) * 0.0005 * this.z;
+                    const dy = (mouseY - height/2) * 0.0005 * this.z;
+                    
+                    this.x -= dx;
+                    this.y -= dy;
+
+                    // Twinkle
+                    this.opacity += this.blinkSpeed;
+                    if (this.opacity > 1 || this.opacity < 0.2) this.blinkSpeed = -this.blinkSpeed;
+
+                    // Boundary check (wrap around)
+                    if (this.x < 0) this.x = width;
+                    if (this.x > width) this.x = 0;
+                    if (this.y < 0) this.y = height;
+                    if (this.y > height) this.y = 0;
+                }
+
+                draw() {
+                    ctx.fillStyle = `rgba(255, 255, 255, ${this.opacity})`;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size * (this.z * 0.5), 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+
+            function init() {
+                resize();
+                for(let i=0; i<numStars; i++) {
+                    stars.push(new Star());
+                }
+                window.addEventListener('resize', resize);
+                window.addEventListener('mousemove', (e) => {
+                    targetX = e.clientX;
+                    targetY = e.clientY;
+                });
+                animate();
+            }
+
+            function animate() {
+                // Smooth mouse interpolation
+                mouseX += (targetX - mouseX) * 0.05;
+                mouseY += (targetY - mouseY) * 0.05;
+
+                ctx.fillStyle = "rgba(5, 5, 8, 0.3)"; // Trail effect
+                ctx.fillRect(0, 0, width, height);
+
+                stars.forEach(star => {
+                    star.update();
+                    star.draw();
+                });
+
+                requestAnimationFrame(animate);
+            }
+
+            init();
+        }
+
+        // --- Render Cards ---
+        function renderCards() {
+            const container = document.getElementById('card-grid');
+            // Take first 6 for grid
+            const gridItems = SCREENSHOTS.slice(0, 6);
+            
+            gridItems.forEach((src, index) => {
+                const info = FEATURES_INFO[index] || {title: "Feature", subtitle: "System Component"};
+                const delay = index * 100;
+                
+                const card = document.createElement('div');
+                card.className = "glass-panel rounded-lg overflow-hidden relative group h-80 cursor-none tilt-card";
+                card.setAttribute('data-tilt', '');
+                card.style.opacity = '0'; // For GSAP entrance
+                
+                card.innerHTML = `
+                    <div class="absolute inset-0 bg-gradient-to-t from-space-900 via-transparent to-transparent z-10 opacity-90"></div>
+                    <img src="${src}" alt="${info.title}" class="w-full h-full object-cover opacity-60 group-hover:opacity-100 group-hover:scale-110 transition-all duration-700 ease-out" onerror="this.src='https://placehold.co/600x400/1e293b/475569?text=System+Image'">
+                    
+                    <div class="absolute top-0 left-0 w-full h-full border border-white/5 z-20 group-hover:border-accent-blue/50 transition-colors duration-300">
+                        <div class="absolute top-0 left-0 w-2 h-2 border-t border-l border-accent-cyan opacity-50"></div>
+                        <div class="absolute top-0 right-0 w-2 h-2 border-t border-r border-accent-cyan opacity-50"></div>
+                        <div class="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-accent-cyan opacity-50"></div>
+                        <div class="absolute bottom-0 left-0 w-2 h-2 border-b border-l border-accent-cyan opacity-50"></div>
+                    </div>
+
+                    <div class="absolute bottom-0 left-0 w-full p-6 z-30 transform translate-y-2 group-hover:translate-y-0 transition-transform duration-300">
+                        <div class="text-accent-cyan text-[10px] font-mono mb-1 tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">SYS_MOD_0${index+1}</div>
+                        <h3 class="text-white text-xl font-bold font-display tracking-wider mb-1">${info.title}</h3>
+                        <p class="text-slate-400 text-xs font-mono leading-tight">${info.subtitle}</p>
+                    </div>
+                `;
+                
+                container.appendChild(card);
+            });
+
+            // Init Tilt Effect logic for these cards
+            initTilt();
+        }
+
+        // --- Render Gallery ---
+        function renderGallery() {
+            const track = document.getElementById('gallery-track');
+            SCREENSHOTS.forEach((src, i) => {
+                const div = document.createElement('div');
+                div.className = "relative w-[400px] aspect-video flex-shrink-0 border border-white/10 rounded overflow-hidden group hover:border-accent-cyan/50 transition-colors";
+                div.innerHTML = `
+                    <img src="${src}" class="w-full h-full object-cover" onerror="this.src='https://placehold.co/600x400/1e293b/475569?text=Database+Img'">
+                    <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
+                        <span class="font-mono text-accent-cyan border border-accent-cyan px-2 py-1 text-xs">VIEW DATA</span>
+                    </div>
+                    <div class="absolute bottom-2 right-2 font-mono text-[10px] text-white/50 bg-black/50 px-1">IMG_${1000+i}</div>
+                `;
+                track.appendChild(div);
+            });
+        }
+
+        // --- 3D Tilt Logic ---
+        function initTilt() {
+            const cards = document.querySelectorAll('.tilt-card');
+            
+            cards.forEach(card => {
+                card.addEventListener('mousemove', (e) => {
+                    const rect = card.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    
+                    const centerX = rect.width / 2;
+                    const centerY = rect.height / 2;
+                    
+                    const rotateX = ((y - centerY) / centerY) * -10; // Max rotation deg
+                    const rotateY = ((x - centerX) / centerX) * 10;
+
+                    card.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale3d(1.02, 1.02, 1.02)`;
+                });
+
+                card.addEventListener('mouseleave', () => {
+                    card.style.transform = 'perspective(1000px) rotateX(0) rotateY(0) scale3d(1, 1, 1)';
+                });
+            });
+        }
+
+        // --- Custom Cursor ---
+        function initCursor() {
+            const dot = document.getElementById('cursor-dot');
+            const ring = document.getElementById('cursor-ring');
+            
+            window.addEventListener('mousemove', (e) => {
+                const x = e.clientX;
+                const y = e.clientY;
+                
+                // Direct follow for dot
+                dot.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
+                
+                // Laggy follow for ring
+                setTimeout(() => {
+                    ring.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
+                }, 50);
+            });
+
+            // Hover effects
+            const interactables = document.querySelectorAll('a, button, .tilt-card');
+            interactables.forEach(el => {
+                el.addEventListener('mouseenter', () => {
+                    ring.style.width = '60px';
+                    ring.style.height = '60px';
+                    ring.style.borderColor = '#00f3ff';
+                    ring.style.backgroundColor = 'rgba(0, 243, 255, 0.1)';
+                });
+                el.addEventListener('mouseleave', () => {
+                    ring.style.width = '40px';
+                    ring.style.height = '40px';
+                    ring.style.borderColor = 'rgba(255,255,255,0.5)';
+                    ring.style.backgroundColor = 'transparent';
+                });
+            });
+        }
+
+        // --- GSAP Scroll Animations ---
+        function initAnimations() {
+            gsap.registerPlugin(ScrollTrigger);
+
+            // Navbar Blur
+            window.addEventListener('scroll', () => {
+                const nav = document.getElementById('navbar');
+                if (window.scrollY > 50) {
+                    nav.classList.add('shadow-lg', 'bg-space-900/95');
+                } else {
+                    nav.classList.remove('shadow-lg', 'bg-space-900/80');
+                }
+            });
+
+            // Feature Section
+            gsap.to(".gsap-fade-up", {
+                scrollTrigger: {
+                    trigger: ".gsap-fade-up",
+                    start: "top 80%",
+                },
+                y: 0,
+                opacity: 1,
+                duration: 1,
+                ease: "power2.out"
+            });
+
+            // Grid Items Stagger
+            gsap.to("#card-grid > div", {
+                scrollTrigger: {
+                    trigger: "#card-grid",
+                    start: "top 80%",
+                },
+                opacity: 1,
+                y: 0,
+                duration: 0.8,
+                stagger: 0.1,
+                ease: "power2.out"
+            });
+
+            // Parallax Section
+            gsap.from(".gsap-fade-left", {
+                scrollTrigger: {
+                    trigger: ".gsap-fade-left",
+                    start: "top 70%",
+                },
+                x: 50,
+                opacity: 0,
+                duration: 1,
+                ease: "power2.out"
+            });
+
+            // Float Animation
+            gsap.to(".gsap-float-element", {
+                y: -20,
+                duration: 2,
+                repeat: -1,
+                yoyo: true,
+                ease: "sine.inOut"
+            });
+
+            // Horizontal Scroll
+            const galleryTrack = document.getElementById('gallery-container');
+            // Allow drag scrolling for gallery
+            let isDown = false;
+            let startX;
+            let scrollLeft;
+
+            galleryTrack.addEventListener('mousedown', (e) => {
+                isDown = true;
+                galleryTrack.classList.add('active:cursor-grabbing');
+                startX = e.pageX - galleryTrack.offsetLeft;
+                scrollLeft = galleryTrack.scrollLeft;
+            });
+            galleryTrack.addEventListener('mouseleave', () => {
+                isDown = false;
+                galleryTrack.classList.remove('active:cursor-grabbing');
+            });
+            galleryTrack.addEventListener('mouseup', () => {
+                isDown = false;
+                galleryTrack.classList.remove('active:cursor-grabbing');
+            });
+            galleryTrack.addEventListener('mousemove', (e) => {
+                if(!isDown) return;
+                e.preventDefault();
+                const x = e.pageX - galleryTrack.offsetLeft;
+                const walk = (x - startX) * 2; // scroll-fast
+                galleryTrack.scrollLeft = scrollLeft - walk;
+            });
+        }
+    </script>
+</body>
+</html>
