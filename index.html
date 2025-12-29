@@ -1,0 +1,509 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, useScroll, useTransform, useSpring, useMotionValue, useMotionTemplate } from 'framer-motion';
+import { ChevronRight, Database, BarChart3, Trophy, Play, Hexagon, Globe, Zap, Cpu, MousePointer2 } from 'lucide-react';
+
+/**
+ * ユーザーがアップロードしたファイル名のリスト
+ * 実際の環境では、これらの画像をpublicフォルダまたはsrcフォルダに配置してください。
+ */
+const SCREENSHOTS = [
+  "スクリーンショット 2025-12-30 054606.png",
+  "スクリーンショット 2025-12-30 054600.png",
+  "スクリーンショット 2025-12-30 054537.png",
+  "スクリーンショット 2025-12-30 054515.png",
+  "スクリーンショット 2025-12-30 054415.png",
+  "スクリーンショット 2025-12-30 054357.png",
+  "スクリーンショット 2025-12-30 054330.png",
+  "スクリーンショット 2025-12-30 053028.png",
+  "スクリーンショット 2025-12-30 053009.png",
+  "スクリーンショット 2025-12-30 054807.png"
+];
+
+// --- Components ---
+
+/**
+ * スターフィールド背景エフェクト
+ */
+const StarfieldBackground = () => {
+  return (
+    <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none bg-[#050505]">
+      {/* 遠景の星 */}
+      <div className="absolute inset-0 opacity-40" 
+           style={{ backgroundImage: 'radial-gradient(1px 1px at 20px 30px, #eee, rgba(0,0,0,0)), radial-gradient(1px 1px at 40px 70px, #fff, rgba(0,0,0,0)), radial-gradient(2px 2px at 90px 40px, #ddd, rgba(0,0,0,0))', backgroundSize: '550px 550px' }}></div>
+      {/* 近景の星（ゆっくり動く） */}
+      <motion.div 
+        animate={{ y: [-100, 0] }}
+        transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+        className="absolute inset-0 opacity-60"
+        style={{ backgroundImage: 'radial-gradient(1.5px 1.5px at 100px 150px, #fff, rgba(0,0,0,0)), radial-gradient(2px 2px at 200px 400px, #8ecae6, rgba(0,0,0,0))', backgroundSize: '400px 400px' }}
+      />
+      {/* オーロラ/ネビュラ効果 */}
+      <div className="absolute top-[-20%] left-[-20%] w-[70%] h-[70%] bg-blue-900/10 rounded-full blur-[120px] mix-blend-screen animate-pulse" />
+      <div className="absolute bottom-[-20%] right-[-20%] w-[60%] h-[60%] bg-indigo-900/10 rounded-full blur-[100px] mix-blend-screen animate-pulse" style={{ animationDelay: '2s' }} />
+    </div>
+  );
+};
+
+/**
+ * 3Dチルト効果のある画像カード
+ */
+const TiltCard = ({ src, alt, title, subtitle, index }) => {
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+  const rotateX = useTransform(y, [-100, 100], [5, -5]);
+  const rotateY = useTransform(x, [-100, 100], [-5, 5]);
+
+  function handleMouseMove(event) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const width = rect.width;
+    const height = rect.height;
+    const mouseX = event.clientX - rect.left;
+    const mouseY = event.clientY - rect.top;
+    const xPct = mouseX / width - 0.5;
+    const yPct = mouseY / height - 0.5;
+    x.set(xPct * 200);
+    y.set(yPct * 200);
+  }
+
+  function handleMouseLeave() {
+    x.set(0);
+    y.set(0);
+  }
+
+  return (
+    <motion.div
+      style={{ rotateX, rotateY, transformStyle: "preserve-3d" }}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+      initial={{ opacity: 0, y: 50 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.8, delay: index * 0.1 }}
+      className="relative group w-full h-64 md:h-80 perspective-1000 cursor-none"
+    >
+      <div className="absolute inset-0 border border-white/10 bg-slate-900/40 backdrop-blur-sm rounded-sm overflow-hidden transform transition-all duration-500 group-hover:border-blue-400/50 group-hover:shadow-[0_0_30px_rgba(59,130,246,0.3)]">
+        {/* 画像プレースホルダーとフォールバック処理 */}
+        <div className="w-full h-full relative overflow-hidden">
+          <img 
+            src={src} 
+            alt={alt} 
+            className="w-full h-full object-cover opacity-80 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700"
+            onError={(e) => {
+              e.target.style.display = 'none';
+              e.target.nextSibling.style.display = 'flex';
+            }}
+          />
+          {/* 画像読み込みエラー時のフォールバック表示 */}
+          <div className="hidden absolute inset-0 flex-col items-center justify-center bg-slate-900 text-slate-500 p-4 text-center">
+            <Database className="w-12 h-12 mb-2 opacity-50" />
+            <span className="text-xs font-mono uppercase tracking-widest">{alt}</span>
+            <span className="text-[10px] mt-1 text-slate-600">Image Asset Placeholder</span>
+          </div>
+          
+          {/* オーバーレイグリッド */}
+          <div className="absolute inset-0 bg-[linear-gradient(rgba(18,20,30,0)_0%,rgba(18,20,30,0.8)_100%)] pointer-events-none" />
+          <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay pointer-events-none" />
+        </div>
+
+        {/* HUD要素 */}
+        <div className="absolute bottom-0 left-0 w-full p-6 translate-z-20">
+          <div className="flex items-end justify-between">
+            <div>
+              <div className="flex items-center space-x-2 mb-1">
+                <div className="w-1 h-1 bg-blue-500 rounded-full animate-pulse" />
+                <span className="text-blue-400 text-[10px] font-mono tracking-[0.2em] uppercase">System_View_{index + 1}</span>
+              </div>
+              <h3 className="text-white text-xl font-bold font-sans tracking-wide">{title}</h3>
+              <p className="text-slate-400 text-sm font-light mt-1 max-w-[90%]">{subtitle}</p>
+            </div>
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 transform translate-x-4 group-hover:translate-x-0">
+              <ChevronRight className="text-blue-400 w-6 h-6" />
+            </div>
+          </div>
+        </div>
+
+        {/* コーナー装飾 */}
+        <div className="absolute top-0 left-0 w-4 h-4 border-t border-l border-blue-500/50" />
+        <div className="absolute top-0 right-0 w-4 h-4 border-t border-r border-blue-500/50" />
+        <div className="absolute bottom-0 right-0 w-4 h-4 border-b border-r border-blue-500/50" />
+      </div>
+    </motion.div>
+  );
+};
+
+/**
+ * カスタムカーソル
+ */
+const CustomCursor = () => {
+  const cursorRef = useRef(null);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      setPosition({ x: e.clientX, y: e.clientY });
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    return () => window.removeEventListener("mousemove", handleMouseMove);
+  }, []);
+
+  return (
+    <div 
+      className="fixed w-8 h-8 pointer-events-none z-50 mix-blend-difference"
+      style={{ 
+        left: position.x, 
+        top: position.y,
+        transform: 'translate(-50%, -50%)'
+      }}
+    >
+      <div className="w-full h-full border border-white rounded-full opacity-50 flex items-center justify-center">
+        <div className="w-1 h-1 bg-white rounded-full" />
+      </div>
+    </div>
+  );
+};
+
+export default function App() {
+  const { scrollYProgress } = useScroll();
+  const y = useTransform(scrollYProgress, [0, 1], [0, -50]);
+  
+  // ヒーローセクションのタイトルアニメーション
+  const titleChars = "PENNANT SIMULATOR".split("");
+
+  return (
+    <div className="min-h-screen bg-[#050505] text-slate-200 font-sans selection:bg-blue-500/30 selection:text-blue-200 overflow-x-hidden">
+      <CustomCursor />
+      <StarfieldBackground />
+
+      {/* --- Navigation --- */}
+      <nav className="fixed top-0 w-full z-40 border-b border-white/5 bg-[#050505]/80 backdrop-blur-md">
+        <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <Hexagon className="text-blue-500 w-6 h-6" strokeWidth={1.5} />
+            <span className="text-lg font-bold tracking-[0.2em] text-white">PENNANT<span className="font-light text-slate-400">SIM</span></span>
+          </div>
+          <div className="hidden md:flex items-center space-x-8 text-xs font-mono tracking-widest text-slate-400">
+            {['SYSTEM', 'FEATURES', 'DATABASE', 'DOWNLOAD'].map((item) => (
+              <a key={item} href={`#${item.toLowerCase()}`} className="hover:text-blue-400 transition-colors relative group">
+                {item}
+                <span className="absolute -bottom-1 left-0 w-0 h-[1px] bg-blue-500 transition-all duration-300 group-hover:w-full" />
+              </a>
+            ))}
+          </div>
+          <button className="px-6 py-2 border border-white/20 text-xs font-bold tracking-widest hover:bg-white hover:text-black transition-all duration-300">
+            PLAY NOW
+          </button>
+        </div>
+      </nav>
+
+      {/* --- Hero Section --- */}
+      <header className="relative min-h-screen flex flex-col items-center justify-center px-6 pt-20">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-blue-600/20 rounded-full blur-[150px] pointer-events-none" />
+        
+        <div className="relative z-10 text-center space-y-8">
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 1 }}
+            className="flex items-center justify-center space-x-4 mb-4"
+          >
+            <span className="h-[1px] w-12 bg-blue-500/50" />
+            <span className="text-blue-400 font-mono text-xs tracking-[0.3em] uppercase">Next Gen Baseball Strategy</span>
+            <span className="h-[1px] w-12 bg-blue-500/50" />
+          </motion.div>
+
+          <h1 className="text-5xl md:text-8xl font-bold tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white via-white to-slate-500">
+            {titleChars.map((char, i) => (
+              <motion.span
+                key={i}
+                initial={{ opacity: 0, filter: "blur(10px)" }}
+                animate={{ opacity: 1, filter: "blur(0px)" }}
+                transition={{ duration: 0.8, delay: i * 0.05 }}
+              >
+                {char}
+              </motion.span>
+            ))}
+          </h1>
+
+          <motion.p 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 1, duration: 1 }}
+            className="text-slate-400 max-w-2xl mx-auto text-sm md:text-base leading-relaxed font-light"
+          >
+            無限の宇宙のようなデータの中から、勝利への道筋を描け。
+            <br />
+            超本格派ペナントシミュレーションが、かつてない没入感でここに。
+          </motion.p>
+
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 1.5 }}
+            className="flex flex-col md:flex-row items-center justify-center gap-6 mt-12"
+          >
+            <button className="group relative px-8 py-4 bg-white text-black text-sm font-bold tracking-widest overflow-hidden">
+              <span className="relative z-10 flex items-center">
+                START SIMULATION <ChevronRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
+              </span>
+              <div className="absolute inset-0 bg-blue-400 transform scale-x-0 origin-left group-hover:scale-x-100 transition-transform duration-300 ease-out z-0" />
+            </button>
+            <button className="px-8 py-4 border border-white/20 text-sm font-bold tracking-widest hover:bg-white/5 transition-colors flex items-center">
+              <Play className="w-4 h-4 mr-2" /> WATCH TRAILER
+            </button>
+          </motion.div>
+        </div>
+
+        {/* Scroll Indicator */}
+        <motion.div 
+          animate={{ y: [0, 10, 0] }}
+          transition={{ duration: 2, repeat: Infinity }}
+          className="absolute bottom-10 flex flex-col items-center gap-2 opacity-50"
+        >
+          <span className="text-[10px] tracking-widest uppercase">Scroll to Explore</span>
+          <div className="w-[1px] h-12 bg-gradient-to-b from-blue-500 to-transparent" />
+        </motion.div>
+      </header>
+
+      {/* --- Main Features Grid --- */}
+      <section id="features" className="relative py-32 px-6">
+        <div className="max-w-7xl mx-auto">
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="mb-20 flex items-end justify-between border-b border-white/10 pb-6"
+          >
+            <div>
+              <h2 className="text-4xl font-bold text-white mb-2">SYSTEM ARCHITECTURE</h2>
+              <p className="text-slate-400 font-mono text-sm">コアシステムとビジュアルの融合</p>
+            </div>
+            <div className="hidden md:block text-right">
+              <div className="text-xs font-mono text-blue-400 mb-1">STATUS: ONLINE</div>
+              <div className="flex gap-1">
+                {[...Array(5)].map((_, i) => (
+                  <div key={i} className="w-2 h-2 bg-blue-500/20 rounded-full" />
+                ))}
+              </div>
+            </div>
+          </motion.div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {/* 実際の画像ファイル名を使用してカードを生成 */}
+            <TiltCard 
+              src={SCREENSHOTS[0]} 
+              alt={SCREENSHOTS[0]}
+              title="Main Dashboard"
+              subtitle="全チーム状況を俯瞰するコマンドセンター。直感的なUIで球団運営を指揮せよ。"
+              index={0}
+            />
+            <TiltCard 
+              src={SCREENSHOTS[1]} 
+              alt={SCREENSHOTS[1]}
+              title="Live Match Engine"
+              subtitle="一球一打をリアルタイム演算。物理演算に基づいたリアルな弾道。"
+              index={1}
+            />
+            <TiltCard 
+              src={SCREENSHOTS[2]} 
+              alt={SCREENSHOTS[2]}
+              title="Data Analytics"
+              subtitle="セイバーメトリクスを完全網羅。過去10年のデータを解析。"
+              index={2}
+            />
+             <TiltCard 
+              src={SCREENSHOTS[3]} 
+              alt={SCREENSHOTS[3]}
+              title="Player Development"
+              subtitle="独自の育成アルゴリズム。才能の原石を見つけ出し、スターへ。"
+              index={3}
+            />
+             <TiltCard 
+              src={SCREENSHOTS[4]} 
+              alt={SCREENSHOTS[4]}
+              title="Draft Strategy"
+              subtitle="スカウティングレポートの深層分析。未来の主力選手を獲得せよ。"
+              index={4}
+            />
+             <TiltCard 
+              src={SCREENSHOTS[5]} 
+              alt={SCREENSHOTS[5]}
+              title="Season Records"
+              subtitle="詳細なシーズン記録。歴史はここから作られる。"
+              index={5}
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* --- Big Parallax Section --- */}
+      <section className="relative py-40 overflow-hidden">
+        <div className="absolute inset-0 bg-blue-900/5" />
+        <div className="max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+          <motion.div 
+            style={{ y }} 
+            className="relative z-10"
+          >
+            <div className="absolute -left-10 -top-10 text-9xl font-bold text-white/5 select-none pointer-events-none">
+              01
+            </div>
+            <h2 className="text-5xl font-bold mb-6 leading-tight">
+              究極の<br/>
+              <span className="text-blue-400">リアリティ</span>を追求
+            </h2>
+            <div className="space-y-6 text-slate-400 leading-relaxed">
+              <p>
+                Pennant Simulatorは、単なるゲームではありません。それは野球というスポーツの深淵に触れるためのシミュレーターです。
+              </p>
+              <ul className="space-y-4 font-mono text-sm">
+                <li className="flex items-center">
+                  <Cpu className="w-5 h-5 text-blue-500 mr-4" />
+                  <span>AI駆動のトレードロジック</span>
+                </li>
+                <li className="flex items-center">
+                  <Globe className="w-5 h-5 text-blue-500 mr-4" />
+                  <span>リアルタイム天候変動システム</span>
+                </li>
+                <li className="flex items-center">
+                  <Zap className="w-5 h-5 text-blue-500 mr-4" />
+                  <span>ダイナミックな疲労度管理</span>
+                </li>
+              </ul>
+              <button className="mt-8 px-8 py-3 bg-white/5 border border-white/10 hover:border-blue-400/50 transition-colors text-sm font-bold tracking-widest">
+                VIEW FULL SPECS
+              </button>
+            </div>
+          </motion.div>
+
+          <div className="relative">
+            {/* スクリーンショットを重ねて配置 */}
+            <motion.div 
+              initial={{ opacity: 0, x: 50 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              transition={{ duration: 1 }}
+              className="relative z-10"
+            >
+               {/* 大きなメイン画像 */}
+              <div className="rounded-lg overflow-hidden border border-white/10 shadow-2xl shadow-blue-900/20">
+                <img 
+                  src={SCREENSHOTS[6]} 
+                  alt="Feature Detail" 
+                  className="w-full h-auto"
+                  onError={(e) => {
+                     e.target.src = "https://via.placeholder.com/800x500/1e293b/475569?text=Deep+Analysis+Mode";
+                  }}
+                />
+              </div>
+            </motion.div>
+             {/* 浮遊するサブ画像 */}
+            <motion.div 
+              animate={{ y: [0, -20, 0] }}
+              transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
+              className="absolute -bottom-10 -left-10 w-2/3 z-20 rounded-lg overflow-hidden border border-white/20 shadow-xl bg-black"
+            >
+               <img 
+                  src={SCREENSHOTS[7]} 
+                  alt="Sub Feature" 
+                  className="w-full h-auto opacity-90"
+                  onError={(e) => {
+                     e.target.src = "https://via.placeholder.com/600x400/0f172a/334155?text=Stats+Overlay";
+                  }}
+                />
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
+      {/* --- Gallery Carousel Style --- */}
+      <section id="database" className="py-32 bg-gradient-to-b from-[#050505] to-[#0a0a0f]">
+        <div className="max-w-full overflow-hidden">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl font-bold tracking-[0.5em] text-white/80">VISUAL DATABASE</h2>
+            <div className="w-1 h-10 bg-gradient-to-b from-blue-500 to-transparent mx-auto mt-4" />
+          </div>
+          
+          <div className="flex gap-8 px-6 overflow-x-auto pb-12 snap-x scrollbar-hide">
+            {/* 残りのスクリーンショットを表示 */}
+            {SCREENSHOTS.slice(6).concat(SCREENSHOTS.slice(0,3)).map((src, i) => (
+              <motion.div 
+                key={i}
+                className="flex-shrink-0 w-[400px] snap-center"
+                whileHover={{ scale: 1.02 }}
+                transition={{ duration: 0.3 }}
+              >
+                <div className="relative aspect-video bg-slate-900 border border-white/10 rounded-sm overflow-hidden group">
+                   <img 
+                    src={src} 
+                    alt={`Gallery ${i}`}
+                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                    onError={(e) => {
+                       e.target.style.display = 'none';
+                       e.target.nextSibling.style.display = 'flex';
+                    }}
+                  />
+                  <div className="hidden absolute inset-0 flex items-center justify-center bg-slate-800 text-slate-500">
+                    <span className="text-xs font-mono">IMAGE DATA {i + 1}</span>
+                  </div>
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                    <div className="w-12 h-12 rounded-full border border-white/30 flex items-center justify-center backdrop-blur-md">
+                      <BarChart3 className="w-5 h-5 text-white" />
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 flex justify-between items-center text-xs font-mono text-slate-500">
+                  <span>IMG_SEQ_{i + 1024}</span>
+                  <span>1920x1080</span>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* --- Footer --- */}
+      <footer className="relative border-t border-white/10 bg-[#020203] py-20 px-6 overflow-hidden">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-start">
+          <div className="mb-10 md:mb-0">
+             <div className="flex items-center space-x-2 mb-6">
+              <Hexagon className="text-white w-8 h-8" strokeWidth={1} />
+              <span className="text-2xl font-bold tracking-widest text-white">PENNANT<span className="font-light text-slate-500">SIM</span></span>
+            </div>
+            <p className="text-slate-500 text-sm max-w-xs">
+              Advanced simulation engine built for the true baseball strategist. 
+              <br/>Designed in Osaka, Japan.
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-12 text-sm text-slate-400">
+            <div>
+              <h4 className="text-white font-bold mb-4 tracking-widest">PRODUCT</h4>
+              <ul className="space-y-2">
+                <li className="hover:text-blue-400 cursor-pointer">Features</li>
+                <li className="hover:text-blue-400 cursor-pointer">Changelog</li>
+                <li className="hover:text-blue-400 cursor-pointer">Roadmap</li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="text-white font-bold mb-4 tracking-widest">COMMUNITY</h4>
+              <ul className="space-y-2">
+                <li className="hover:text-blue-400 cursor-pointer">Discord</li>
+                <li className="hover:text-blue-400 cursor-pointer">Twitter (X)</li>
+                <li className="hover:text-blue-400 cursor-pointer">Forum</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        
+        <div className="max-w-7xl mx-auto mt-20 pt-8 border-t border-white/5 flex flex-col md:flex-row justify-between items-center text-xs text-slate-600 font-mono">
+          <p>© 2025 PENNANT SIMULATOR. ALL SYSTEMS NOMINAL.</p>
+          <div className="flex space-x-6 mt-4 md:mt-0">
+            <span>PRIVACY PROTOCOL</span>
+            <span>TERMS OF ENGAGEMENT</span>
+          </div>
+        </div>
+
+        {/* Footer Ambient Light */}
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[500px] h-[300px] bg-blue-900/10 rounded-full blur-[100px] pointer-events-none" />
+      </footer>
+    </div>
+  );
+}
