@@ -9,45 +9,38 @@
     <title>PennantSimulator</title>
     <link rel="icon" href="PennantSimulator.ico" type="image/x-icon">
 
-    <!-- SEO Meta Tags -->
-    <meta name="description" content="PennantSimulator - 無数の要素が織りなす、唯一無二のプロ野球史">
+    <meta name="description" content="超本格野球ペナントシミュレーションゲーム">
     <meta name="application-name" content="PennantSimulator">
     <meta name="author" content="PennantSimulator Project">
 
-    <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="PennantSimulator">
-    <meta property="og:title" content="PennantSimulator - Next Gen Baseball Strategy">
-    <meta property="og:description" content="無数の要素が織りなす、唯一無二のプロ野球史">
+    <meta property="og:title" content="PennantSimulator">
+    <meta property="og:description" content="超本格野球ペナントシミュレーションゲーム">
 
-    <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:site" content="@PennantSIM">
     <meta name="twitter:title" content="PennantSimulator">
-    <meta name="twitter:description" content="無数の要素が織りなす、唯一無二のプロ野球史">
+    <meta name="twitter:description" content="超本格野球ペナントシミュレーションゲーム">
 
-    <!-- Structured Data (JSON-LD) for Site Name -->
     <script type="application/ld+json">
     {
         "@context": "https://schema.org",
         "@type": "WebSite",
         "name": "PennantSimulator",
         "alternateName": ["Pennant Simulator", "ペナントシミュレーター"],
-        "description": "無数の要素が織りなす、唯一無二のプロ野球史"
+        "description": "超本格野球ペナントシミュレーションゲーム"
     }
     </script>
 
-    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=JetBrains+Mono:wght@400;700&family=Orbitron:wght@400;700;900&family=Zen+Kaku+Gothic+New:wght@300;400;700&display=swap"
         rel="stylesheet">
 
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
 
-    <!-- Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/studio-freight/lenis@1.0.29/bundled/lenis.min.js"></script>
@@ -216,11 +209,9 @@
 <body class="antialiased opacity-0 transition-opacity duration-1000"
     onload="document.body.classList.remove('opacity-0')">
 
-    <!-- System UI -->
     <div class="grain"></div>
     <div class="bg-gradient-mesh"></div>
 
-    <!-- Navigation -->
     <nav
         class="fixed top-0 w-full z-50 p-8 flex justify-between items-center backdrop-blur-sm bg-void/50 border-b border-white/5">
         <div class="font-display text-2xl font-bold tracking-widest text-white">
@@ -245,9 +236,7 @@
     </nav>
 
     <main>
-        <!-- Hero Section -->
         <section class="h-screen flex flex-col justify-center items-center relative px-6 text-center overflow-hidden">
-            <!-- Dynamic Background Element -->
             <div class="absolute inset-0 z-0 flex items-center justify-center opacity-20 pointer-events-none">
                 <div class="w-[800px] h-[800px] border border-accent-cyan/10 rounded-full animate-spin-slow"></div>
                 <div
@@ -263,7 +252,6 @@
                         PENNANT
                     </h1>
                 </div>
-                <!-- Sub line without glitch but stylish -->
                 <h1 class="font-display text-7xl md:text-[9rem] font-bold tracking-tighter leading-none text-transparent stroke-white"
                     style="-webkit-text-stroke: 1px rgba(255,255,255,0.3);">
                     SIMULATOR
@@ -285,7 +273,6 @@
             </div>
         </section>
 
-        <!-- Modules Section -->
         <section id="modules" class="py-40 px-6 max-w-[1400px] mx-auto">
             <div class="mb-24 border-b border-white/10 pb-6 flex justify-between items-end">
                 <div>
@@ -296,10 +283,8 @@
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-32">
-                <!-- 1. Player Detail -->
                 <div class="group">
                     <div class="overflow-hidden mb-8 relative border-l border-t border-white/10 rounded-tr-3xl">
-                        <!-- Removed grayscale, added vibrant hover -->
                         <div class="relative overflow-hidden aspect-video">
                             <img src="スクリーンショット 2025-12-30 054537.png" alt="Player Detail"
                                 class="w-full h-full object-cover transition-all duration-700 ease-out transform group-hover:scale-105"
@@ -308,7 +293,6 @@
                                 class="absolute inset-0 bg-accent-blue/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500 mix-blend-overlay">
                             </div>
                         </div>
-                        <!-- Decorative corner -->
                         <div class="absolute top-0 right-0 w-4 h-4 border-t border-r border-accent-cyan"></div>
                     </div>
                     <div class="flex justify-between items-start pt-4">
@@ -326,7 +310,6 @@
                     </div>
                 </div>
 
-                <!-- 2. Statistics -->
                 <div class="group md:mt-24">
                     <div class="overflow-hidden mb-8 relative border-l border-t border-white/10 rounded-tr-3xl">
                         <div class="relative overflow-hidden aspect-video">
@@ -354,7 +337,6 @@
                     </div>
                 </div>
 
-                <!-- 3. Finance -->
                 <div class="group">
                     <div class="overflow-hidden mb-8 relative border-l border-t border-white/10 rounded-tr-3xl">
                         <div class="relative overflow-hidden aspect-video">
@@ -382,7 +364,6 @@
                     </div>
                 </div>
 
-                <!-- 4. Edit -->
                 <div class="group md:mt-24">
                     <div class="overflow-hidden mb-8 relative border-l border-t border-white/10 rounded-tr-3xl">
                         <div class="relative overflow-hidden aspect-video">
@@ -412,7 +393,6 @@
             </div>
         </section>
 
-        <!-- Auto-Scroll Gallery Section -->
         <section id="gallery" class="py-40 bg-space-900 border-t border-white/5 relative">
             <div class="max-w-[1400px] mx-auto px-6">
                 <div class="mb-12 flex items-center justify-center gap-4">
@@ -423,26 +403,20 @@
 
                 <div
                     class="relative w-full aspect-[16/9] md:aspect-[2.35/1] overflow-hidden group shadow-[0_0_50px_rgba(0,0,0,0.5)] border border-white/10 rounded-sm">
-                    <!-- Image Container -->
                     <div id="slider-container" class="w-full h-full relative">
-                        <!-- Images injected by JS -->
-                    </div>
+                        </div>
 
-                    <!-- Decoration -->
                     <div
                         class="absolute bottom-6 right-6 font-mono text-[10px] text-white/50 bg-black/50 px-2 py-1 backdrop-blur-sm z-20">
                         REC_LIVE_FEED // 60FPS
                     </div>
                 </div>
 
-                <!-- Stylish Dots -->
                 <div class="mt-12 w-full flex justify-center items-center gap-4" id="dots-container">
-                    <!-- Dots injected by JS -->
-                </div>
+                    </div>
             </div>
         </section>
 
-        <!-- Minimal Footer -->
         <footer class="border-t border-white/10 bg-[#020202] pt-24 pb-12 px-6 font-mono text-xs text-slate-500">
             <div class="max-w-4xl mx-auto text-center space-y-12">
                 <div class="space-y-4">
